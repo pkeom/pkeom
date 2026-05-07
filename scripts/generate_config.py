@@ -26,8 +26,8 @@ def main():
         },
         "domaekkuk": {
             "api_key":  require("DOMEGGOOK_API_KEY"),
-            "user_id":  optional("DOMAEKKUK_USER_ID"),
-            "password": optional("DOMAEKKUK_PASSWORD"),
+            "user_id":  optional("DOMEGGOOK_USER_ID"),
+            "password": optional("DOMEGGOOK_PASSWORD"),
         },
         "domaemae": {
             "user_id":  require("DOMAEMAE_USER_ID"),
