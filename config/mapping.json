@@ -1,0 +1,14 @@
+{
+  "_comment": "스마트스토어 상품ID → 도매처 상품 매핑 테이블",
+  "mappings": [
+    {
+      "smartstore_product_id": "SS_PRODUCT_001",
+      "smartstore_option_id": "",
+      "supplier": "domaekkuk",
+      "supplier_product_id": "DK_PRODUCT_001",
+      "supplier_option_id": "",
+      "price_margin_rate": 1.3,
+      "memo": "예시 상품"
+    }
+  ]
+}

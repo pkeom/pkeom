@@ -1,0 +1,316 @@
+# 위탁판매 자동화 워크플로우
+#
+# 스케줄 (UTC 기준 / 한국시간 = UTC+9):
+#   */10  * * * *  →  10분마다  주문 수집·발주
+#   */15  * * * *  →  15분마다  송장 동기화
+#   0     * * * *  →  60분마다  재고 동기화
+#   0  */2 * * *   → 120분마다  가격 모니터링
+#
+# 필요한 GitHub Secrets (Settings → Secrets → Actions):
+#   SS_CLIENT_ID, SS_CLIENT_SECRET
+#   DOMAEKKUK_API_KEY, DOMAEKKUK_USER_ID, DOMAEKKUK_PASSWORD
+#   DOMAEMAE_USER_ID, DOMAEMAE_PASSWORD
+#   EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_SENDER,
+#   EMAIL_PASSWORD, EMAIL_RECIPIENTS  (쉼표로 구분)
+#
+# 데이터 지속성:
+#   data/*.json 파일을 리포지토리에 커밋하여 실행 간 상태 유지
+#   config/settings.yaml 은 .gitignore 처리 (Secrets에서 런타임 생성)
+
+name: 위탁판매 자동화
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # 주문 수집·발주   (10분)
+    - cron: '*/15 * * * *'   # 송장 동기화       (15분)
+    - cron: '0 * * * *'      # 재고 동기화       (60분)
+    - cron: '0 */2 * * *'    # 가격 모니터링    (120분)
+  workflow_dispatch:
+    inputs:
+      task:
+        description: '수동 실행할 작업'
+        required: true
+        default: 'order'
+        type: choice
+        options: [order, invoice, inventory, price]
+
+permissions:
+  contents: write   # data/ 커밋·푸시 권한
+
+env:
+  PYTHON_VERSION: '3.11'
+  TZ: Asia/Seoul
+
+# ──────────────────────────────────────────────────────────────
+# JOB 1: 주문 수집 · 자동 발주  (10분마다)
+# ──────────────────────────────────────────────────────────────
+jobs:
+  order:
+    name: '📦 주문 수집·발주'
+    if: >-
+      github.event.schedule == '*/10 * * * *' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.task == 'order')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    concurrency:
+      group: order-job
+      cancel-in-progress: false   # 이전 실행 완료 후 다음 실행
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Python ${{ env.PYTHON_VERSION }} 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: 설정 파일 생성 (Secrets → settings.yaml)
+        run: python scripts/generate_config.py
+        env:
+          SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
+          SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
+          DOMAEKKUK_API_KEY:  ${{ secrets.DOMAEKKUK_API_KEY }}
+          DOMAEKKUK_USER_ID:  ${{ secrets.DOMAEKKUK_USER_ID }}
+          DOMAEKKUK_PASSWORD: ${{ secrets.DOMAEKKUK_PASSWORD }}
+          DOMAEMAE_USER_ID:   ${{ secrets.DOMAEMAE_USER_ID }}
+          DOMAEMAE_PASSWORD:  ${{ secrets.DOMAEMAE_PASSWORD }}
+          EMAIL_SMTP_HOST:    ${{ secrets.EMAIL_SMTP_HOST }}
+          EMAIL_SMTP_PORT:    ${{ secrets.EMAIL_SMTP_PORT }}
+          EMAIL_SENDER:       ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD:     ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENTS:   ${{ secrets.EMAIL_RECIPIENTS }}
+
+      - name: 데이터 디렉토리 초기화
+        run: python scripts/init_data.py
+
+      - name: 주문 수집
+        run: python scripts/run_task.py collect
+        env:
+          PYTHONPATH: .
+
+      - name: 자동 발주
+        run: python scripts/run_task.py place
+        env:
+          PYTHONPATH: .
+
+      - name: 데이터 변경사항 커밋·푸시
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 스킵"
+          else
+            git commit -m "chore: 주문 데이터 자동 업데이트 [skip ci]"
+            git pull --rebase origin ${{ github.ref_name }}
+            git push origin ${{ github.ref_name }}
+          fi
+
+# ──────────────────────────────────────────────────────────────
+# JOB 2: 송장 동기화  (15분마다)
+# ──────────────────────────────────────────────────────────────
+  invoice:
+    name: '🚚 송장 동기화'
+    if: >-
+      github.event.schedule == '*/15 * * * *' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.task == 'invoice')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: invoice-job
+      cancel-in-progress: false
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Python ${{ env.PYTHON_VERSION }} 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: 설정 파일 생성
+        run: python scripts/generate_config.py
+        env:
+          SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
+          SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
+          DOMAEKKUK_API_KEY:  ${{ secrets.DOMAEKKUK_API_KEY }}
+          DOMAEKKUK_USER_ID:  ${{ secrets.DOMAEKKUK_USER_ID }}
+          DOMAEKKUK_PASSWORD: ${{ secrets.DOMAEKKUK_PASSWORD }}
+          DOMAEMAE_USER_ID:   ${{ secrets.DOMAEMAE_USER_ID }}
+          DOMAEMAE_PASSWORD:  ${{ secrets.DOMAEMAE_PASSWORD }}
+          EMAIL_SMTP_HOST:    ${{ secrets.EMAIL_SMTP_HOST }}
+          EMAIL_SMTP_PORT:    ${{ secrets.EMAIL_SMTP_PORT }}
+          EMAIL_SENDER:       ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD:     ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENTS:   ${{ secrets.EMAIL_RECIPIENTS }}
+
+      - name: 데이터 디렉토리 초기화
+        run: python scripts/init_data.py
+
+      - name: 송장 동기화
+        run: python scripts/run_task.py invoice
+        env:
+          PYTHONPATH: .
+
+      - name: 데이터 변경사항 커밋·푸시
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 스킵"
+          else
+            git commit -m "chore: 송장 데이터 자동 업데이트 [skip ci]"
+            git pull --rebase origin ${{ github.ref_name }}
+            git push origin ${{ github.ref_name }}
+          fi
+
+# ──────────────────────────────────────────────────────────────
+# JOB 3: 재고 동기화  (60분마다)
+# ──────────────────────────────────────────────────────────────
+  inventory:
+    name: '📊 재고 동기화'
+    if: >-
+      github.event.schedule == '0 * * * *' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.task == 'inventory')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: inventory-job
+      cancel-in-progress: false
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Python ${{ env.PYTHON_VERSION }} 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: 설정 파일 생성
+        run: python scripts/generate_config.py
+        env:
+          SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
+          SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
+          DOMAEKKUK_API_KEY:  ${{ secrets.DOMAEKKUK_API_KEY }}
+          DOMAEKKUK_USER_ID:  ${{ secrets.DOMAEKKUK_USER_ID }}
+          DOMAEKKUK_PASSWORD: ${{ secrets.DOMAEKKUK_PASSWORD }}
+          DOMAEMAE_USER_ID:   ${{ secrets.DOMAEMAE_USER_ID }}
+          DOMAEMAE_PASSWORD:  ${{ secrets.DOMAEMAE_PASSWORD }}
+          EMAIL_SMTP_HOST:    ${{ secrets.EMAIL_SMTP_HOST }}
+          EMAIL_SMTP_PORT:    ${{ secrets.EMAIL_SMTP_PORT }}
+          EMAIL_SENDER:       ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD:     ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENTS:   ${{ secrets.EMAIL_RECIPIENTS }}
+
+      - name: 데이터 디렉토리 초기화
+        run: python scripts/init_data.py
+
+      - name: 재고 동기화
+        run: python scripts/run_task.py inventory
+        env:
+          PYTHONPATH: .
+
+      - name: 데이터 변경사항 커밋·푸시
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 스킵"
+          else
+            git commit -m "chore: 재고 캐시 자동 업데이트 [skip ci]"
+            git pull --rebase origin ${{ github.ref_name }}
+            git push origin ${{ github.ref_name }}
+          fi
+
+# ──────────────────────────────────────────────────────────────
+# JOB 4: 가격 모니터링  (120분마다)
+# ──────────────────────────────────────────────────────────────
+  price:
+    name: '💰 가격 모니터링'
+    if: >-
+      github.event.schedule == '0 */2 * * *' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.task == 'price')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: price-job
+      cancel-in-progress: false
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Python ${{ env.PYTHON_VERSION }} 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: 설정 파일 생성
+        run: python scripts/generate_config.py
+        env:
+          SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
+          SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
+          DOMAEKKUK_API_KEY:  ${{ secrets.DOMAEKKUK_API_KEY }}
+          DOMAEKKUK_USER_ID:  ${{ secrets.DOMAEKKUK_USER_ID }}
+          DOMAEKKUK_PASSWORD: ${{ secrets.DOMAEKKUK_PASSWORD }}
+          DOMAEMAE_USER_ID:   ${{ secrets.DOMAEMAE_USER_ID }}
+          DOMAEMAE_PASSWORD:  ${{ secrets.DOMAEMAE_PASSWORD }}
+          EMAIL_SMTP_HOST:    ${{ secrets.EMAIL_SMTP_HOST }}
+          EMAIL_SMTP_PORT:    ${{ secrets.EMAIL_SMTP_PORT }}
+          EMAIL_SENDER:       ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD:     ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENTS:   ${{ secrets.EMAIL_RECIPIENTS }}
+
+      - name: 데이터 디렉토리 초기화
+        run: python scripts/init_data.py
+
+      - name: 가격 모니터링
+        run: python scripts/run_task.py price
+        env:
+          PYTHONPATH: .
+
+      - name: 데이터 변경사항 커밋·푸시
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 스킵"
+          else
+            git commit -m "chore: 가격 알림 자동 업데이트 [skip ci]"
+            git pull --rebase origin ${{ github.ref_name }}
+            git push origin ${{ github.ref_name }}
+          fi

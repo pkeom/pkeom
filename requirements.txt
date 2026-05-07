@@ -1,0 +1,9 @@
+requests>=2.31.0
+pyyaml>=6.0
+sqlalchemy>=2.0
+apscheduler>=3.10
+beautifulsoup4>=4.12
+lxml>=4.9
+bcrypt>=4.0
+# pyinstaller는 로컬 exe 빌드 전용 — GitHub Actions에서는 불필요
+# pyinstaller>=6.0

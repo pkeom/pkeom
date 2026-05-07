@@ -1,0 +1,39 @@
+# settings.yaml.example — 로컬 개발용 템플릿
+# 이 파일을 복사해서 config/settings.yaml 로 만들고 실제 값을 입력하세요.
+# config/settings.yaml 은 .gitignore 처리됩니다 (커밋하지 마세요).
+
+smartstore:
+  client_id: "여기에_클라이언트_ID"
+  client_secret: "$2a$04$여기에_bcrypt_솔트_29자"
+
+domaekkuk:
+  api_key: "여기에_도매꾹_API_키"
+  user_id: "여기에_도매꾹_아이디"       # 발주 API 전용
+  password: "여기에_도매꾹_비밀번호"    # 발주 API 전용
+
+domaemae:
+  user_id: "여기에_도매매_아이디"
+  password: "여기에_도매매_비밀번호"
+
+email:
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  sender: "발신자@gmail.com"
+  password: "여기에_앱_비밀번호"        # Gmail 앱 비밀번호 (2단계 인증 필요)
+  recipients:
+    - "수신자@gmail.com"
+
+schedule:
+  order_collect_interval: 10        # 주문 수집 주기 (분)
+  invoice_sync_interval: 15         # 송장 동기화 주기 (분)
+  inventory_sync_interval: 60       # 재고 동기화 주기 (분)
+  price_monitor_interval: 120       # 가격 모니터링 주기 (분)
+
+database:
+  path: "data/orders.db"
+
+logging:
+  level: "INFO"
+  log_dir: "data/logs"
+  max_bytes: 10485760               # 10MB
+  backup_count: 5
