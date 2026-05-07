@@ -8,7 +8,7 @@
 #
 # 필요한 GitHub Secrets (Settings → Secrets → Actions):
 #   SS_CLIENT_ID, SS_CLIENT_SECRET
-#   DOMAEKKUK_API_KEY, DOMAEKKUK_USER_ID, DOMAEKKUK_PASSWORD
+#   DOMEGGOOK_API_KEY, DOMEGGOOK_USER_ID, DOMEGGOOK_PASSWORD
 #   DOMAEMAE_USER_ID, DOMAEMAE_PASSWORD
 #   EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_SENDER,
 #   EMAIL_PASSWORD, EMAIL_RECIPIENTS  (쉼표로 구분)
@@ -77,9 +77,9 @@ jobs:
         env:
           SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
           SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
-          DOMAEKKUK_API_KEY:  ${{ secrets.DOMAEKKUK_API_KEY }}
-          DOMAEKKUK_USER_ID:  ${{ secrets.DOMAEKKUK_USER_ID }}
-          DOMAEKKUK_PASSWORD: ${{ secrets.DOMAEKKUK_PASSWORD }}
+          DOMEGGOOK_API_KEY:  ${{ secrets.DOMEGGOOK_API_KEY }}
+          DOMEGGOOK_USER_ID:  ${{ secrets.DOMEGGOOK_USER_ID }}
+          DOMEGGOOK_PASSWORD: ${{ secrets.DOMEGGOOK_PASSWORD }}
           DOMAEMAE_USER_ID:   ${{ secrets.DOMAEMAE_USER_ID }}
           DOMAEMAE_PASSWORD:  ${{ secrets.DOMAEMAE_PASSWORD }}
           EMAIL_SMTP_HOST:    ${{ secrets.EMAIL_SMTP_HOST }}
@@ -149,9 +149,9 @@ jobs:
         env:
           SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
           SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
-          DOMAEKKUK_API_KEY:  ${{ secrets.DOMAEKKUK_API_KEY }}
-          DOMAEKKUK_USER_ID:  ${{ secrets.DOMAEKKUK_USER_ID }}
-          DOMAEKKUK_PASSWORD: ${{ secrets.DOMAEKKUK_PASSWORD }}
+          DOMEGGOOK_API_KEY:  ${{ secrets.DOMEGGOOK_API_KEY }}
+          DOMEGGOOK_USER_ID:  ${{ secrets.DOMEGGOOK_USER_ID }}
+          DOMEGGOOK_PASSWORD: ${{ secrets.DOMEGGOOK_PASSWORD }}
           DOMAEMAE_USER_ID:   ${{ secrets.DOMAEMAE_USER_ID }}
           DOMAEMAE_PASSWORD:  ${{ secrets.DOMAEMAE_PASSWORD }}
           EMAIL_SMTP_HOST:    ${{ secrets.EMAIL_SMTP_HOST }}
@@ -216,9 +216,9 @@ jobs:
         env:
           SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
           SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
-          DOMAEKKUK_API_KEY:  ${{ secrets.DOMAEKKUK_API_KEY }}
-          DOMAEKKUK_USER_ID:  ${{ secrets.DOMAEKKUK_USER_ID }}
-          DOMAEKKUK_PASSWORD: ${{ secrets.DOMAEKKUK_PASSWORD }}
+          DOMEGGOOK_API_KEY:  ${{ secrets.DOMEGGOOK_API_KEY }}
+          DOMEGGOOK_USER_ID:  ${{ secrets.DOMEGGOOK_USER_ID }}
+          DOMEGGOOK_PASSWORD: ${{ secrets.DOMEGGOOK_PASSWORD }}
           DOMAEMAE_USER_ID:   ${{ secrets.DOMAEMAE_USER_ID }}
           DOMAEMAE_PASSWORD:  ${{ secrets.DOMAEMAE_PASSWORD }}
           EMAIL_SMTP_HOST:    ${{ secrets.EMAIL_SMTP_HOST }}
@@ -283,9 +283,9 @@ jobs:
         env:
           SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
           SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
-          DOMAEKKUK_API_KEY:  ${{ secrets.DOMAEKKUK_API_KEY }}
-          DOMAEKKUK_USER_ID:  ${{ secrets.DOMAEKKUK_USER_ID }}
-          DOMAEKKUK_PASSWORD: ${{ secrets.DOMAEKKUK_PASSWORD }}
+          DOMEGGOOK_API_KEY:  ${{ secrets.DOMEGGOOK_API_KEY }}
+          DOMEGGOOK_USER_ID:  ${{ secrets.DOMEGGOOK_USER_ID }}
+          DOMEGGOOK_PASSWORD: ${{ secrets.DOMEGGOOK_PASSWORD }}
           DOMAEMAE_USER_ID:   ${{ secrets.DOMAEMAE_USER_ID }}
           DOMAEMAE_PASSWORD:  ${{ secrets.DOMAEMAE_PASSWORD }}
           EMAIL_SMTP_HOST:    ${{ secrets.EMAIL_SMTP_HOST }}
