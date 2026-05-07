@@ -33,9 +33,11 @@ TASKS = {
 
 
 def _build_clients(cfg: dict):
+    ss_cfg = cfg["smartstore"]
     ss_api = SmartstoreAPI(
-        client_id=cfg["smartstore"]["client_id"],
-        client_secret=cfg["smartstore"]["client_secret"],
+        client_id=ss_cfg["client_id"],
+        client_secret=ss_cfg["client_secret"],
+        account_type=ss_cfg.get("account_type", "SELF"),
     )
     dk_api = DomaekkukAPI(
         api_key=cfg["domaekkuk"]["api_key"],

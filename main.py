@@ -28,7 +28,7 @@ def main():
     init_db(cfg["database"]["path"])
 
     ss_cfg = {k: v for k, v in cfg["smartstore"].items()
-              if k in ("client_id", "client_secret")}
+              if k in ("client_id", "client_secret", "account_type")}
     ss_api   = SmartstoreAPI(**ss_cfg)
     dk_api   = DomaekkukAPI(**cfg["domaekkuk"])
     dm_cli   = DomaemaeClient(**cfg["domaemae"])

@@ -8,6 +8,7 @@
 #
 # 필요한 GitHub Secrets (Settings → Secrets → Actions):
 #   SS_CLIENT_ID, SS_CLIENT_SECRET
+#   SS_ACCOUNT_TYPE  (선택, 기본값 SELF — 솔루션 제공사는 SOLUTION)
 #   DOMEGGOOK_API_KEY, DOMEGGOOK_USER_ID, DOMEGGOOK_PASSWORD
 #   DOMAEMAE_USER_ID, DOMAEMAE_PASSWORD
 #   EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_SENDER,
@@ -77,6 +78,7 @@ jobs:
         env:
           SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
           SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
+          SS_ACCOUNT_TYPE:    ${{ secrets.SS_ACCOUNT_TYPE }}
           DOMEGGOOK_API_KEY:  ${{ secrets.DOMEGGOOK_API_KEY }}
           DOMEGGOOK_USER_ID:  ${{ secrets.DOMEGGOOK_USER_ID }}
           DOMEGGOOK_PASSWORD: ${{ secrets.DOMEGGOOK_PASSWORD }}
@@ -149,6 +151,7 @@ jobs:
         env:
           SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
           SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
+          SS_ACCOUNT_TYPE:    ${{ secrets.SS_ACCOUNT_TYPE }}
           DOMEGGOOK_API_KEY:  ${{ secrets.DOMEGGOOK_API_KEY }}
           DOMEGGOOK_USER_ID:  ${{ secrets.DOMEGGOOK_USER_ID }}
           DOMEGGOOK_PASSWORD: ${{ secrets.DOMEGGOOK_PASSWORD }}
@@ -216,6 +219,7 @@ jobs:
         env:
           SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
           SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
+          SS_ACCOUNT_TYPE:    ${{ secrets.SS_ACCOUNT_TYPE }}
           DOMEGGOOK_API_KEY:  ${{ secrets.DOMEGGOOK_API_KEY }}
           DOMEGGOOK_USER_ID:  ${{ secrets.DOMEGGOOK_USER_ID }}
           DOMEGGOOK_PASSWORD: ${{ secrets.DOMEGGOOK_PASSWORD }}
@@ -283,6 +287,7 @@ jobs:
         env:
           SS_CLIENT_ID:       ${{ secrets.SS_CLIENT_ID }}
           SS_CLIENT_SECRET:   ${{ secrets.SS_CLIENT_SECRET }}
+          SS_ACCOUNT_TYPE:    ${{ secrets.SS_ACCOUNT_TYPE }}
           DOMEGGOOK_API_KEY:  ${{ secrets.DOMEGGOOK_API_KEY }}
           DOMEGGOOK_USER_ID:  ${{ secrets.DOMEGGOOK_USER_ID }}
           DOMEGGOOK_PASSWORD: ${{ secrets.DOMEGGOOK_PASSWORD }}

@@ -1,16 +1,22 @@
 """네이버 스마트스토어 커머스 API 클라이언트"""
 import base64
+import logging
 import time
 import bcrypt
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class SmartstoreAPI:
     BASE_URL = "https://api.commerce.naver.com/external"
 
-    def __init__(self, client_id: str, client_secret: str):
-        self.client_id = client_id
-        self.client_secret = client_secret
+    def __init__(self, client_id: str, client_secret: str, account_type: str = "SELF"):
+        # GitHub Secrets 붙여넣기 시 줄바꿈·공백이 섞일 수 있으므로 방어적으로 정리
+        self.client_id     = client_id.strip()
+        self.client_secret = client_secret.strip()
+        # account_type: "SELF"(자체 개발) 또는 "SOLUTION"(솔루션 제공사)
+        self.account_type  = account_type.strip()
         self._token = None
         self._token_expires_at = 0
 
@@ -19,7 +25,7 @@ class SmartstoreAPI:
             return self._token
 
         timestamp = str(int(time.time() * 1000))
-        password = f"{self.client_id}_{timestamp}"
+        password  = f"{self.client_id}_{timestamp}"
 
         # Naver가 발급하는 client_secret은 $2y$ (PHP bcrypt) 형식.
         # Python bcrypt는 $2b$만 허용하므로 prefix를 교체한다.
@@ -27,20 +33,36 @@ class SmartstoreAPI:
         if salt.startswith(b"$2y$"):
             salt = b"$2b$" + salt[4:]
 
-        hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+        hashed    = bcrypt.hashpw(password.encode("utf-8"), salt)
         signature = base64.b64encode(hashed).decode("utf-8")
 
         resp = requests.post(
             f"{self.BASE_URL}/v1/oauth2/token",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
             data={
-                "client_id": self.client_id,
-                "timestamp": timestamp,
+                "client_id":          self.client_id,
+                "timestamp":          timestamp,
                 "client_secret_sign": signature,
-                "grant_type": "client_credentials",
-                "type": "SELF",
+                "grant_type":         "client_credentials",
+                "type":               self.account_type,
             },
         )
-        resp.raise_for_status()
+
+        if not resp.ok:
+            # Naver 에러 응답 본문을 그대로 로그에 남겨 원인 파악 가능하게 한다
+            try:
+                body = resp.json()
+            except Exception:
+                body = resp.text
+            logger.error(
+                "스마트스토어 토큰 발급 실패 [%s] — Naver 응답: %s",
+                resp.status_code, body,
+            )
+            raise requests.HTTPError(
+                f"토큰 발급 실패 {resp.status_code}: {body}",
+                response=resp,
+            )
+
         data = resp.json()
         self._token = data["access_token"]
         self._token_expires_at = time.time() + data["expires_in"]

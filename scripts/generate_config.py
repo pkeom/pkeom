@@ -23,6 +23,7 @@ def main():
         "smartstore": {
             "client_id":     require("SS_CLIENT_ID"),
             "client_secret": require("SS_CLIENT_SECRET"),
+            "account_type":  optional("SS_ACCOUNT_TYPE", "SELF"),
         },
         "domaekkuk": {
             "api_key":  require("DOMEGGOOK_API_KEY"),
