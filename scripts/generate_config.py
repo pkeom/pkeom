@@ -25,7 +25,7 @@ def main():
             "client_secret": require("SS_CLIENT_SECRET"),
         },
         "domaekkuk": {
-            "api_key":  require("DOMAEKKUK_API_KEY"),
+            "api_key":  require("DOMEGGOOK_API_KEY"),
             "user_id":  optional("DOMAEKKUK_USER_ID"),
             "password": optional("DOMAEKKUK_PASSWORD"),
         },
