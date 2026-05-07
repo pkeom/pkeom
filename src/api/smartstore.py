@@ -20,7 +20,14 @@ class SmartstoreAPI:
 
         timestamp = str(int(time.time() * 1000))
         password = f"{self.client_id}_{timestamp}"
-        hashed = bcrypt.hashpw(password.encode("utf-8"), self.client_secret.encode("utf-8"))
+
+        # Naver가 발급하는 client_secret은 $2y$ (PHP bcrypt) 형식.
+        # Python bcrypt는 $2b$만 허용하므로 prefix를 교체한다.
+        salt = self.client_secret.encode("utf-8")
+        if salt.startswith(b"$2y$"):
+            salt = b"$2b$" + salt[4:]
+
+        hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
         signature = base64.b64encode(hashed).decode("utf-8")
 
         resp = requests.post(
