@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 
 
 class DomaemaeClient:
-    AUTH_URL = "https://www.domeggook.com"
+    AUTH_URL = "https://domeggook.com"
     API_URL = "https://domeme.domeggook.com"
 
     def __init__(self, user_id: str, password: str):
@@ -17,8 +17,15 @@ class DomaemaeClient:
 
     def login(self):
         resp = self.session.post(
-            f"{self.AUTH_URL}/ssl/member/mem_loginOk.php",
-            data={"user_id": self.user_id, "user_pw": self.password},
+            f"{self.AUTH_URL}/main/member/mem_ing.php",
+            data={
+                "mode": "mongoLogin",
+                "encording": "utf8",
+                "back": "",
+                "extCookie": "",
+                "id": self.user_id,
+                "pass": self.password,
+            },
         )
         resp.raise_for_status()
         self._logged_in = True
