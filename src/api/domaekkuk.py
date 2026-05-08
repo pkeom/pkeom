@@ -1,13 +1,15 @@
-"""도매꾹/도매매 API 클라이언트 (공식 OpenAPI v4.1)
+"""도매꾹 API 클라이언트 (공식 OpenAPI v4.1)
 
-엔드포인트: https://domeggook.com/ssl/api/
+인증:       https://www.domeggook.com
+상품/발주/송장: https://domemedb.domeggook.com/ssl/api/
 응답 루트:  body["domeggook"]
 """
 import requests
 
 
 class DomaekkukAPI:
-    BASE_URL = "https://domeggook.com/ssl/api/"
+    AUTH_URL = "https://www.domeggook.com"
+    API_URL = "https://domemedb.domeggook.com/ssl/api/"
 
     def __init__(self, api_key: str, user_id: str = "", password: str = ""):
         self.api_key = api_key
@@ -34,7 +36,7 @@ class DomaekkukAPI:
     def get_product(self, product_no: str) -> dict:
         """상품 상세 정보 조회. 반환값: {title, price, stock, seller_id}"""
         resp = requests.get(
-            self.BASE_URL,
+            self.API_URL,
             params=self._params({"mode": "getItemView", "no": product_no}),
         )
         root   = self._root(resp)
@@ -57,7 +59,7 @@ class DomaekkukAPI:
                         page: int = 1, size: int = 20) -> dict:
         """상품 목록 검색. 반환값: {total, items: [{no, title, price, seller_id}]}"""
         resp = requests.get(
-            self.BASE_URL,
+            self.API_URL,
             params=self._params({
                 "mode":   "getItemList",
                 "market": market,
@@ -93,7 +95,7 @@ class DomaekkukAPI:
           실제 필드명은 발급받은 API 문서에서 확인 후 아래 data 딕셔너리를 조정하세요.
         """
         resp = requests.post(
-            self.BASE_URL,
+            self.API_URL,
             data={                          # form-encoded (not JSON)
                 "ver":      "4.1",
                 "mode":     "addOrder",
@@ -117,7 +119,7 @@ class DomaekkukAPI:
         ※ 실제 필드명은 API 승인 후 문서에서 확인 필요. 아래는 일반적 후보를 모두 시도.
         """
         resp = requests.get(
-            self.BASE_URL,
+            self.API_URL,
             params=self._params({"mode": "getOrderInfo", "order_no": order_no}),
         )
         root  = self._root(resp)
