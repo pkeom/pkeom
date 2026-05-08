@@ -1,10 +1,11 @@
-"""도매매 웹 스크래핑 클라이언트 (별도 공식 API 미제공 시 사용)"""
+"""도매매(도매꾹) 웹 스크래핑 클라이언트"""
 import requests
 from bs4 import BeautifulSoup
 
 
 class DomaemaeClient:
-    BASE_URL = "https://www.domaemae.co.kr"
+    AUTH_URL = "https://www.domeggook.com"
+    API_URL = "https://domemedb.domeggook.com"
 
     def __init__(self, user_id: str, password: str):
         self.user_id = user_id
@@ -15,7 +16,7 @@ class DomaemaeClient:
 
     def login(self):
         resp = self.session.post(
-            f"{self.BASE_URL}/member/login_ok.php",
+            f"{self.AUTH_URL}/ssl/member/mem_loginOk.php",
             data={"user_id": self.user_id, "user_pw": self.password},
         )
         resp.raise_for_status()
@@ -32,7 +33,7 @@ class DomaemaeClient:
     def get_product(self, product_id: str) -> dict:
         """상품 페이지에서 가격·재고 파싱"""
         self._ensure_login()
-        resp = self.session.get(f"{self.BASE_URL}/product/view.php?no={product_id}")
+        resp = self.session.get(f"{self.API_URL}/product/view.php?no={product_id}")
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -49,11 +50,11 @@ class DomaemaeClient:
         """장바구니 담기 후 주문 처리 — 주문번호 반환"""
         self._ensure_login()
         self.session.post(
-            f"{self.BASE_URL}/cart/add.php",
+            f"{self.API_URL}/cart/add.php",
             data={"product_id": product_id, "count": quantity},
         )
         resp = self.session.post(
-            f"{self.BASE_URL}/order/process.php",
+            f"{self.API_URL}/order/process.php",
             data={
                 "receiver_name": shipping_info["name"],
                 "receiver_phone": shipping_info["phone"],
@@ -70,7 +71,7 @@ class DomaemaeClient:
     def get_order_tracking(self, order_no: str) -> dict:
         """주문 상세에서 송장 정보 파싱"""
         self._ensure_login()
-        resp = self.session.get(f"{self.BASE_URL}/order/detail.php?no={order_no}")
+        resp = self.session.get(f"{self.API_URL}/order/detail.php?no={order_no}")
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
