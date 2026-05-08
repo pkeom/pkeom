@@ -1,4 +1,5 @@
 """도매매(도매꾹) 웹 스크래핑 클라이언트"""
+import re
 import requests
 from bs4 import BeautifulSoup
 
@@ -37,13 +38,26 @@ class DomaemaeClient:
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        price_tag = soup.select_one(".price strong")
-        stock_tag = soup.select_one(".stock_count")
+        # 가격: 로그인 후 #lNotDiscountAmtBox 안의 .lPrice에 표시
+        price_tag = soup.select_one("#lNotDiscountAmtBox .lPrice")
+        price = None
+        if price_tag:
+            m = re.search(r"[\d,]+", price_tag.get_text())
+            if m:
+                price = int(m.group().replace(",", ""))
+
+        # 재고: tr.lInfoQty > td.lInfoItemContent 텍스트에서 숫자 추출 ("549,945개" 형식)
+        stock_tag = soup.select_one("tr.lInfoQty td.lInfoItemContent")
+        stock = 0
+        if stock_tag:
+            m = re.search(r"[\d,]+", stock_tag.get_text())
+            if m:
+                stock = int(m.group().replace(",", ""))
 
         return {
             "product_id": product_id,
-            "price": int(price_tag.text.replace(",", "").strip()) if price_tag else None,
-            "stock": int(stock_tag.text.strip()) if stock_tag else 0,
+            "price": price,
+            "stock": stock,
         }
 
     def place_order(self, product_id: str, quantity: int, shipping_info: dict) -> str:
