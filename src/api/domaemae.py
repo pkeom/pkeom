@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 
 class DomaemaeClient:
     AUTH_URL = "https://www.domeggook.com"
-    API_URL = "https://domemedb.domeggook.com"
+    API_URL = "https://domeme.domeggook.com"
 
     def __init__(self, user_id: str, password: str):
         self.user_id = user_id
@@ -33,7 +33,7 @@ class DomaemaeClient:
     def get_product(self, product_id: str) -> dict:
         """상품 페이지에서 가격·재고 파싱"""
         self._ensure_login()
-        resp = self.session.get(f"{self.API_URL}/product/view.php?no={product_id}")
+        resp = self.session.get(f"{self.API_URL}/s/{product_id}")
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
