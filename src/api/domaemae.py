@@ -33,7 +33,7 @@ class DomaemaeClient:
 
     def get_product(self, product_id: str) -> dict:
         """상품 페이지에서 가격·재고 파싱"""
-        self._ensure_login()
+        self.login()
         resp = self.session.get(f"{self.API_URL}/s/{product_id}")
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
