@@ -93,12 +93,20 @@ class DomaemaeClient:
                    *, dry_run: bool = False) -> str:
         """장바구니 담기 후 주문 처리 — 주문번호 반환
 
-        shipping_info 필수 키: name, phone, zipcode, address
-        shipping_info 선택 키: address2, shop, memo
+        shipping_info 필수 키: name, phone, zipcode, address, shop
+        shipping_info 선택 키: address2, memo
+
+        shop: 쇼핑몰 상호 — market=supply(도매매) 주문 시 서버 필수값.
+              비워두면 '소비자 정보에 입력되지 않은 항목이 있습니다' 오류 발생.
 
         dry_run=True: 장바구니 담기까지만 실행, 실제 결제·주문 없음.
                       장바구니 API 응답(JSON)을 문자열로 반환.
         """
+        if not shipping_info.get("shop", "").strip():
+            raise ValueError(
+                "shipping_info['shop'](쇼핑몰 상호)가 비어 있습니다. "
+                "도매매 주문 시 cons[shop] 필드는 필수입니다."
+            )
         seller_id = self._get_seller_id(product_id)
         m1, m2, m3 = self._split_phone(shipping_info["phone"])
 

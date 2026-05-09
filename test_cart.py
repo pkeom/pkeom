@@ -28,7 +28,8 @@ def load_cookies() -> dict:
 def main():
     parser = argparse.ArgumentParser(description="도매매 장바구니 dry_run 테스트")
     parser.add_argument("--product", default="64926509", help="상품번호 (기본: 64926509)")
-    parser.add_argument("--qty",     type=int, default=1, help="수량 (기본: 1)")
+    parser.add_argument("--qty",     type=int, default=1,            help="수량 (기본: 1)")
+    parser.add_argument("--shop",    default="테스트쇼핑몰",          help="쇼핑몰 상호 (기본: 테스트쇼핑몰)")
     args = parser.parse_args()
 
     # ── 클라이언트 초기화 ────────────────────────────────────
@@ -69,7 +70,7 @@ def main():
         "zipcode":  "06236",
         "address":  "서울특별시 강남구 테헤란로 152",
         "address2": "11층",
-        "shop":     "",
+        "shop":     args.shop,
         "memo":     "dry_run 테스트",
     }
     try:
