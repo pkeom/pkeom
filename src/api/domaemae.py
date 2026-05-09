@@ -9,7 +9,8 @@ class DomaemaeCookieExpiredError(Exception):
 
 
 class DomaemaeClient:
-    API_URL = "https://domeme.domeggook.com"
+    API_URL  = "https://domeme.domeggook.com"
+    CART_URL = "https://domeggook.com"
 
     def __init__(self, cookies: dict | None = None, **_):
         self.session = requests.Session()
@@ -69,20 +70,59 @@ class DomaemaeClient:
             "stock": stock,
         }
 
-    def place_order(self, product_id: str, quantity: int, shipping_info: dict) -> str:
-        """장바구니 담기 후 주문 처리 — 주문번호 반환"""
-        self.session.post(
-            f"{self.API_URL}/cart/add.php",
-            data={"product_id": product_id, "count": quantity},
-        )
-        resp = self.session.post(
-            f"{self.API_URL}/order/process.php",
+    def _get_seller_id(self, product_id: str) -> str:
+        """상품 페이지 JS에서 sellerId 추출"""
+        resp = self.session.get(f"{self.API_URL}/s/{product_id}")
+        m = re.search(r'sellerId\s*:\s*["\']([^"\']+)["\']', resp.text)
+        return m.group(1) if m else ""
+
+    def place_order(self, product_id: str, quantity: int, shipping_info: dict,
+                   *, dry_run: bool = False) -> str:
+        """장바구니 담기 후 주문 처리 — 주문번호 반환
+
+        dry_run=True: 장바구니 담기까지만 실행, 실제 결제·주문 없음.
+                      장바구니 API 응답(JSON)을 문자열로 반환.
+        """
+        seller_id = self._get_seller_id(product_id)
+
+        # ── 장바구니 담기 ───────────────────────────────────────
+        # 실제 엔드포인트: domeggook.com/main/myBuy/order/my_cartIng.php
+        # (기존 /cart/add.php 는 존재하지 않는 URL)
+        cart_resp = self.session.post(
+            f"{self.CART_URL}/main/myBuy/order/my_cartIng.php",
             data={
-                "receiver_name": shipping_info["name"],
-                "receiver_phone": shipping_info["phone"],
-                "receiver_addr": shipping_info["address"],
+                "format":   "json",
+                "mode":     "add",
+                "market":   "supply",
+                "no":       product_id,
+                "sellerId": seller_id,
+                "qty":      quantity,
+                "memo":     shipping_info.get("memo", ""),
+                "smp":      "",
+                "amt":      0,
+                "advcnt":   "",
+                "isCoupon": "0",
+            },
+            headers={"Referer": f"{self.API_URL}/s/{product_id}"},
+        )
+        cart_resp.raise_for_status()
+        self._check_session(cart_resp.url)
+
+        if dry_run:
+            try:
+                return f"[DRY_RUN] cart response: {cart_resp.json()}"
+            except Exception:
+                return f"[DRY_RUN] HTTP {cart_resp.status_code} — {cart_resp.text[:200]}"
+
+        # ── 실제 주문 처리 ──────────────────────────────────────
+        resp = self.session.post(
+            f"{self.CART_URL}/main/myBuy/order/my_orderInfoForm.php",
+            data={
+                "receiver_name":    shipping_info["name"],
+                "receiver_phone":   shipping_info["phone"],
+                "receiver_addr":    shipping_info["address"],
                 "receiver_zipcode": shipping_info["zipcode"],
-                "memo": shipping_info.get("memo", ""),
+                "memo":             shipping_info.get("memo", ""),
             },
         )
         resp.raise_for_status()
