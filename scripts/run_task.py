@@ -46,6 +46,7 @@ def _build_clients(cfg: dict):
     )
     dm_cli = DomaemaeClient(
         cookies=cfg["domaemae"].get("cookies") or {},
+        shop=cfg["domaemae"].get("shop", ""),
     )
     # 이메일 미설정 시 notifier=None (오류 이메일만 건너뜀)
     email_cfg = cfg.get("email", {})

@@ -12,7 +12,8 @@ class DomaemaeClient:
     API_URL  = "https://domeme.domeggook.com"
     CART_URL = "https://domeggook.com"
 
-    def __init__(self, cookies: dict | None = None, **_):
+    def __init__(self, cookies: dict | None = None, shop: str = "", **_):
+        self.shop = shop
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": (
@@ -111,10 +112,11 @@ class DomaemaeClient:
         dry_run=True: 장바구니 담기까지만 실행, 실제 결제·주문 없음.
                       장바구니 API 응답(JSON)을 문자열로 반환.
         """
-        if not shipping_info.get("shop", "").strip():
+        shop = (shipping_info.get("shop") or self.shop or "").strip()
+        if not shop:
             raise ValueError(
-                "shipping_info['shop'](쇼핑몰 상호)가 비어 있습니다. "
-                "도매매 주문 시 cons[shop] 필드는 필수입니다."
+                "쇼핑몰 상호(shop)가 설정되지 않았습니다. "
+                "shipping_info['shop'] 또는 settings.yaml domaemae.shop 을 채워주세요."
             )
         seller_id, price = self._get_product_meta(product_id)
         m1, m2, m3 = self._split_phone(shipping_info["phone"])
@@ -137,7 +139,7 @@ class DomaemaeClient:
                 "advcnt":   "",
                 "isCoupon": "0",
                 "dw":       "P",               # 선불배송(Prepaid)
-                "cons[shop]":    shipping_info.get("shop", ""),
+                "cons[shop]":    shop,
                 "cons[name]":    shipping_info["name"],
                 "cons[post]":    shipping_info["zipcode"],
                 "cons[addr1]":   shipping_info["address"],
