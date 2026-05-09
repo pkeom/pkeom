@@ -14,10 +14,20 @@ class DomaemaeClient:
     def __init__(self, cookies: dict | None = None, **_):
         self.session = requests.Session()
         self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
+            "Referer": "https://domeggook.com/",
         })
-        for name, value in (cookies or {}).items():
-            self.session.cookies.set(name, str(value), domain=".domeggook.com")
+        # cookiejar 도메인 매칭 로직을 우회하기 위해 Cookie 헤더를 직접 주입
+        if cookies:
+            self.session.headers["Cookie"] = "; ".join(
+                f"{k}={v}" for k, v in cookies.items()
+            )
 
     def _check_session(self, soup: BeautifulSoup, final_url: str):
         """인증 만료 감지. 만료 시 DomaemaeCookieExpiredError 발생."""
