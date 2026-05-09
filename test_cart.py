@@ -64,11 +64,13 @@ def main():
     # ── 3단계: 장바구니 담기 (dry_run) ──────────────────────
     print(f"\n[3] 장바구니 담기 dry_run (product={args.product}, qty={args.qty})")
     dummy_shipping = {
-        "name": "테스트",
-        "phone": "010-0000-0000",
-        "address": "서울시 테스트구 테스트동",
-        "zipcode": "00000",
-        "memo": "dry_run 테스트",
+        "name":     "홍길동",
+        "phone":    "010-1234-5678",
+        "zipcode":  "06236",
+        "address":  "서울특별시 강남구 테헤란로 152",
+        "address2": "11층",
+        "shop":     "",
+        "memo":     "dry_run 테스트",
     }
     try:
         result = client.place_order(

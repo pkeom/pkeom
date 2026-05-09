@@ -76,18 +76,35 @@ class DomaemaeClient:
         m = re.search(r'sellerId\s*:\s*["\']([^"\']+)["\']', resp.text)
         return m.group(1) if m else ""
 
+    @staticmethod
+    def _split_phone(phone: str) -> tuple[str, str, str]:
+        """'010-1234-5678' 또는 '01012345678' → ('010','1234','5678')"""
+        parts = re.split(r"[-\s]", phone.strip())
+        if len(parts) == 3:
+            return parts[0], parts[1], parts[2]
+        digits = re.sub(r"\D", "", phone)
+        if len(digits) == 11:
+            return digits[:3], digits[3:7], digits[7:]
+        if len(digits) == 10:
+            return digits[:3], digits[3:6], digits[6:]
+        return digits, "", ""
+
     def place_order(self, product_id: str, quantity: int, shipping_info: dict,
                    *, dry_run: bool = False) -> str:
         """장바구니 담기 후 주문 처리 — 주문번호 반환
+
+        shipping_info 필수 키: name, phone, zipcode, address
+        shipping_info 선택 키: address2, shop, memo
 
         dry_run=True: 장바구니 담기까지만 실행, 실제 결제·주문 없음.
                       장바구니 API 응답(JSON)을 문자열로 반환.
         """
         seller_id = self._get_seller_id(product_id)
+        m1, m2, m3 = self._split_phone(shipping_info["phone"])
 
         # ── 장바구니 담기 ───────────────────────────────────────
-        # 실제 엔드포인트: domeggook.com/main/myBuy/order/my_cartIng.php
-        # (기존 /cart/add.php 는 존재하지 않는 URL)
+        # market=supply(도매매)는 소비자 배송지(cons[...])를 함께 전송해야 함.
+        # JS 확인: lAddCart() 내 param['cons[...]'] 블록 참조.
         cart_resp = self.session.post(
             f"{self.CART_URL}/main/myBuy/order/my_cartIng.php",
             data={
@@ -102,6 +119,20 @@ class DomaemaeClient:
                 "amt":      0,
                 "advcnt":   "",
                 "isCoupon": "0",
+                "dw":       "P",               # 선불배송(Prepaid)
+                "cons[shop]":    shipping_info.get("shop", ""),
+                "cons[name]":    shipping_info["name"],
+                "cons[post]":    shipping_info["zipcode"],
+                "cons[addr1]":   shipping_info["address"],
+                "cons[addr2]":   shipping_info.get("address2", ""),
+                "cons[mobile1]": m1,
+                "cons[mobile2]": m2,
+                "cons[mobile3]": m3,
+                "cons[phone1]":  "",
+                "cons[phone2]":  "",
+                "cons[phone3]":  "",
+                "cons[deliReq]": shipping_info.get("memo", ""),
+                "consSetAddrBook": "0",
             },
             headers={"Referer": f"{self.API_URL}/s/{product_id}"},
         )
