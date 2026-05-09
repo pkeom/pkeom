@@ -29,16 +29,11 @@ class DomaemaeClient:
                 f"{k}={v}" for k, v in cookies.items()
             )
 
-    def _check_session(self, soup: BeautifulSoup, final_url: str):
-        """인증 만료 감지. 만료 시 DomaemaeCookieExpiredError 발생."""
+    def _check_session(self, final_url: str):
+        """로그인 필요 페이지에서 인증 만료 감지. 만료 시 DomaemaeCookieExpiredError 발생."""
         if "mem_login" in final_url or "mem_formLogin" in final_url:
             raise DomaemaeCookieExpiredError(
                 "도매매 쿠키 만료(로그인 페이지 리다이렉트) — update_cookie.py를 실행해 쿠키를 갱신하세요."
-            )
-        msg = soup.select_one("#lMsgOnlyCom")
-        if msg and msg.get_text(strip=True):
-            raise DomaemaeCookieExpiredError(
-                "도매매 쿠키 만료(가격 미표시) — update_cookie.py를 실행해 쿠키를 갱신하세요."
             )
 
     def get_stock(self, product_id: str) -> int:
@@ -50,14 +45,16 @@ class DomaemaeClient:
         resp = self.session.get(f"{self.API_URL}/s/{product_id}")
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
-        self._check_session(soup, resp.url)
 
-        price_tag = soup.select_one("#lNotDiscountAmtBox .lPrice")
+        # 가격은 JS 변수에 삽입됨 (HTML 요소는 JS 렌더링 후 생성되므로 정적 파싱 불가)
+        # ENP_VAR.collect.price = "22600"  ← 트래킹 픽셀 변수, 가장 안정적
+        # baseAmtDome: 22600               ← 상태관리 store 변수 (fallback)
         price = None
-        if price_tag:
-            m = re.search(r"[\d,]+", price_tag.get_text())
-            if m:
-                price = int(m.group().replace(",", ""))
+        m = re.search(r'ENP_VAR\.collect\.price\s*=\s*["\'](\d+)["\']', resp.text)
+        if not m:
+            m = re.search(r'baseAmtDome\s*:\s*(\d+)', resp.text)
+        if m:
+            price = int(m.group(1))
 
         stock_tag = soup.select_one("tr.lInfoQty td.lInfoItemContent")
         stock = 0
@@ -90,7 +87,7 @@ class DomaemaeClient:
         )
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
-        self._check_session(soup, resp.url)
+        self._check_session(resp.url)
         order_no_tag = soup.select_one(".order_no")
         return order_no_tag.text.strip() if order_no_tag else ""
 
@@ -99,7 +96,7 @@ class DomaemaeClient:
         resp = self.session.get(f"{self.API_URL}/order/detail.php?no={order_no}")
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
-        self._check_session(soup, resp.url)
+        self._check_session(resp.url)
 
         company_tag = soup.select_one(".delivery_company")
         tracking_tag = soup.select_one(".tracking_number")
