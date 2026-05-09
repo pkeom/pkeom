@@ -70,11 +70,20 @@ class DomaemaeClient:
             "stock": stock,
         }
 
-    def _get_seller_id(self, product_id: str) -> str:
-        """상품 페이지 JS에서 sellerId 추출"""
+    def _get_product_meta(self, product_id: str) -> tuple[str, int]:
+        """상품 페이지에서 sellerId와 가격을 한 번의 요청으로 추출 — (seller_id, price)"""
         resp = self.session.get(f"{self.API_URL}/s/{product_id}")
         m = re.search(r'sellerId\s*:\s*["\']([^"\']+)["\']', resp.text)
-        return m.group(1) if m else ""
+        seller_id = m.group(1) if m else ""
+        m = re.search(r'ENP_VAR\.collect\.price\s*=\s*["\'](\d+)["\']', resp.text)
+        if not m:
+            m = re.search(r'baseAmtDome\s*:\s*(\d+)', resp.text)
+        price = int(m.group(1)) if m else 0
+        return seller_id, price
+
+    def _get_seller_id(self, product_id: str) -> str:
+        """상품 페이지 JS에서 sellerId 추출"""
+        return self._get_product_meta(product_id)[0]
 
     @staticmethod
     def _split_phone(phone: str) -> tuple[str, str, str]:
@@ -107,7 +116,7 @@ class DomaemaeClient:
                 "shipping_info['shop'](쇼핑몰 상호)가 비어 있습니다. "
                 "도매매 주문 시 cons[shop] 필드는 필수입니다."
             )
-        seller_id = self._get_seller_id(product_id)
+        seller_id, price = self._get_product_meta(product_id)
         m1, m2, m3 = self._split_phone(shipping_info["phone"])
 
         # ── 장바구니 담기 ───────────────────────────────────────
@@ -124,7 +133,7 @@ class DomaemaeClient:
                 "qty":      quantity,
                 "memo":     shipping_info.get("memo", ""),
                 "smp":      "",
-                "amt":      0,
+                "amt":      price,
                 "advcnt":   "",
                 "isCoupon": "0",
                 "dw":       "P",               # 선불배송(Prepaid)
