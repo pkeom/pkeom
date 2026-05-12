@@ -60,7 +60,7 @@ def _print_schedule(sched_cfg: dict):
         f"  │  송장 동기화      매 {sched_cfg['invoice_sync_interval']:>3d}분              │",
         f"  │  재고 동기화      매 {sched_cfg['inventory_sync_interval']:>3d}분              │",
         f"  │  가격 모니터링    매 {sched_cfg['price_monitor_interval']:>3d}분              │",
-        f"  │  반품 감지        매 {sched_cfg['return_monitor_interval']:>3d}분              │",
+        f"  │  반품 감지        매 {sched_cfg.get('return_monitor_interval', 10):>3d}분              │",
         "  ├─────────────────────────────────────────┤",
         "  │  Ctrl+C 로 종료                          │",
         "  └─────────────────────────────────────────┘",
@@ -111,7 +111,7 @@ def main():
     scheduler.add_job(invoicer.run,    sched_cfg["invoice_sync_interval"],   "invoice_sync",   run_now=True)
     scheduler.add_job(inventory.run,   sched_cfg["inventory_sync_interval"], "inventory_sync", run_now=True)
     scheduler.add_job(price_mon.run,    sched_cfg["price_monitor_interval"],   "price_monitor",  run_now=True)
-    scheduler.add_job(return_mon.run,   sched_cfg["return_monitor_interval"],  "return_monitor", run_now=True)
+    scheduler.add_job(return_mon.run,   sched_cfg.get("return_monitor_interval", 10), "return_monitor", run_now=True)
 
     _print_schedule(sched_cfg)
     scheduler.start()
