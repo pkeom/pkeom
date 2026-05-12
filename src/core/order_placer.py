@@ -122,9 +122,12 @@ class OrderPlacer:
             "memo":    order.get("delivery_memo", ""),
         }
         try:
-            client            = self.clients[mapping["supplier"]]
-            result            = client.place_order(
-                mapping["supplier_product_id"], order["quantity"], shipping
+            client = self.clients[mapping["supplier"]]
+            kwargs = {}
+            if mapping["supplier"] == "domaemae":
+                kwargs["option_name"] = order.get("option_code", "")
+            result = client.place_order(
+                mapping["supplier_product_id"], order["quantity"], shipping, **kwargs
             )
             supplier_order_no = _extract_supplier_order_no(result)
         except Exception as e:
