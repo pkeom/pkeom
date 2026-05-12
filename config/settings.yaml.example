@@ -23,6 +23,8 @@ email:
   recipients:
     - "수신자@gmail.com"
 
+budget: 500000                        # 발주 예산 (원). 0이면 예산 관리 비활성화.
+
 schedule:
   order_collect_interval: 10        # 주문 수집 주기 (분)
   invoice_sync_interval: 15         # 송장 동기화 주기 (분)

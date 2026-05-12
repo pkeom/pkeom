@@ -25,6 +25,8 @@ from src.core.invoice_manager import InvoiceManager
 from src.core.inventory_sync import InventorySync
 from src.core.price_monitor import PriceMonitor
 from src.core.return_monitor import ReturnMonitor
+from src.core.budget_manager import BudgetManager
+from src.core.pending_order_repository import PendingOrderRepository
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +97,12 @@ def main():
     dm_cli   = DomaemaeClient(**cfg["domaemae"])
     notifier = _build_notifier(cfg)
 
+    budget_amount = cfg.get("budget", 0)
+    budget  = BudgetManager(initial_balance=budget_amount) if budget_amount > 0 else None
+    pending = PendingOrderRepository() if budget is not None else None
+
     collector = OrderCollector(ss_api)
-    placer    = OrderPlacer(dk_api, dm_cli)
+    placer    = OrderPlacer(dk_api, dm_cli, notifier=notifier, budget=budget, pending=pending)
     invoicer  = InvoiceManager(ss_api, dk_api, dm_cli, notifier=notifier)
     inventory = InventorySync(ss_api, dk_api, dm_cli, notifier=notifier)
     price_mon   = PriceMonitor(dk_api, dm_cli, notifier)
