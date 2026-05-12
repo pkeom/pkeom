@@ -1,5 +1,6 @@
 """APScheduler 기반 작업 스케줄러"""
 import logging
+from datetime import datetime, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -10,7 +11,11 @@ class AutomationScheduler:
     def __init__(self):
         self.scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
-    def add_job(self, func, interval_minutes: int, job_id: str):
+    def add_job(self, func, interval_minutes: int, job_id: str, run_now: bool = True):
+        """
+        run_now=True: 스케줄러 start() 직후 즉시 첫 실행 후 interval마다 반복.
+        run_now=False: 첫 interval 경과 후 실행 (기본 APScheduler 동작).
+        """
         self.scheduler.add_job(
             func,
             trigger=IntervalTrigger(minutes=interval_minutes),
@@ -18,8 +23,16 @@ class AutomationScheduler:
             replace_existing=True,
             max_instances=1,
             misfire_grace_time=60,
+            next_run_time=datetime.now(timezone.utc) if run_now else None,
         )
         logger.info("스케줄 등록: %s (매 %d분)", job_id, interval_minutes)
+
+    def next_run_times(self) -> dict[str, datetime]:
+        """각 job의 다음 실행 시각 반환 (로컬 타임존)"""
+        result = {}
+        for job in self.scheduler.get_jobs():
+            result[job.id] = job.next_run_time
+        return result
 
     def start(self):
         self.scheduler.start()
