@@ -6,6 +6,8 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
+RETAIL_URL = "https://domeggook.com"   # 소매(dome) 도메인 — 옵션 fallback 용도
+
 
 class DomaemaeCookieExpiredError(Exception):
     """도매매 로그인 쿠키 만료 — update_cookie.py 실행 필요"""
@@ -41,6 +43,11 @@ class DomaemaeClient:
                 "도매매 쿠키 만료(로그인 페이지 리다이렉트) — update_cookie.py를 실행해 쿠키를 갱신하세요."
             )
 
+    @staticmethod
+    def _decode(resp: requests.Response) -> str:
+        """EUC-KR 페이지를 Unicode 문자열로 디코딩"""
+        return resp.content.decode("euc-kr", errors="replace")
+
     # ── 정적 파싱 헬퍼 ──────────────────────────────────────────
 
     @staticmethod
@@ -57,52 +64,43 @@ class DomaemaeClient:
 
     @staticmethod
     def _parse_options(html: str) -> list[dict]:
-        """HTML/JS에서 옵션 목록 추출. 반환값: [{"id": str, "name": str}]
+        """HTML에서 옵션 목록 추출. 반환값: [{"id": str, "name": str}]
 
-        파싱 시도 순서:
-          1. JS 객체 패턴 {"no":"...","nm":"..."}  (도매매 표준)
-          2. JS 객체 패턴 {"optNo":"...","optNm":"..."}  (alternative)
-          3. HTML <select> 태그 (fallback)
+        도매매 상품 페이지는 ItemOptionController 초기화 블록 안에
+        옵션 데이터를 아래 형식으로 embed한다 (EUC-KR 디코딩 후 Unicode):
+
+          "CODE":{"name":"옵션명","dom":1,"sup":1,"hid":0,...}
+
+        - CODE  : selectOpt[CODE] 형식으로 카트 POST에 전달하는 옵션 코드
+                  단일 옵션 → "0", "1", ...
+                  조합 옵션 → "6_00", "10_01", ...
+        - sup=1 : B2B(도매/supply) 마켓에서 이용 가능
+        - hid=2 : 완전 숨김 처리 → 제외
+        - hid=1 : 품절·비노출 → 목록에는 포함(주문 실패는 서버가 처리)
         """
         seen: set[str] = set()
         options: list[dict] = []
 
-        def _add(oid: str, name: str):
-            if oid and oid not in seen:
-                options.append({"id": oid, "name": name})
-                seen.add(oid)
+        # 옵션 객체는 중첩이 없는 flat JSON → [^{}]+ 로 전체 추출 가능
+        # 패턴: "CODE":{"name":"NAME","dom":N,...,"sup":N,...,"hid":N,...}
+        for m in re.finditer(r'"(\d[\d_]*)"\s*:\s*(\{[^{}]+\})', html):
+            code    = m.group(1)
+            obj_str = m.group(2)
 
-        # 패턴 1: {"no":"12345","nm":"아이폰11",...}
-        for m in re.finditer(
-            r'"no"\s*:\s*"(\d+)"[^}]*?"nm"\s*:\s*"([^"]*?)"', html, re.DOTALL
-        ):
-            _add(m.group(1), m.group(2))
+            name_m = re.search(r'"name"\s*:\s*"([^"]*)"', obj_str)
+            sup_m  = re.search(r'"sup"\s*:\s*(\d+)',      obj_str)
+            hid_m  = re.search(r'"hid"\s*:\s*(\d+)',      obj_str)
 
-        # 패턴 2: {"optNo":"12345","optNm":"아이폰11",...}
-        if not options:
-            for m in re.finditer(
-                r'"optNo"\s*:\s*"(\d+)"[^}]*?"optNm"\s*:\s*"([^"]*?)"', html, re.DOTALL
-            ):
-                _add(m.group(1), m.group(2))
+            if not name_m:
+                continue
 
-        # 패턴 3: HTML <select> fallback
-        if not options:
-            soup = BeautifulSoup(html, "html.parser")
-            for sel in soup.select("select"):
-                attr = (
-                    sel.get("name", "")
-                    + sel.get("id", "")
-                    + " ".join(sel.get("class", []))
-                )
-                if not re.search(r"opt", attr, re.IGNORECASE):
-                    continue
-                for tag in sel.find_all("option"):
-                    val = tag.get("value", "").strip()
-                    text = tag.get_text(strip=True)
-                    if val and val not in ("0", ""):
-                        _add(val, text)
-                if options:
-                    break
+            name = name_m.group(1)
+            sup  = int(sup_m.group(1)) if sup_m else 0
+            hid  = int(hid_m.group(1)) if hid_m else 0
+
+            if sup == 1 and hid != 2 and code not in seen:
+                options.append({"id": code, "name": name})
+                seen.add(code)
 
         return options
 
@@ -110,8 +108,9 @@ class DomaemaeClient:
     def _match_option(options: list[dict], option_name: str) -> str | None:
         """옵션명으로 옵션 ID 검색.
 
-        우선순위: 정확 일치 → 포함 관계(양방향).
-        대소문자·양끝 공백 무시.
+        우선순위:
+          1. 정확 일치 (대소문자·공백 무시)
+          2. 포함 관계 (양방향) — "아이폰11"이 "아이폰11/라운드"에 포함되는 경우 등
         """
         if not option_name or not options:
             return None
@@ -135,12 +134,10 @@ class DomaemaeClient:
         """상품 페이지에서 가격·재고 파싱"""
         resp = self.session.get(f"{self.API_URL}/s/{product_id}")
         resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+        html = self._decode(resp)
+        soup = BeautifulSoup(html, "html.parser")
 
-        # 가격은 JS 변수에 삽입됨 (HTML 요소는 JS 렌더링 후 생성되므로 정적 파싱 불가)
-        # ENP_VAR.collect.price = "22600"  ← 트래킹 픽셀 변수, 가장 안정적
-        # baseAmtDome: 22600               ← 상태관리 store 변수 (fallback)
-        _, price = self._parse_seller_price(resp.text)
+        _, price = self._parse_seller_price(html)
 
         stock_tag = soup.select_one("tr.lInfoQty td.lInfoItemContent")
         stock = 0
@@ -158,17 +155,37 @@ class DomaemaeClient:
     def get_options(self, product_id: str) -> list[dict]:
         """상품 옵션 목록 반환. [{"id": str, "name": str}]
 
-        옵션이 없는 상품이면 빈 리스트 반환.
+        B2B 페이지(domeme.domeggook.com)를 먼저 확인한다.
+        로그인 쿠키가 없거나 B2B 옵션이 비어 있으면
+        소매 페이지(domeggook.com)로 재시도 — 동일 상품 번호로 접근 가능.
+
+        옵션 없는 상품(단일 상품)은 빈 리스트를 반환한다.
         """
         resp = self.session.get(f"{self.API_URL}/s/{product_id}")
         resp.raise_for_status()
-        return self._parse_options(resp.text)
+        options = self._parse_options(self._decode(resp))
+
+        if not options:
+            options = self._fetch_retail_options(product_id)
+
+        logger.debug("get_options(%s): %d건", product_id, len(options))
+        return options
+
+    def _fetch_retail_options(self, product_id: str) -> list[dict]:
+        """소매 페이지(domeggook.com)에서 옵션 목록 조회 — B2B fallback"""
+        try:
+            resp = self.session.get(f"{RETAIL_URL}/{product_id}", timeout=10)
+            resp.raise_for_status()
+            return self._parse_options(self._decode(resp))
+        except Exception as e:
+            logger.debug("소매 페이지 옵션 조회 실패 (product=%s): %s", product_id, e)
+            return []
 
     def _get_product_meta(self, product_id: str) -> tuple[str, int]:
         """상품 페이지에서 sellerId와 가격을 한 번의 요청으로 추출 — (seller_id, price)"""
         resp = self.session.get(f"{self.API_URL}/s/{product_id}")
         resp.raise_for_status()
-        return self._parse_seller_price(resp.text)
+        return self._parse_seller_price(self._decode(resp))
 
     def _get_seller_id(self, product_id: str) -> str:
         """상품 페이지 JS에서 sellerId 추출"""
@@ -197,12 +214,12 @@ class DomaemaeClient:
         shop: 쇼핑몰 상호 — market=supply(도매매) 주문 시 서버 필수값.
               비워두면 '소비자 정보에 입력되지 않은 항목이 있습니다' 오류 발생.
 
-        option_name: 스마트스토어 주문의 옵션명(예: '아이폰11', '라운드').
-                     값이 있으면 도매매 상품 페이지에서 일치하는 옵션 ID를 찾아
-                     장바구니 요청에 포함한다. 일치하는 옵션이 없으면 경고 후 옵션 없이 발주.
+        option_name: 스마트스토어 주문의 옵션명(예: '아이폰11', '아이폰11/라운드').
+                     값이 있으면 상품 페이지에서 일치하는 옵션 코드를 찾아
+                     selectOpt[{code}] 파라미터로 카트 POST에 포함한다.
+                     일치 옵션이 없으면 경고 로그 후 옵션 없이 발주.
 
         dry_run=True: 장바구니 담기까지만 실행, 실제 결제·주문 없음.
-                      장바구니 API 응답(JSON)을 문자열로 반환.
         """
         shop = (shipping_info.get("shop") or self.shop or "").strip()
         if not shop:
@@ -214,16 +231,20 @@ class DomaemaeClient:
         # 상품 페이지를 1회 요청해 sellerId·가격·옵션 목록을 모두 추출
         page_resp = self.session.get(f"{self.API_URL}/s/{product_id}")
         page_resp.raise_for_status()
-        html = page_resp.text
+        html = self._decode(page_resp)
 
         seller_id, price = self._parse_seller_price(html)
 
         opt_id: str | None = None
         if option_name:
             options = self._parse_options(html)
+            if not options:
+                # 쿠키 미설정·B2B 옵션 비공개 시 소매 페이지로 재시도
+                options = self._fetch_retail_options(product_id)
+
             opt_id = self._match_option(options, option_name)
             if opt_id:
-                logger.info("옵션 매칭 성공: '%s' → id=%s", option_name, opt_id)
+                logger.info("옵션 매칭 성공: '%s' → code=%s", option_name, opt_id)
             else:
                 logger.warning(
                     "옵션 '%s'을 찾지 못함 (product=%s, 후보=%d건) — 옵션 없이 발주",
@@ -263,11 +284,10 @@ class DomaemaeClient:
             "consSetAddrBook": "0",
         }
 
-        # 옵션이 확인된 경우 PHP 배열 형식으로 전송
-        # 실제 파라미터명은 브라우저 네트워크 탭에서 확인 후 필요 시 수정
+        # 옵션 코드 확인 시 selectOpt[{code}] 파라미터 추가
+        # JS lAddCart(): param['selectOpt[' + resultItem.code + ']'] = resultItem.qty
         if opt_id:
-            cart_data["opt[0][no]"]  = opt_id
-            cart_data["opt[0][qty]"] = quantity
+            cart_data[f"selectOpt[{opt_id}]"] = quantity
 
         cart_resp = self.session.post(
             f"{self.CART_URL}/main/myBuy/order/my_cartIng.php",
@@ -295,7 +315,7 @@ class DomaemaeClient:
             },
         )
         resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+        soup = BeautifulSoup(self._decode(resp), "html.parser")
         self._check_session(resp.url)
         order_no_tag = soup.select_one(".order_no")
         return order_no_tag.text.strip() if order_no_tag else ""
@@ -304,7 +324,7 @@ class DomaemaeClient:
         """주문 상세에서 송장 정보 파싱"""
         resp = self.session.get(f"{self.API_URL}/order/detail.php?no={order_no}")
         resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+        soup = BeautifulSoup(self._decode(resp), "html.parser")
         self._check_session(resp.url)
 
         company_tag = soup.select_one(".delivery_company")
