@@ -88,12 +88,16 @@ class DomaekkukAPI:
 
     # ── 발주 ─────────────────────────────────────────────────
 
-    def place_order(self, product_no: str, quantity: int, shipping_info: dict) -> dict:
+    def place_order(self, product_no: str, quantity: int, shipping_info: dict,
+                    *, dry_run: bool = False) -> dict:
         """발주 요청. 반환값: {"order_no": "도매처발주번호", ...}
 
+        dry_run=True: 실제 API 호출 없이 즉시 가짜 발주번호 반환 (테스트/시뮬레이션용).
         ※ 도매꾹 addOrder API는 Private API(승인 필요)입니다.
           실제 필드명은 발급받은 API 문서에서 확인 후 아래 data 딕셔너리를 조정하세요.
         """
+        if dry_run:
+            return {"order_no": f"[DRY_RUN] prod={product_no} qty={quantity}"}
         resp = requests.post(
             self.API_URL,
             data={                          # form-encoded (not JSON)

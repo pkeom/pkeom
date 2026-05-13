@@ -52,11 +52,13 @@ class InvoiceManager:
         domaemae: DomaemaeClient,
         order_repo: OrderRepository | None = None,
         notifier=None,
+        dry_run: bool = False,
     ):
         self.ss_api    = ss_api
         self.clients   = {"domaekkuk": domaekkuk, "domaemae": domaemae}
         self._orders   = order_repo or OrderRepository()
         self._notifier = notifier
+        self._dry_run  = dry_run
 
     # ── 진입점 ───────────────────────────────────────────────
 
@@ -111,8 +113,15 @@ class InvoiceManager:
             logger.debug("미발송: order_id=%s (도매발주번호=%s)", order_id, supplier_order_no)
             return "pending"
 
-        # 2. 스마트스토어 송장 등록
+        # 2. 스마트스토어 송장 등록 (dry_run: 실제 전송 없이 로그만)
         company_code = DELIVERY_COMPANY_MAP.get(delivery_company, delivery_company)
+        if self._dry_run:
+            logger.info(
+                "[DRY_RUN] 송장 등록 스킵: order_id=%s, 택배사=%s(%s), 송장=%s",
+                order_id, delivery_company, company_code, tracking_number,
+            )
+            self._orders.update_status(order_id, "INVOICED")
+            return "invoiced"
         try:
             self.ss_api.dispatch_order(order_id, company_code, tracking_number)
         except Exception as e:

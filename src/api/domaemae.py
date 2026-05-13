@@ -120,7 +120,7 @@ class DomaemaeClient:
                 return opt["id"]
         for opt in options:
             lower = opt["name"].strip().lower()
-            if normalized in lower or lower in normalized:
+            if normalized in lower:
                 return opt["id"]
         return None
 

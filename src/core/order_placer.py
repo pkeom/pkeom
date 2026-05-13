@@ -61,8 +61,9 @@ class OrderPlacer:
         mapping_repo: MappingRepository | None = None,
         order_repo: OrderRepository | None = None,
         notifier=None,
-        budget=None,    # BudgetManager | None
-        pending=None,   # PendingOrderRepository | None
+        budget=None,        # BudgetManager | None
+        pending=None,       # PendingOrderRepository | None
+        dry_run: bool = False,
     ):
         self.clients   = {"domaekkuk": domaekkuk, "domaemae": domaemae}
         self._mappings = mapping_repo or MappingRepository()
@@ -70,6 +71,7 @@ class OrderPlacer:
         self._notifier = notifier
         self._budget   = budget
         self._pending  = pending
+        self._dry_run  = dry_run
 
     # ── 진입점 ───────────────────────────────────────────────
 
@@ -285,6 +287,8 @@ class OrderPlacer:
             kwargs = {}
             if mapping["supplier"] == "domaemae":
                 kwargs["option_name"] = order.get("option_code", "")
+            if self._dry_run:
+                kwargs["dry_run"] = True
             result = client.place_order(
                 mapping["supplier_product_id"], order["quantity"], shipping, **kwargs
             )
