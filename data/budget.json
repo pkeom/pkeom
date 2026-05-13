@@ -1,6 +1,14 @@
 {
-  "current_balance": 0,
+  "current_balance": 500000,
   "total_spent": 0,
-  "total_charged": 0,
-  "history": []
+  "total_charged": 500000,
+  "history": [
+    {
+      "type": "charge",
+      "amount": 500000,
+      "reason": "초기 예산 설정",
+      "balance_after": 500000,
+      "at": "2026-05-13T00:00:00+00:00"
+    }
+  ]
 }
