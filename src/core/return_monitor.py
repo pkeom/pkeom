@@ -18,9 +18,10 @@ RETURNS_FILE = "data/returns.json"
 
 
 class ReturnMonitor:
-    def __init__(self, smartstore: SmartstoreAPI, notifier=None):
+    def __init__(self, smartstore: SmartstoreAPI, notifier=None, returns_file: str | None = None):
         self._ss = smartstore
         self._notifier = notifier
+        self._returns_file = returns_file or RETURNS_FILE
 
     def run(self) -> dict:
         """반품 신청 감지 및 알림. 반환값: {"new": n, "total": n}"""
@@ -81,17 +82,17 @@ class ReturnMonitor:
         return {"new": new_count, "total": len(data["returns"])}
 
     def _load(self) -> dict:
-        if os.path.exists(RETURNS_FILE):
+        if os.path.exists(self._returns_file):
             try:
-                with open(RETURNS_FILE, "r", encoding="utf-8") as f:
+                with open(self._returns_file, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception:
                 pass
         return {"returns": []}
 
     def _save(self, data: dict):
-        os.makedirs(os.path.dirname(RETURNS_FILE), exist_ok=True)
-        with open(RETURNS_FILE, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(self._returns_file) or ".", exist_ok=True)
+        with open(self._returns_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     def _notify(self, entry: dict):

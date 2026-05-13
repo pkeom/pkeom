@@ -16,6 +16,11 @@ class AutomationScheduler:
         run_now=True: 스케줄러 start() 직후 즉시 첫 실행 후 interval마다 반복.
         run_now=False: 첫 interval 경과 후 실행 (기본 APScheduler 동작).
         """
+        kwargs = {}
+        if run_now:
+            kwargs["next_run_time"] = datetime.now(timezone.utc)
+        # run_now=False: next_run_time 생략 → APScheduler가 trigger로 첫 실행 시각 계산
+        # next_run_time=None을 명시하면 job이 영구 paused 상태가 되므로 절대 넘기지 않음.
         self.scheduler.add_job(
             func,
             trigger=IntervalTrigger(minutes=interval_minutes),
@@ -23,7 +28,7 @@ class AutomationScheduler:
             replace_existing=True,
             max_instances=1,
             misfire_grace_time=60,
-            next_run_time=datetime.now(timezone.utc) if run_now else None,
+            **kwargs,
         )
         logger.info("스케줄 등록: %s (매 %d분)", job_id, interval_minutes)
 
