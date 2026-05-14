@@ -31,6 +31,7 @@ def main():
             "password": optional("DOMEGGOOK_PASSWORD"),
         },
         "domaemae": {
+            "api_key":  require("DOMEGGOOK_API_KEY"),
             "user_id":  require("DOMAEMAE_USER_ID"),
             "password": require("DOMAEMAE_PASSWORD"),
         },

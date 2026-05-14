@@ -8,14 +8,14 @@
  1. 스마트스토어 주문 수집
  2. 도매꾹 자동발주 (옵션 포함)
  3. 도매매 자동발주 (옵션 매칭 포함)
- 4. 도매매 쿠키 유효성 확인 + 만료 감지 + 이메일 알림
+ 4. 도매매 API 오류 처리 + 이메일 알림
  5. 송장번호 자동 등록
  6. 재고 동기화
  7. 가격 모니터링
  8. 반품 감지 + 이메일 알림
  9. 예산 관리 (예산 내 최대 발주, 초과 시 대기 저장)
 10. 대기 주문 재개 (add_budget.py 연동)
-11. 이메일 알림 전체 (반품/예산부족/쿠키만료)
+11. 이메일 알림 전체 (반품/예산부족/API오류)
 12. 스케줄러 정상 작동
 13. Termux wake-lock 자동실행
 14. 옵션 없는 상품 발주
@@ -51,7 +51,7 @@ from src.core.price_alert_repository import PriceAlertRepository
 from src.core.return_monitor import ReturnMonitor
 from src.core.budget_manager import BudgetManager
 from src.core.pending_order_repository import PendingOrderRepository
-from src.api.domaemae import DomaemaeClient, DomaemaeCookieExpiredError
+from src.api.domaemae import DomaemaeClient
 from src.notifications.email_notifier import EmailNotifier
 from src.utils.logger import setup_logging
 from src.utils.scheduler import AutomationScheduler
@@ -313,26 +313,16 @@ class TestFeature03_DomaemaeOrder(unittest.TestCase):
                 self.assertEqual(cnt, 1)
 
 
-class TestFeature04_CookieExpiry(unittest.TestCase):
-    """4. 도매매 쿠키 유효성 확인 + 만료 감지 + 이메일 알림"""
+class TestFeature04_ApiError(unittest.TestCase):
+    """4. 도매매 API 오류 처리 + 이메일 알림"""
 
     def test_100_iterations(self):
         for i in range(N):
             with self.subTest(i=i + 1):
-                # _check_session: 로그인 페이지 리다이렉트 시 예외 발생
-                client = DomaemaeClient(cookies={})
-                with self.assertRaises(DomaemaeCookieExpiredError):
-                    client._check_session("https://domeggook.com/mem_login.php?return=abc")
-                with self.assertRaises(DomaemaeCookieExpiredError):
-                    client._check_session("https://domeggook.com/mem_formLogin?redir=abc")
-
-                # 정상 URL이면 예외 발생 안 됨
-                client._check_session("https://domeggook.com/order/detail.php?no=123")
-
-                # 쿠키 만료로 place_order 실패 → 이메일 알림 전송
+                # API 오류로 place_order 실패 → 이메일 알림 전송
                 e = _make_env()
                 OrderCollector(e["mock_ss"], e["order_repo"]).run()
-                e["mock_dm"].place_order.side_effect = DomaemaeCookieExpiredError("쿠키 만료")
+                e["mock_dm"].place_order.side_effect = Exception("도매매 API 오류")
                 stats = _placer(e, notifier=e["mock_notifier"]).run()
 
                 # ORD-002(domaemae) 실패, ORD-001(domaekkuk) 성공
@@ -621,7 +611,7 @@ class TestFeature10_ResumePending(unittest.TestCase):
 
 
 class TestFeature11_EmailAll(unittest.TestCase):
-    """11. 이메일 알림 전체 (반품/예산부족/쿠키만료)"""
+    """11. 이메일 알림 전체 (반품/예산부족/API오류)"""
 
     def test_100_iterations(self):
         for i in range(N):
@@ -645,10 +635,10 @@ class TestFeature11_EmailAll(unittest.TestCase):
                              for c in e2["mock_notifier"].send.call_args_list]
                 self.assertTrue(any("예산" in s for s in subjects2))
 
-                # 쿠키 만료 → 발주 실패 알림
+                # API 오류 → 발주 실패 알림
                 e3 = _make_env()
                 OrderCollector(e3["mock_ss"], e3["order_repo"]).run()
-                e3["mock_dm"].place_order.side_effect = DomaemaeCookieExpiredError("쿠키 만료")
+                e3["mock_dm"].place_order.side_effect = Exception("도매매 API 오류")
                 _placer(e3, notifier=e3["mock_notifier"]).run()
                 subjects3 = [c[1]["subject"]
                              for c in e3["mock_notifier"].send.call_args_list]
@@ -988,14 +978,14 @@ _FEATURE_MAP = {
     "TestFeature01_OrderCollection": "스마트스토어 주문 수집",
     "TestFeature02_DomaekkukOrder":  "도매꾹 자동발주 (옵션 포함)",
     "TestFeature03_DomaemaeOrder":   "도매매 자동발주 (옵션 매칭 포함)",
-    "TestFeature04_CookieExpiry":    "도매매 쿠키 유효성 + 만료 감지 + 이메일 알림",
+    "TestFeature04_ApiError":        "도매매 API 오류 처리 + 이메일 알림",
     "TestFeature05_Invoice":         "송장번호 자동 등록",
     "TestFeature06_InventorySync":   "재고 동기화",
     "TestFeature07_PriceMonitor":    "가격 모니터링",
     "TestFeature08_ReturnMonitor":   "반품 감지 + 이메일 알림",
     "TestFeature09_BudgetManagement":"예산 관리 (예산 내 최대 발주, 초과 시 대기 저장)",
     "TestFeature10_ResumePending":   "대기 주문 재개 (add_budget.py 연동)",
-    "TestFeature11_EmailAll":        "이메일 알림 전체 (반품/예산부족/쿠키만료)",
+    "TestFeature11_EmailAll":        "이메일 알림 전체 (반품/예산부족/API오류)",
     "TestFeature12_Scheduler":       "스케줄러 정상 작동",
     "TestFeature13_Wakelock":        "Termux wake-lock 자동실행",
     "TestFeature14_NoOptionOrder":   "옵션 없는 상품 발주",
