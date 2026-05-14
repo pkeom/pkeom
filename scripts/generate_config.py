@@ -60,7 +60,7 @@ def main():
             "order_place_interval":    10,
             "invoice_sync_interval":   10,
             "return_monitor_interval": 60,
-            "inventory_sync_interval": 30,
+            "inventory_sync_interval": 60,
             "price_monitor_interval":  120,
         },
     }

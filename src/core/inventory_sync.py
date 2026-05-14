@@ -44,12 +44,14 @@ class InventorySync:
         mapping_repo: MappingRepository | None = None,
         notifier=None,
         cache_path: Path | str | None = None,
+        order_placer=None,   # OrderPlacer | None — 재고부족 대기 주문 재개에 사용
     ):
-        self.ss_api     = ss_api
-        self.clients    = {"domaekkuk": domaekkuk, "domaemae": domaemae}
-        self._mappings  = mapping_repo or MappingRepository()
-        self._notifier  = notifier
-        self._cache_path = Path(cache_path) if cache_path else _DEFAULT_CACHE_PATH
+        self.ss_api        = ss_api
+        self.clients       = {"domaekkuk": domaekkuk, "domaemae": domaemae}
+        self._mappings     = mapping_repo or MappingRepository()
+        self._notifier     = notifier
+        self._cache_path   = Path(cache_path) if cache_path else _DEFAULT_CACHE_PATH
+        self._order_placer = order_placer
 
     def _load_cache(self) -> tuple[dict, dict]:
         if not self._cache_path.exists():
@@ -150,6 +152,15 @@ class InventorySync:
         if was_in_stock is False:  # False → True: 재입고
             logger.info("재입고 → 판매재개: ss_product=%s (%s:%s) stock=%d",
                         ss_product_id, supplier, supplier_pid, stock)
+            if self._order_placer is not None:
+                placed = self._order_placer.resume_stock_pending(
+                    supplier, supplier_pid, ss_product_id
+                )
+                if placed:
+                    logger.info(
+                        "재고부족 대기 주문 %d건 자동 재개: %s/%s",
+                        placed, supplier, supplier_pid,
+                    )
             return "resumed"
 
         # 최초 실행 & 재고 있음 — 판매중 상태 확인만

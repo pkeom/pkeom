@@ -27,6 +27,7 @@ from src.core.price_monitor import PriceMonitor
 from src.core.return_monitor import ReturnMonitor
 from src.core.budget_manager import BudgetManager
 from src.core.pending_order_repository import PendingOrderRepository
+from src.core.stock_pending_repository import StockPendingRepository
 
 logger = logging.getLogger(__name__)
 
@@ -104,13 +105,18 @@ def main():
     notifier = _build_notifier(cfg)
 
     budget_amount = cfg.get("budget", 0)
-    budget  = BudgetManager(initial_balance=budget_amount) if budget_amount > 0 else None
-    pending = PendingOrderRepository() if budget is not None else None
+    budget        = BudgetManager(initial_balance=budget_amount) if budget_amount > 0 else None
+    pending       = PendingOrderRepository() if budget is not None else None
+    stock_pending = StockPendingRepository()
 
     collector = OrderCollector(ss_api)
-    placer    = OrderPlacer(dk_api, dm_cli, notifier=notifier, budget=budget, pending=pending)
+    placer    = OrderPlacer(
+        dk_api, dm_cli,
+        notifier=notifier, budget=budget, pending=pending,
+        ss_api=ss_api, stock_pending=stock_pending,
+    )
     invoicer  = InvoiceManager(ss_api, dk_api, dm_cli, notifier=notifier)
-    inventory = InventorySync(ss_api, dk_api, dm_cli, notifier=notifier)
+    inventory = InventorySync(ss_api, dk_api, dm_cli, notifier=notifier, order_placer=placer)
     price_mon   = PriceMonitor(dk_api, dm_cli, notifier)
     return_mon  = ReturnMonitor(ss_api, notifier)
 

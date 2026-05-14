@@ -22,6 +22,7 @@ from src.core.order_placer import OrderPlacer
 from src.core.invoice_manager import InvoiceManager
 from src.core.inventory_sync import InventorySync
 from src.core.price_monitor import PriceMonitor
+from src.core.stock_pending_repository import StockPendingRepository
 
 TASKS = {
     "collect":   "주문 수집",
@@ -83,7 +84,9 @@ def main():
         logger.info("주문 수집 완료: %d건 추가", added)
 
     elif task == "place":
-        stats = OrderPlacer(dk_api, dm_cli, notifier=notifier).run()
+        stock_pending = StockPendingRepository()
+        placer = OrderPlacer(dk_api, dm_cli, notifier=notifier, ss_api=ss_api, stock_pending=stock_pending)
+        stats = placer.run()
         logger.info("자동 발주 완료: %s", stats)
 
     elif task == "invoice":
@@ -91,7 +94,9 @@ def main():
         logger.info("송장 동기화 완료: %s", stats)
 
     elif task == "inventory":
-        stats = InventorySync(ss_api, dk_api, dm_cli, notifier=notifier).run()
+        stock_pending = StockPendingRepository()
+        placer = OrderPlacer(dk_api, dm_cli, notifier=notifier, ss_api=ss_api, stock_pending=stock_pending)
+        stats = InventorySync(ss_api, dk_api, dm_cli, notifier=notifier, order_placer=placer).run()
         logger.info("재고 동기화 완료: %s", stats)
 
     elif task == "price":

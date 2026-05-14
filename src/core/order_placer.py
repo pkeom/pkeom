@@ -1,10 +1,11 @@
 """매핑 테이블 기반 도매처 자동 발주
 
 흐름:
-  orders.json [NEW] → 매핑 조회 → (예산 확인) → 도매처 발주 API 호출
-    예산 충분  → 발주 → SupplierOrder DB 저장 → orders.json [ORDERED] → 예산 차감
-    예산 부족  → pending_orders.json [PENDING] → orders.json [PENDING] → 이메일 알림
-    매핑 없음  → orders.json [ERROR]   → 이메일 알림
+  orders.json [NEW] → 매핑 조회 → 재고 확인 → (예산 확인) → 도매처 발주 API 호출
+    재고 없음      → stock_pending_orders.json [STOCK_PENDING] → 스마트스토어 품절 처리 → 이메일 알림
+    예산 충분      → 발주 → SupplierOrder DB 저장 → orders.json [ORDERED] → 예산 차감
+    예산 부족      → pending_orders.json [PENDING] → orders.json [PENDING] → 이메일 알림
+    매핑 없음      → orders.json [ERROR]   → 이메일 알림
 """
 import logging
 from src.api.domaekkuk import DomaekkukAPI
@@ -61,26 +62,30 @@ class OrderPlacer:
         mapping_repo: MappingRepository | None = None,
         order_repo: OrderRepository | None = None,
         notifier=None,
-        budget=None,        # BudgetManager | None
-        pending=None,       # PendingOrderRepository | None
+        budget=None,           # BudgetManager | None
+        pending=None,          # PendingOrderRepository | None
+        ss_api=None,           # SmartstoreAPI | None — 품절 처리에 사용
+        stock_pending=None,    # StockPendingRepository | None
         dry_run: bool = False,
     ):
-        self.clients   = {"domaekkuk": domaekkuk, "domaemae": domaemae}
-        self._mappings = mapping_repo or MappingRepository()
-        self._orders   = order_repo   or OrderRepository()
-        self._notifier = notifier
-        self._budget   = budget
-        self._pending  = pending
-        self._dry_run  = dry_run
+        self.clients        = {"domaekkuk": domaekkuk, "domaemae": domaemae}
+        self._mappings      = mapping_repo or MappingRepository()
+        self._orders        = order_repo   or OrderRepository()
+        self._notifier      = notifier
+        self._budget        = budget
+        self._pending       = pending
+        self._ss_api        = ss_api
+        self._stock_pending = stock_pending
+        self._dry_run       = dry_run
 
     # ── 진입점 ───────────────────────────────────────────────
 
     def run(self) -> dict:
         """NEW 상태 주문 전체 발주 처리.
-        반환값: {"total": n, "ordered": n, "error": n, "deferred": n}
+        반환값: {"total": n, "ordered": n, "error": n, "deferred": n, "stock_pending": n}
         """
         new_orders = self._orders.find_by_status("NEW")
-        stats = {"total": len(new_orders), "ordered": 0, "error": 0, "deferred": 0}
+        stats = {"total": len(new_orders), "ordered": 0, "error": 0, "deferred": 0, "stock_pending": 0}
 
         if not new_orders:
             logger.info("발주 대상 주문 없음")
@@ -89,19 +94,23 @@ class OrderPlacer:
         logger.info("자동 발주 시작: %d건", stats["total"])
 
         if self._budget is None:
-            # 예산 관리 없음 — 기존 동작
             for order in new_orders:
-                if self._place_one(order):
-                    stats["ordered"] += 1
-                else:
-                    stats["error"] += 1
+                result = self._place_one(order)
+                stats[result] += 1
         else:
             self._run_with_budget(new_orders, stats)
 
         logger.info(
-            "자동 발주 완료: 전체 %d건 / 성공 %d건 / 실패 %d건 / 대기 %d건",
-            stats["total"], stats["ordered"], stats["error"], stats["deferred"],
+            "자동 발주 완료: 전체 %d건 / 성공 %d건 / 실패 %d건 / 대기 %d건 / 재고부족 %d건",
+            stats["total"], stats["ordered"], stats["error"],
+            stats["deferred"], stats["stock_pending"],
         )
+
+        # 재고부족 대기 주문이 있으면 배치 이메일
+        if stats["stock_pending"] > 0:
+            stock_pending_orders = self._stock_pending.all() if self._stock_pending else []
+            self._notify_stock_pending(stock_pending_orders)
+
         return stats
 
     # ── 예산 관리 발주 ───────────────────────────────────────
@@ -152,12 +161,15 @@ class OrderPlacer:
 
         # 발주
         for order, mapping, cost in to_place:
-            if self._place_one(order, mapping=mapping):
+            result = self._place_one(order, mapping=mapping)
+            if result == "ordered":
                 stats["ordered"] += 1
                 if cost > 0:
                     self._budget.deduct(
                         cost, f"발주 완료: {order['order_id']}", order["order_id"]
                     )
+            elif result == "stock_pending":
+                stats["stock_pending"] += 1
             else:
                 stats["error"] += 1
 
@@ -228,17 +240,16 @@ class OrderPlacer:
             # PENDING → NEW 로 되돌려서 _place_one이 정상 처리하도록
             self._orders.update_status(oid, "NEW")
 
-            if self._place_one(order):
+            result = self._place_one(order)
+            if result == "ordered":
                 stats["ordered"] += 1
                 running += cost
                 if cost > 0:
-                    self._budget.deduct(
-                        cost, f"대기 주문 재개: {oid}", oid
-                    )
+                    self._budget.deduct(cost, f"대기 주문 재개: {oid}", oid)
             else:
                 stats["error"] += 1
 
-            placed_ids.add(oid)  # 성공/실패 모두 pending에서 제거
+            placed_ids.add(oid)  # 성공/실패/재고부족 모두 pending에서 제거
 
         if placed_ids:
             self._pending.remove_many(placed_ids)
@@ -249,10 +260,55 @@ class OrderPlacer:
         )
         return stats
 
+    # ── 재고부족 대기 주문 재개 ───────────────────────────────
+
+    def resume_stock_pending(
+        self, supplier: str, supplier_product_id: str, ss_product_id: str
+    ) -> int:
+        """재입고 시 해당 상품의 재고부족 대기 주문을 재발주.
+        반환값: 발주 성공 건수
+        """
+        if self._stock_pending is None:
+            return 0
+
+        entries = self._stock_pending.find_by_supplier(supplier, supplier_product_id)
+        if not entries:
+            return 0
+
+        logger.info(
+            "재고부족 대기 주문 재개: %s/%s — %d건",
+            supplier, supplier_product_id, len(entries),
+        )
+
+        placed_ids: set[str] = set()
+        placed_count = 0
+
+        for entry in entries:
+            order = entry["order"]
+            oid   = order["order_id"]
+            self._orders.update_status(oid, "NEW")
+            result = self._place_one(order, skip_stock_check=True)
+            if result == "ordered":
+                placed_count += 1
+            placed_ids.add(oid)
+
+        if placed_ids:
+            self._stock_pending.remove_many(placed_ids)
+
+        logger.info(
+            "재고부족 대기 재개 완료: %s/%s — 발주 %d건 / 전체 %d건",
+            supplier, supplier_product_id, placed_count, len(entries),
+        )
+        return placed_count
+
     # ── 단건 발주 ────────────────────────────────────────────
 
-    def _place_one(self, order: dict, mapping: dict | None = None) -> bool:
-        """단건 발주 처리. 성공 True / 실패 False."""
+    def _place_one(
+        self, order: dict, mapping: dict | None = None, skip_stock_check: bool = False
+    ) -> str:
+        """단건 발주 처리.
+        반환값: 'ordered' | 'error' | 'stock_pending'
+        """
         order_id = order["order_id"]
 
         # 1. 매핑 조회 (budget 경로에서는 이미 조회된 mapping 재사용)
@@ -272,9 +328,25 @@ class OrderPlacer:
                     "상품 매핑 설정 탭에서 매핑을 추가해 주세요."
                 ),
             )
-            return False
+            return "error"
 
-        # 2. 도매처 발주 API 호출
+        # 2. 재고 확인 (stock_pending 활성화 시, skip_stock_check=False 일 때만)
+        if self._stock_pending is not None and not skip_stock_check:
+            supplier     = mapping["supplier"]
+            supplier_pid = mapping["supplier_product_id"]
+            try:
+                client  = self.clients[supplier]
+                product = client.get_product(supplier_pid)
+                stock   = int(product.get("stock", 0))
+                if stock == 0:
+                    return self._handle_stock_pending(order, mapping)
+            except Exception as e:
+                logger.warning(
+                    "재고 조회 실패 — 발주 계속 진행: %s/%s — %s",
+                    supplier, supplier_pid, e,
+                )
+
+        # 3. 도매처 발주 API 호출
         shipping = {
             "name":    order["receiver_name"],
             "phone":   order["receiver_phone"],
@@ -300,9 +372,9 @@ class OrderPlacer:
                 reason="발주 API 오류",
                 detail=str(e),
             )
-            return False
+            return "error"
 
-        # 3. 발주 성공 저장
+        # 4. 발주 성공 저장
         try:
             with get_session() as session:
                 session.add(SupplierOrder(
@@ -322,7 +394,67 @@ class OrderPlacer:
             "발주 완료: order_id=%s → %s 발주번호=%s",
             order_id, mapping["supplier"], supplier_order_no or "(미확인)",
         )
-        return True
+        return "ordered"
+
+    # ── 재고부족 처리 ─────────────────────────────────────────
+
+    def _handle_stock_pending(self, order: dict, mapping: dict) -> str:
+        """재고 없음 → 재고부족 대기 저장 + 스마트스토어 품절 처리"""
+        order_id      = order["order_id"]
+        supplier      = mapping["supplier"]
+        supplier_pid  = mapping["supplier_product_id"]
+        ss_product_id = order.get("product_id", "")
+
+        logger.warning(
+            "재고 없음 → 재고부족 대기: order_id=%s, %s/%s",
+            order_id, supplier, supplier_pid,
+        )
+
+        self._stock_pending.add({
+            "order_id":            order_id,
+            "supplier":            supplier,
+            "supplier_product_id": supplier_pid,
+            "ss_product_id":       ss_product_id,
+            "order":               order,
+        })
+
+        # 스마트스토어 품절 처리
+        if self._ss_api and ss_product_id:
+            try:
+                self._ss_api.set_product_sale_status(ss_product_id, on_sale=False)
+                logger.info("스마트스토어 품절 처리: ss_product=%s", ss_product_id)
+            except Exception as e:
+                logger.error("스마트스토어 품절 처리 실패: ss_product=%s — %s", ss_product_id, e)
+
+        self._orders.update_status(order_id, "STOCK_PENDING")
+        return "stock_pending"
+
+    def _notify_stock_pending(self, pending_orders: list[dict]):
+        """재고부족 대기 배치 이메일"""
+        if not self._notifier or not pending_orders:
+            return
+        count   = len(pending_orders)
+        subject = f"[재고부족 대기] {count}건 주문 재고부족으로 대기 중"
+        lines   = [
+            f"■ {count}건의 주문이 재고부족으로 대기 상태로 전환됐습니다.",
+            "",
+            "■ 대기 주문 목록",
+        ]
+        for entry in pending_orders:
+            order = entry.get("order", {})
+            lines.append(
+                f"  주문번호: {entry.get('order_id', '')} | "
+                f"상품명: {order.get('product_name', '(상품명 없음)')} | "
+                f"도매처: {entry.get('supplier', '')} / {entry.get('supplier_product_id', '')}"
+            )
+        lines += [
+            "",
+            "재입고 시 자동으로 발주가 재개됩니다.",
+        ]
+        try:
+            self._notifier.send(subject=subject, body="\n".join(lines))
+        except Exception as e:
+            logger.error("재고부족 대기 이메일 전송 실패: %s", e)
 
     # ── 오류 처리 ────────────────────────────────────────────
 
