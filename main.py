@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 _SCHEDULE_LABELS = {
     "order_collect":  ("주문 수집",     "order_collect_interval"),
-    "order_place":    ("자동 발주",     "order_collect_interval"),
+    "order_place":    ("자동 발주",     "order_place_interval"),
     "invoice_sync":   ("송장 동기화",   "invoice_sync_interval"),
     "inventory_sync": ("재고 동기화",   "inventory_sync_interval"),
     "price_monitor":  ("가격 모니터링", "price_monitor_interval"),
@@ -58,11 +58,12 @@ def _print_schedule(sched_cfg: dict):
         "  ┌─────────────────────────────────────────┐",
         "  │         자동화 스케줄러 시작             │",
         "  ├─────────────────────────────────────────┤",
-        f"  │  주문 수집·발주   매 {sched_cfg['order_collect_interval']:>3d}분              │",
+        f"  │  주문 수집        매 {sched_cfg['order_collect_interval']:>3d}분              │",
+        f"  │  자동 발주        매 {sched_cfg.get('order_place_interval', 10):>3d}분              │",
         f"  │  송장 동기화      매 {sched_cfg['invoice_sync_interval']:>3d}분              │",
         f"  │  재고 동기화      매 {sched_cfg['inventory_sync_interval']:>3d}분              │",
         f"  │  가격 모니터링    매 {sched_cfg['price_monitor_interval']:>3d}분              │",
-        f"  │  반품 감지        매 {sched_cfg.get('return_monitor_interval', 10):>3d}분              │",
+        f"  │  반품 감지        매 {sched_cfg.get('return_monitor_interval', 60):>3d}분              │",
         "  ├─────────────────────────────────────────┤",
         "  │  Ctrl+C 로 종료                          │",
         "  └─────────────────────────────────────────┘",
@@ -117,12 +118,12 @@ def main():
     scheduler = AutomationScheduler()
 
     # run_now=True: start() 직후 각 작업을 즉시 1회 실행 후 interval 반복
-    scheduler.add_job(collector.run,   sched_cfg["order_collect_interval"],  "order_collect",  run_now=True)
-    scheduler.add_job(placer.run,      sched_cfg["order_collect_interval"],  "order_place",    run_now=True)
+    scheduler.add_job(collector.run,   sched_cfg["order_collect_interval"],               "order_collect",  run_now=True)
+    scheduler.add_job(placer.run,      sched_cfg.get("order_place_interval", 10),         "order_place",    run_now=True)
     scheduler.add_job(invoicer.run,    sched_cfg["invoice_sync_interval"],   "invoice_sync",   run_now=True)
     scheduler.add_job(inventory.run,   sched_cfg["inventory_sync_interval"], "inventory_sync", run_now=True)
     scheduler.add_job(price_mon.run,    sched_cfg["price_monitor_interval"],   "price_monitor",  run_now=True)
-    scheduler.add_job(return_mon.run,   sched_cfg.get("return_monitor_interval", 10), "return_monitor", run_now=True)
+    scheduler.add_job(return_mon.run,   sched_cfg.get("return_monitor_interval", 60), "return_monitor", run_now=True)
 
     _print_schedule(sched_cfg)
     scheduler.start()
