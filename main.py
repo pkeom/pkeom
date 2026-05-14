@@ -94,7 +94,12 @@ def main():
               if k in ("client_id", "client_secret", "account_type")}
     ss_api   = SmartstoreAPI(**ss_cfg)
     dk_api   = DomaekkukAPI(**cfg["domaekkuk"])
-    dm_cli   = DomaemaeClient(**cfg["domaemae"])
+    _dm = cfg.get("domaemae", {})
+    dm_cli = DomaemaeClient(
+        api_key  = _dm.get("api_key") or cfg["domaekkuk"].get("api_key", ""),
+        user_id  = _dm.get("user_id", ""),
+        password = _dm.get("password", ""),
+    )
     notifier = _build_notifier(cfg)
 
     budget_amount = cfg.get("budget", 0)

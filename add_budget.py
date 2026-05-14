@@ -58,7 +58,12 @@ def main():
         pass
 
     dk_api = DomaekkukAPI(**cfg["domaekkuk"])
-    dm_cli = DomaemaeClient(**cfg["domaemae"])
+    _dm = cfg.get("domaemae", {})
+    dm_cli = DomaemaeClient(
+        api_key  = _dm.get("api_key") or cfg["domaekkuk"].get("api_key", ""),
+        user_id  = _dm.get("user_id", ""),
+        password = _dm.get("password", ""),
+    )
 
     placer = OrderPlacer(
         dk_api, dm_cli,

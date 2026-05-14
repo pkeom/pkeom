@@ -44,7 +44,12 @@ def _build_clients(cfg: dict):
         user_id=cfg["domaekkuk"].get("user_id", ""),
         password=cfg["domaekkuk"].get("password", ""),
     )
-    dm_cli = DomaemaeClient(**cfg["domaemae"])
+    _dm = cfg.get("domaemae", {})
+    dm_cli = DomaemaeClient(
+        api_key  = _dm.get("api_key") or cfg["domaekkuk"].get("api_key", ""),
+        user_id  = _dm.get("user_id", ""),
+        password = _dm.get("password", ""),
+    )
     # 이메일 미설정 시 notifier=None (오류 이메일만 건너뜀)
     email_cfg = cfg.get("email", {})
     notifier = None
