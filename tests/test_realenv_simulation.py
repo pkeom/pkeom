@@ -763,14 +763,14 @@ class TestRE07_InventorySync(unittest.TestCase):
                 self.assertEqual(stats["error"], 0)
 
                 # 품절 처리
-                e["dk_api"].get_stock.return_value = 0
-                e["dm_cli"].get_stock.return_value = 0
+                e["dk_api"].get_product.return_value["stock"] = 0
+                e["dm_cli"].get_product.return_value["stock"] = 0
                 stats2 = s.run()
                 self.assertEqual(stats2["paused"], 2)
 
                 # 재입고
-                e["dk_api"].get_stock.return_value = 30
-                e["dm_cli"].get_stock.return_value = 10
+                e["dk_api"].get_product.return_value["stock"] = 30
+                e["dm_cli"].get_product.return_value["stock"] = 10
                 e["ss_api"].reset_mock()
                 stats3 = s.run()
                 self.assertEqual(stats3["resumed"], 2)
@@ -783,7 +783,7 @@ class TestRE07_InventorySync(unittest.TestCase):
 
                 # 엣지: 재고 API 타임아웃
                 e2 = _make_env()
-                e2["dk_api"].get_stock.side_effect = requests.exceptions.Timeout(
+                e2["dk_api"].get_product.side_effect = requests.exceptions.Timeout(
                     "도매꾹 재고 조회 타임아웃"
                 )
                 stats5 = _sync(e2).run()
@@ -792,8 +792,8 @@ class TestRE07_InventorySync(unittest.TestCase):
 
                 # 엣지: 재고 0개인 상품 → paused
                 e3 = _make_env()
-                e3["dk_api"].get_stock.return_value = 0
-                e3["dm_cli"].get_stock.return_value = 0
+                e3["dk_api"].get_product.return_value["stock"] = 0
+                e3["dm_cli"].get_product.return_value["stock"] = 0
                 stats6 = _sync(e3).run()
                 self.assertEqual(stats6["paused"], 2)
 

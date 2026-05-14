@@ -326,8 +326,8 @@ class TestScenario4_InventorySync(SimulationTestBase):
         self.assertEqual(stats["error"], 0)
 
     def test_out_of_stock_pauses_sale(self):
-        self.mock_domaekkuk.get_stock.return_value = 0
-        self.mock_domaemae.get_stock.return_value = 0
+        self.mock_domaekkuk.get_product.return_value["stock"] = 0
+        self.mock_domaemae.get_product.return_value["stock"] = 0
         stats = self._make_sync().run()
         self.assertEqual(stats["paused"], 2)
         for c in self.mock_ss.set_product_sale_status.call_args_list:
@@ -335,13 +335,13 @@ class TestScenario4_InventorySync(SimulationTestBase):
 
     def test_restock_resumes_sale(self):
         # 1차: 품절
-        self.mock_domaekkuk.get_stock.return_value = 0
-        self.mock_domaemae.get_stock.return_value = 0
+        self.mock_domaekkuk.get_product.return_value["stock"] = 0
+        self.mock_domaemae.get_product.return_value["stock"] = 0
         sync = self._make_sync()
         sync.run()
         # 2차: 재입고
-        self.mock_domaekkuk.get_stock.return_value = 30
-        self.mock_domaemae.get_stock.return_value = 10
+        self.mock_domaekkuk.get_product.return_value["stock"] = 30
+        self.mock_domaemae.get_product.return_value["stock"] = 10
         self.mock_ss.reset_mock()
         stats = sync.run()
         self.assertEqual(stats["resumed"], 2)
@@ -357,7 +357,7 @@ class TestScenario4_InventorySync(SimulationTestBase):
         self.mock_ss.set_product_sale_status.assert_not_called()
 
     def test_stock_api_error_increments_error_count(self):
-        self.mock_domaekkuk.get_stock.side_effect = Exception("재고 API 오류")
+        self.mock_domaekkuk.get_product.side_effect = Exception("재고 API 오류")
         stats = self._make_sync().run()
         self.assertGreater(stats["error"], 0)
         self.mock_notifier.send.assert_called()

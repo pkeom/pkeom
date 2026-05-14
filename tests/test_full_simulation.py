@@ -409,16 +409,16 @@ class TestFeature06_InventorySync(unittest.TestCase):
                 self.assertEqual(stats["error"], 0)
 
                 # 품절 발생
-                e["mock_dk"].get_stock.return_value = 0
-                e["mock_dm"].get_stock.return_value = 0
+                e["mock_dk"].get_product.return_value["stock"] = 0
+                e["mock_dm"].get_product.return_value["stock"] = 0
                 stats2 = s.run()
                 self.assertEqual(stats2["paused"], 2)
                 for c in e["mock_ss"].set_product_sale_status.call_args_list[-2:]:
                     self.assertFalse(c[1]["on_sale"])
 
                 # 재입고 → resumed
-                e["mock_dk"].get_stock.return_value = 30
-                e["mock_dm"].get_stock.return_value = 10
+                e["mock_dk"].get_product.return_value["stock"] = 30
+                e["mock_dm"].get_product.return_value["stock"] = 10
                 e["mock_ss"].reset_mock()
                 stats3 = s.run()
                 self.assertEqual(stats3["resumed"], 2)
@@ -431,7 +431,7 @@ class TestFeature06_InventorySync(unittest.TestCase):
 
                 # 재고 조회 오류 → error + 이메일
                 e2 = _make_env()
-                e2["mock_dk"].get_stock.side_effect = Exception("재고 API 오류")
+                e2["mock_dk"].get_product.side_effect = Exception("재고 API 오류")
                 stats5 = _sync(e2).run()
                 self.assertGreater(stats5["error"], 0)
                 e2["mock_notifier"].send.assert_called()
