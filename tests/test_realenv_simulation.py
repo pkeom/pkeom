@@ -875,29 +875,6 @@ class TestRE09_ReturnMonitor(unittest.TestCase):
 class TestRE10_BudgetCases(unittest.TestCase):
     """10. 예산 관리 (충분/부족/딱맞음)"""
 
-    def _add_test_orders(self, e, costs: list[int]):
-        """주어진 비용 목록으로 주문 + 매핑 추가"""
-        for idx, cost in enumerate(costs):
-            pid    = f"P-BTEST-{i}-{idx}"
-            dk_pid = f"DK-BTEST-{i}-{idx}"
-            e["mapping_repo"].add(pid, "domaekkuk", dk_pid)
-            e["order_repo"].add_many([{
-                "order_id":    f"ORD-B-{i}-{idx}",
-                "ss_order_id": f"SS-B-{i}-{idx}",
-                "product_id":  pid, "product_name": f"예산테스트{idx}",
-                "option_code": "", "quantity": 1,
-                "buyer_name": "테스터", "receiver_name": "테스터",
-                "receiver_phone": "010-0000-0000",
-                "receiver_address": "서울시", "receiver_zipcode": "00000",
-                "delivery_memo": "", "status": "NEW",
-                "collected_at": "2026-01-01T00:00:00",
-                "updated_at":   "2026-01-01T00:00:00",
-            }])
-            e["dk_api"].get_product.side_effect = None
-            e["dk_api"].get_product.return_value = {
-                "price": cost, "stock": 50, "title": f"상품{idx}",
-            }
-
     def test_100_iterations(self):
         for i in range(N):
             with self.subTest(i=i + 1):
