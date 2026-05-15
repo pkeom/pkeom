@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>위탁판매 대시보드</title>
+<style>
+:root {
+  --blue: #0064FF;
+  --blue-bg: #EBF3FF;
+  --bg: #F2F4F6;
+  --card: #FFFFFF;
+  --border: #E5E8EB;
+  --text: #191F28;
+  --text2: #6B7684;
+  --text3: #B0B8C1;
+  --green: #00C471;
+  --green-bg: #E5F9F0;
+  --orange: #FF8A00;
+  --orange-bg: #FFF3E0;
+  --red: #F04452;
+  --red-bg: #FEECEE;
+  --purple: #7040E2;
+  --purple-bg: #F0EBFF;
+  --yellow: #F5A623;
+  --yellow-bg: #FFF8E1;
+  --r: 12px;
+  --r-sm: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 4px 12px rgba(0,0,0,0.04);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── Nav ── */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  height: 56px; padding: 0 16px; gap: 0;
+}
+.nav-brand {
+  font-size: 15px; font-weight: 800;
+  color: var(--blue); white-space: nowrap; margin-right: 20px;
+  letter-spacing: -0.3px;
+}
+.nav-tabs {
+  display: flex; overflow-x: auto; flex: 1;
+  scrollbar-width: none; gap: 2px;
+}
+.nav-tabs::-webkit-scrollbar { display: none; }
+.nav-tab {
+  position: relative;
+  padding: 7px 13px; border: none; background: none;
+  cursor: pointer; font-size: 13px; color: var(--text2);
+  border-radius: var(--r-sm); white-space: nowrap;
+  font-family: inherit; transition: all 0.15s; font-weight: 500;
+}
+.nav-tab:hover { background: var(--bg); color: var(--text); }
+.nav-tab.active { background: var(--blue-bg); color: var(--blue); font-weight: 700; }
+.nav-dot {
+  position: absolute; top: 5px; right: 7px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--red); display: none;
+}
+.nav-dot.show { display: block; }
+.nav-right {
+  display: flex; align-items: center; gap: 8px;
+  margin-left: 12px; flex-shrink: 0;
+}
+.sys-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--text3);
+  transition: all 0.3s;
+}
+.sys-dot.on { background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
+.sys-label { font-size: 11px; color: var(--text2); }
+.upd-time { font-size: 11px; color: var(--text3); display: none; }
+@media (min-width: 640px) { .upd-time { display: block; } }
+
+/* ── Layout ── */
+.main {
+  margin-top: 56px; padding: 16px;
+  max-width: 1200px; margin-left: auto; margin-right: auto;
+}
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ── Cards ── */
+.card {
+  background: var(--card); border-radius: var(--r);
+  box-shadow: var(--shadow); padding: 20px;
+}
+.mb { margin-bottom: 14px; }
+
+/* ── Stats Grid ── */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px; margin-bottom: 16px;
+}
+.stat {
+  background: var(--card); border-radius: var(--r);
+  box-shadow: var(--shadow); padding: 16px 18px;
+}
+.stat-label { font-size: 12px; color: var(--text2); font-weight: 500; margin-bottom: 6px; }
+.stat-val { font-size: 22px; font-weight: 800; color: var(--text); }
+.stat-val.blue { color: var(--blue); }
+.stat-val.green { color: var(--green); }
+.stat-val.red { color: var(--red); }
+
+/* ── Section Header ── */
+.sh {
+  display: flex; align-items: center;
+  justify-content: space-between; margin-bottom: 14px;
+}
+.sh-title { font-size: 15px; font-weight: 700; }
+
+/* ── Tables ── */
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; font-size: 11px; font-weight: 700;
+  color: var(--text2); padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;
+}
+td {
+  padding: 11px 12px; border-bottom: 1px solid var(--border);
+  font-size: 13px; vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: #FAFBFC; }
+
+/* ── Badges ── */
+.bdg {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 20px;
+  font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+.bdg-new    { background: var(--blue-bg);   color: var(--blue); }
+.bdg-ord    { background: var(--orange-bg); color: var(--orange); }
+.bdg-inv    { background: var(--green-bg);  color: var(--green); }
+.bdg-err    { background: var(--red-bg);    color: var(--red); }
+.bdg-pend   { background: var(--yellow-bg); color: var(--yellow); }
+.bdg-stock  { background: var(--purple-bg); color: var(--purple); }
+.bdg-done   { background: var(--bg);        color: var(--text2); }
+.bdg-charge { background: var(--green-bg);  color: var(--green); }
+.bdg-deduct { background: var(--red-bg);    color: var(--red); }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 9px 18px; border-radius: var(--r-sm);
+  font-size: 13px; font-weight: 700; cursor: pointer;
+  border: none; transition: all 0.15s; font-family: inherit;
+}
+.btn-blue  { background: var(--blue); color: #fff; }
+.btn-blue:hover { background: #0050CC; }
+.btn-ghost { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--border); }
+.btn-del   { background: var(--red-bg); color: var(--red); }
+.btn-del:hover { background: #fdd; }
+.btn-sm    { padding: 5px 11px; font-size: 12px; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-full  { width: 100%; justify-content: center; }
+
+/* ── Chips (filter) ── */
+.chips { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+.chip {
+  padding: 6px 14px; border-radius: 20px; font-size: 12px;
+  cursor: pointer; border: 1px solid var(--border);
+  background: var(--card); color: var(--text2);
+  transition: all 0.15s; font-family: inherit; font-weight: 500;
+}
+.chip:hover { border-color: var(--blue); color: var(--blue); }
+.chip.on { background: var(--blue-bg); color: var(--blue); border-color: var(--blue); font-weight: 700; }
+
+/* ── Form ── */
+.fg { margin-bottom: 13px; }
+.fl {
+  display: block; font-size: 11px; font-weight: 700;
+  color: var(--text2); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.3px;
+}
+.fi, .fs {
+  width: 100%; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  font-size: 13px; font-family: inherit;
+  color: var(--text); background: var(--card);
+  outline: none; transition: border-color 0.15s;
+}
+.fi:focus, .fs:focus { border-color: var(--blue); }
+
+/* ── Toggle ── */
+.tgl { position: relative; display: inline-block; width: 38px; height: 22px; }
+.tgl input { opacity: 0; width: 0; height: 0; }
+.tgl-sl {
+  position: absolute; cursor: pointer; inset: 0;
+  background: var(--border); border-radius: 11px; transition: 0.2s;
+}
+.tgl-sl::before {
+  content: ''; position: absolute;
+  height: 16px; width: 16px; left: 3px; top: 3px;
+  background: #fff; border-radius: 50%; transition: 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.tgl input:checked + .tgl-sl { background: var(--blue); }
+.tgl input:checked + .tgl-sl::before { transform: translateX(16px); }
+
+/* ── Split layout ── */
+.split { display: grid; grid-template-columns: 1fr 360px; gap: 14px; align-items: start; }
+@media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+
+/* ── Budget layout ── */
+.budget-grid { display: grid; grid-template-columns: 1fr 300px; gap: 14px; align-items: start; }
+@media (max-width: 768px) { .budget-grid { grid-template-columns: 1fr; } }
+
+/* ── Balance display ── */
+.bal-wrap { text-align: center; padding: 28px 20px; }
+.bal-label { font-size: 13px; color: var(--text2); margin-bottom: 8px; }
+.bal-amount { font-size: 38px; font-weight: 900; color: var(--text); letter-spacing: -1px; }
+.bal-meta { font-size: 12px; color: var(--text2); margin-top: 10px; }
+
+/* ── Product preview ── */
+.preview {
+  background: var(--bg); border-radius: var(--r-sm);
+  padding: 12px 14px; margin-top: 6px; margin-bottom: 10px;
+  border-left: 3px solid var(--blue);
+}
+.preview-name { font-weight: 700; font-size: 13px; margin-bottom: 3px; }
+.preview-meta { font-size: 12px; color: var(--text2); }
+
+/* ── Empty state ── */
+.empty { text-align: center; padding: 36px 20px; color: var(--text3); }
+.empty-ico { font-size: 28px; margin-bottom: 6px; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: #1A2332; color: #fff;
+  padding: 12px 20px; border-radius: var(--r-sm);
+  font-size: 13px; font-weight: 500; z-index: 9999;
+  opacity: 0; transform: translateY(8px);
+  transition: all 0.22s; pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+
+/* ── Misc ── */
+.flex-row { display: flex; gap: 8px; align-items: center; }
+.mono { font-family: 'SF Mono', 'Consolas', monospace; font-size: 11px; }
+.up   { color: var(--red);   font-weight: 700; }
+.down { color: var(--green); font-weight: 700; }
+.hint { font-size: 11px; color: var(--text3); margin-top: 4px; }
+.row-gap { margin-bottom: 14px; }
+</style>
+</head>
+<body>
+
+<!-- ── Navigation ─────────────────────────────────────────────── -->
+<nav class="nav">
+  <div class="nav-brand">📦 위탁판매</div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" data-tab="dashboard">대시보드</button>
+    <button class="nav-tab" data-tab="mapping">매핑 관리</button>
+    <button class="nav-tab" data-tab="orders">주문 현황</button>
+    <button class="nav-tab" data-tab="budget">예산 관리</button>
+    <button class="nav-tab" data-tab="prices">가격 변동<span class="nav-dot" id="price-dot"></span></button>
+    <button class="nav-tab" data-tab="returns">반품 목록<span class="nav-dot" id="return-dot"></span></button>
+  </div>
+  <div class="nav-right">
+    <div class="sys-dot" id="sysDot"></div>
+    <span class="sys-label" id="sysLabel">확인 중</span>
+    <span class="upd-time" id="updTime"></span>
+  </div>
+</nav>
+
+<main class="main">
+
+<!-- ── 1. Dashboard ─────────────────────────────────────────── -->
+<div id="panel-dashboard" class="panel active">
+  <div class="stats">
+    <div class="stat"><div class="stat-label">예산 잔액</div><div class="stat-val blue" id="s-balance">-</div></div>
+    <div class="stat"><div class="stat-label">오늘 주문</div><div class="stat-val" id="s-today">-</div></div>
+    <div class="stat"><div class="stat-label">발주 완료</div><div class="stat-val green" id="s-ordered">-</div></div>
+    <div class="stat"><div class="stat-label">대기 중</div><div class="stat-val" id="s-pending">-</div></div>
+    <div class="stat"><div class="stat-label">재고 부족</div><div class="stat-val red" id="s-stock">-</div></div>
+    <div class="stat"><div class="stat-label">반품 신청</div><div class="stat-val" id="s-returns">-</div></div>
+  </div>
+
+  <div class="card">
+    <div class="sh">
+      <div class="sh-title">최근 주문</div>
+      <span class="sys-label">시스템: <span id="sysStatus">-</span></span>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>주문번호</th><th>상품명</th><th>상태</th><th>수집 시각</th><th>구매자</th></tr>
+        </thead>
+        <tbody id="dash-orders"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── 2. Mapping ─────────────────────────────────────────────── -->
+<div id="panel-mapping" class="panel">
+  <div class="split">
+    <!-- 좌: 기존 매핑 목록 -->
+    <div>
+      <div class="sh">
+        <div class="sh-title">등록된 매핑</div>
+        <button class="btn btn-ghost btn-sm" onclick="loadMappings()">새로고침</button>
+      </div>
+      <div class="card">
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>SS 상품 ID</th>
+                <th>도매처</th>
+                <th>도매처 상품 ID</th>
+                <th>메모</th>
+                <th>활성</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="map-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 우: 새 매핑 추가 -->
+    <div>
+      <div class="sh"><div class="sh-title">새 매핑 추가</div></div>
+      <div class="card">
+        <div class="fg">
+          <label class="fl">스마트스토어 상품 ID</label>
+          <div class="flex-row">
+            <input class="fi" id="m-ss-id" placeholder="예: 1234567890" style="flex:1">
+            <button class="btn btn-ghost btn-sm" onclick="fetchSSProduct()">확인</button>
+          </div>
+        </div>
+        <div id="ss-preview" style="display:none" class="preview row-gap">
+          <div class="preview-name" id="ss-pname">-</div>
+        </div>
+
+        <div class="fg">
+          <label class="fl">도매처</label>
+          <select class="fs" id="m-supplier">
+            <option value="domaekkuk">도매꾹</option>
+            <option value="domaemae">도매매</option>
+          </select>
+        </div>
+
+        <div class="fg">
+          <label class="fl">도매처 URL 또는 상품 ID</label>
+          <div class="flex-row">
+            <input class="fi" id="m-surl" placeholder="https://domeggook.com/12345" style="flex:1"
+                   oninput="autoExtract(this.value)">
+            <button class="btn btn-ghost btn-sm" onclick="fetchSupplierProduct()">확인</button>
+          </div>
+          <div class="hint">추출된 ID: <strong id="ext-id">-</strong></div>
+        </div>
+        <div id="sup-preview" style="display:none" class="preview row-gap">
+          <div class="preview-name" id="sup-pname">-</div>
+          <div class="preview-meta" id="sup-pmeta">-</div>
+        </div>
+
+        <div class="fg">
+          <label class="fl">SS 옵션 ID (선택)</label>
+          <input class="fi" id="m-ss-opt" placeholder="스마트스토어 옵션 ID">
+        </div>
+        <div class="fg">
+          <label class="fl">도매처 옵션 ID (선택)</label>
+          <input class="fi" id="m-sup-opt" placeholder="도매처 옵션 코드">
+        </div>
+
+        <div class="fg">
+          <label class="fl">마진율</label>
+          <input class="fi" id="m-margin" type="number" value="1.3" step="0.05" min="1">
+        </div>
+
+        <div class="fg">
+          <label class="fl">메모 (선택)</label>
+          <input class="fi" id="m-memo" placeholder="상품명이나 참고 메모">
+        </div>
+
+        <button class="btn btn-blue btn-full" onclick="saveMapping()">저장하기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 3. Orders ──────────────────────────────────────────────── -->
+<div id="panel-orders" class="panel">
+  <div class="sh"><div class="sh-title">주문 현황</div></div>
+  <div class="chips" id="order-chips">
+    <button class="chip on" data-status="">전체</button>
+    <button class="chip" data-status="NEW">신규</button>
+    <button class="chip" data-status="ORDERED">발주완료</button>
+    <button class="chip" data-status="INVOICED">송장등록</button>
+    <button class="chip" data-status="ERROR">오류</button>
+    <button class="chip" data-status="PENDING">예산대기</button>
+    <button class="chip" data-status="STOCK_PENDING">재고대기</button>
+  </div>
+  <div class="card">
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>주문번호</th>
+            <th>상품명</th>
+            <th>수량</th>
+            <th>상태</th>
+            <th>도매처</th>
+            <th>수집 시각</th>
+            <th>수정 시각</th>
+          </tr>
+        </thead>
+        <tbody id="ord-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── 4. Budget ──────────────────────────────────────────────── -->
+<div id="panel-budget" class="panel">
+  <div class="budget-grid">
+    <div>
+      <div class="card mb row-gap">
+        <div class="bal-wrap">
+          <div class="bal-label">현재 예산 잔액</div>
+          <div class="bal-amount" id="bal-amount">-</div>
+          <div class="bal-meta">
+            총 충전: <strong id="bal-charged">-</strong> &nbsp;·&nbsp; 총 지출: <strong id="bal-spent">-</strong>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sh"><div class="sh-title">입출금 내역</div></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr><th>구분</th><th>금액</th><th>사유</th><th>잔액</th><th>시각</th></tr>
+            </thead>
+            <tbody id="hist-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="sh-title" style="margin-bottom:16px">예산 충전</div>
+        <div class="fg">
+          <label class="fl">충전 금액 (원)</label>
+          <input class="fi" id="ch-amount" type="number" placeholder="100,000" min="1000" step="10000">
+        </div>
+        <div class="fg">
+          <label class="fl">사유</label>
+          <input class="fi" id="ch-reason" value="예산 충전">
+        </div>
+        <div class="chips row-gap">
+          <button class="chip" onclick="setAmt(50000)">5만원</button>
+          <button class="chip" onclick="setAmt(100000)">10만원</button>
+          <button class="chip" onclick="setAmt(300000)">30만원</button>
+          <button class="chip" onclick="setAmt(500000)">50만원</button>
+        </div>
+        <button class="btn btn-blue btn-full" onclick="chargeBudget()">충전하기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 5. Prices ──────────────────────────────────────────────── -->
+<div id="panel-prices" class="panel">
+  <div class="sh">
+    <div class="sh-title">가격 변동 알림</div>
+    <button class="btn btn-ghost btn-sm" onclick="markAllRead()">전체 읽음</button>
+  </div>
+  <div class="card">
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>상품명</th>
+            <th>도매처</th>
+            <th>이전 가격</th>
+            <th>변동 가격</th>
+            <th>변동률</th>
+            <th>감지 시각</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="price-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── 6. Returns ─────────────────────────────────────────────── -->
+<div id="panel-returns" class="panel">
+  <div class="sh"><div class="sh-title">반품 목록</div></div>
+  <div class="card">
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>주문번호</th>
+            <th>상품명</th>
+            <th>수량</th>
+            <th>반품 사유</th>
+            <th>감지 시각</th>
+          </tr>
+        </thead>
+        <tbody id="ret-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── 상태 ──────────────────────────────────────────────────────
+let curTab    = 'dashboard';
+let curStatus = '';
+
+// ── 유틸 ──────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+const fmt = n => Number(n).toLocaleString('ko-KR') + '원';
+const fmtN = n => Number(n).toLocaleString('ko-KR');
+
+function fmtDate(s) {
+  if (!s) return '-';
+  try {
+    const d = new Date(s);
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const dd = String(d.getDate()).padStart(2,'0');
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mi = String(d.getMinutes()).padStart(2,'0');
+    return `${mm}/${dd} ${hh}:${mi}`;
+  } catch { return s.slice(0,16).replace('T',' '); }
+}
+
+function sbdg(s) {
+  const m = {
+    NEW:          ['bdg-new',   '신규'],
+    ORDERED:      ['bdg-ord',   '발주완료'],
+    INVOICED:     ['bdg-inv',   '송장등록'],
+    DONE:         ['bdg-done',  '완료'],
+    ERROR:        ['bdg-err',   '오류'],
+    PENDING:      ['bdg-pend',  '예산대기'],
+    STOCK_PENDING:['bdg-stock', '재고대기'],
+  };
+  const [c, l] = m[s] || ['bdg-done', s];
+  return `<span class="bdg ${c}">${l}</span>`;
+}
+
+const supLabel = s => ({domaekkuk:'도매꾹', domaemae:'도매매'}[s] || s);
+
+function toast(msg, ms = 2500) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), ms);
+}
+
+async function api(url, opts = {}) {
+  const r = await fetch(url, opts);
+  return r.json();
+}
+const post = (url, body) => api(url, {
+  method: 'POST',
+  headers: {'Content-Type':'application/json'},
+  body: JSON.stringify(body),
+});
+const patch = (url, body) => api(url, {
+  method: 'PATCH',
+  headers: {'Content-Type':'application/json'},
+  body: JSON.stringify(body),
+});
+
+function empty(msg) {
+  return `<tr><td colspan="99"><div class="empty"><div class="empty-ico">📭</div>${msg}</div></td></tr>`;
+}
+
+// ── 탭 전환 ───────────────────────────────────────────────────
+document.querySelectorAll('.nav-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    $(`panel-${btn.dataset.tab}`).classList.add('active');
+    curTab = btn.dataset.tab;
+    loadTab();
+  });
+});
+
+function loadTab() {
+  ({
+    dashboard: loadDashboard,
+    mapping:   loadMappings,
+    orders:    () => loadOrders(curStatus),
+    budget:    loadBudget,
+    prices:    loadPrices,
+    returns:   loadReturns,
+  }[curTab] || (() => {}))();
+}
+
+// ── 1. Dashboard ──────────────────────────────────────────────
+async function loadDashboard() {
+  const d = await api('/api/summary').catch(() => ({}));
+
+  $('s-balance').textContent  = fmt(d.balance   || 0);
+  $('s-today').textContent    = fmtN(d.today_orders  || 0);
+  $('s-ordered').textContent  = fmtN(d.ordered_count || 0);
+  $('s-pending').textContent  = fmtN(d.pending_count || 0);
+  $('s-stock').textContent    = fmtN(d.out_of_stock  || 0);
+  $('s-returns').textContent  = fmtN(d.return_count  || 0);
+
+  const on = d.system_running;
+  $('sysDot').className   = 'sys-dot' + (on ? ' on' : '');
+  $('sysLabel').textContent = on ? '실행 중' : '중지됨';
+  $('sysStatus').textContent = on ? '✅ 실행 중' : '⛔ 중지됨';
+
+  const pCnt = d.price_alert_count || 0;
+  $('price-dot').className  = 'nav-dot' + (pCnt > 0 ? ' show' : '');
+  const rCnt = d.return_count || 0;
+  $('return-dot').className = 'nav-dot' + (rCnt > 0 ? ' show' : '');
+
+  $('updTime').textContent = new Date().toLocaleTimeString('ko-KR', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+
+  const orders = await api('/api/orders').catch(() => []);
+  const tbody = $('dash-orders');
+  const recent = orders.slice(0, 10);
+  tbody.innerHTML = recent.length
+    ? recent.map(o => `<tr>
+        <td class="mono">${o.order_id||'-'}</td>
+        <td>${o.product_name||'-'}</td>
+        <td>${sbdg(o.status)}</td>
+        <td>${fmtDate(o.collected_at)}</td>
+        <td>${o.buyer_name||'-'}</td>
+      </tr>`).join('')
+    : empty('주문 없음');
+}
+
+// ── 2. Mapping ────────────────────────────────────────────────
+async function loadMappings() {
+  const ms = await api('/api/mappings').catch(() => []);
+  const tbody = $('map-tbody');
+  tbody.innerHTML = ms.length
+    ? ms.map(m => `<tr>
+        <td class="mono">${m.ss_product_id}${m.ss_option_id ? `<br><span style="color:var(--text3)">${m.ss_option_id}</span>` : ''}</td>
+        <td>${supLabel(m.supplier)}</td>
+        <td class="mono">${m.supplier_product_id}${m.supplier_option_id ? `<br><span style="color:var(--text3)">${m.supplier_option_id}</span>` : ''}</td>
+        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.memo||''}">${m.memo||'-'}</td>
+        <td>
+          <label class="tgl">
+            <input type="checkbox" ${m.is_active?'checked':''} onchange="toggleMap(${m.id},this.checked)">
+            <span class="tgl-sl"></span>
+          </label>
+        </td>
+        <td><button class="btn btn-del btn-sm" onclick="delMap(${m.id})">삭제</button></td>
+      </tr>`).join('')
+    : empty('매핑 없음 — 오른쪽 폼으로 추가하세요');
+}
+
+async function toggleMap(id, active) {
+  await patch(`/api/mappings/${id}/toggle`, {is_active: active});
+  toast(active ? '활성화됨' : '비활성화됨');
+}
+
+async function delMap(id) {
+  if (!confirm('이 매핑을 삭제하시겠습니까?')) return;
+  await fetch(`/api/mappings/${id}`, {method:'DELETE'});
+  toast('삭제 완료');
+  loadMappings();
+}
+
+function autoExtract(url) {
+  let id = url.trim();
+  const m1 = url.match(/domeggook\.com\/(\d+)/);
+  const m2 = url.match(/[?&]no=(\d+)/);
+  if (m1) id = m1[1];
+  else if (m2) id = m2[1];
+  else if (/^\d+$/.test(url.trim())) id = url.trim();
+  $('ext-id').textContent = id || '-';
+}
+
+async function fetchSSProduct() {
+  const pid = $('m-ss-id').value.trim();
+  if (!pid) return;
+  $('ss-preview').style.display = 'none';
+  try {
+    const d = await api(`/api/smartstore/product/${pid}`);
+    if (d.error) { toast('오류: ' + d.error); return; }
+    const name = d.name || d.productName || d.channelProductName || pid;
+    $('ss-pname').textContent = name;
+    $('ss-preview').style.display = 'block';
+  } catch { toast('스마트스토어 조회 실패'); }
+}
+
+async function fetchSupplierProduct() {
+  const url = $('m-surl').value.trim();
+  const sup = $('m-supplier').value;
+  if (!url) return;
+  $('sup-preview').style.display = 'none';
+  try {
+    const d = await api(`/api/supplier/product?url=${encodeURIComponent(url)}&supplier=${sup}`);
+    if (d.error) { toast('오류: ' + d.error); return; }
+    $('sup-pname').textContent = d.title || d.product_id || '-';
+    $('sup-pmeta').textContent = `가격: ${fmt(d.price||0)} | 재고: ${fmtN(d.stock||0)}개`;
+    $('sup-preview').style.display = 'block';
+  } catch { toast('도매처 조회 실패'); }
+}
+
+async function saveMapping() {
+  const ssId  = $('m-ss-id').value.trim();
+  const surl  = $('m-surl').value.trim();
+  const sup   = $('m-supplier').value;
+  if (!ssId || !surl) { toast('스마트스토어 ID와 도매처 URL을 입력하세요'); return; }
+
+  const res = await post('/api/mappings', {
+    ss_product_id:      ssId,
+    supplier:           sup,
+    supplier_url_or_id: surl,
+    ss_option_id:       $('m-ss-opt').value.trim(),
+    supplier_option_id: $('m-sup-opt').value.trim(),
+    price_margin_rate:  parseFloat($('m-margin').value) || 1.3,
+    memo:               $('m-memo').value.trim(),
+  });
+
+  if (res.error) { toast('오류: ' + res.error); return; }
+  toast('매핑 저장 완료!');
+  ['m-ss-id','m-surl','m-ss-opt','m-sup-opt','m-memo'].forEach(id => $(id).value = '');
+  $('ext-id').textContent = '-';
+  $('ss-preview').style.display = 'none';
+  $('sup-preview').style.display = 'none';
+  loadMappings();
+}
+
+// ── 3. Orders ─────────────────────────────────────────────────
+document.querySelectorAll('#order-chips .chip').forEach(c => {
+  c.addEventListener('click', () => {
+    document.querySelectorAll('#order-chips .chip').forEach(x => x.classList.remove('on'));
+    c.classList.add('on');
+    curStatus = c.dataset.status;
+    loadOrders(curStatus);
+  });
+});
+
+async function loadOrders(status = '') {
+  const url = status ? `/api/orders?status=${status}` : '/api/orders';
+  const orders = await api(url).catch(() => []);
+  const tbody = $('ord-tbody');
+  tbody.innerHTML = orders.length
+    ? orders.map(o => `<tr>
+        <td class="mono">${o.order_id||'-'}</td>
+        <td>${o.product_name||'-'}</td>
+        <td style="text-align:center">${o.quantity||1}</td>
+        <td>${sbdg(o.status)}</td>
+        <td>${supLabel(o.supplier||'')}</td>
+        <td>${fmtDate(o.collected_at)}</td>
+        <td>${fmtDate(o.updated_at)}</td>
+      </tr>`).join('')
+    : empty('주문 없음');
+}
+
+// ── 4. Budget ─────────────────────────────────────────────────
+async function loadBudget() {
+  const d = await api('/api/budget').catch(() => ({}));
+  $('bal-amount').textContent  = fmt(d.current_balance || 0);
+  $('bal-charged').textContent = fmt(d.total_charged   || 0);
+  $('bal-spent').textContent   = fmt(d.total_spent     || 0);
+
+  const hist  = (d.history || []).slice().reverse().slice(0, 50);
+  const tbody = $('hist-tbody');
+  tbody.innerHTML = hist.length
+    ? hist.map(h => {
+        const isC = h.type === 'charge';
+        return `<tr>
+          <td><span class="bdg ${isC?'bdg-charge':'bdg-deduct'}">${isC?'충전':'지출'}</span></td>
+          <td style="font-weight:700;color:${isC?'var(--green)':'var(--red)'}">${isC?'+':''}${fmt(h.amount)}</td>
+          <td style="color:var(--text2)">${h.reason||'-'}</td>
+          <td>${fmt(h.balance_after)}</td>
+          <td>${fmtDate(h.at)}</td>
+        </tr>`;
+      }).join('')
+    : empty('내역 없음');
+}
+
+function setAmt(n) { $('ch-amount').value = n; }
+
+async function chargeBudget() {
+  const amount = parseInt($('ch-amount').value) || 0;
+  const reason = $('ch-reason').value || '예산 충전';
+  if (amount < 1000) { toast('1,000원 이상 입력하세요'); return; }
+  const res = await post('/api/budget/charge', {amount, reason});
+  if (res.error) { toast('오류: ' + res.error); return; }
+  toast(`${fmt(amount)} 충전 완료!`);
+  $('ch-amount').value = '';
+  loadBudget();
+}
+
+// ── 5. Prices ─────────────────────────────────────────────────
+async function loadPrices() {
+  const alerts = await api('/api/price-alerts').catch(() => []);
+  const tbody  = $('price-tbody');
+  tbody.innerHTML = alerts.length
+    ? alerts.map(a => {
+        const rate    = (a.change_rate * 100).toFixed(1);
+        const isUp    = a.change_rate > 0;
+        const rateStr = (isUp ? '+' : '') + rate + '%';
+        return `<tr style="${a.is_read ? 'opacity:0.55' : ''}">
+          <td>
+            ${a.product_name||'-'}
+            ${!a.is_read ? '<span class="bdg bdg-new" style="font-size:10px;margin-left:4px">NEW</span>' : ''}
+          </td>
+          <td>${supLabel(a.supplier)}</td>
+          <td style="color:var(--text2)">${a.old_price ? fmt(a.old_price) : '-'}</td>
+          <td style="font-weight:700">${fmt(a.new_price)}</td>
+          <td class="${isUp?'up':'down'}">${rateStr}</td>
+          <td>${fmtDate(a.detected_at)}</td>
+          <td>
+            ${!a.is_read
+              ? `<button class="btn btn-ghost btn-sm" onclick="markRead('${a.id}')">읽음</button>`
+              : ''}
+          </td>
+        </tr>`;
+      }).join('')
+    : empty('가격 변동 없음');
+}
+
+async function markRead(id) {
+  await patch(`/api/price-alerts/${id}/read`, {});
+  loadPrices();
+}
+
+async function markAllRead() {
+  await post('/api/price-alerts/read-all', {});
+  toast('전체 읽음 처리 완료');
+  loadPrices();
+}
+
+// ── 6. Returns ────────────────────────────────────────────────
+async function loadReturns() {
+  const returns = await api('/api/returns').catch(() => []);
+  const tbody   = $('ret-tbody');
+  tbody.innerHTML = returns.length
+    ? returns.map(r => `<tr>
+        <td class="mono">${r.product_order_id||'-'}</td>
+        <td>${r.product_name||'-'}</td>
+        <td style="text-align:center">${r.quantity||'-'}</td>
+        <td>${r.return_reason||'-'}</td>
+        <td>${fmtDate(r.detected_at)}</td>
+      </tr>`).join('')
+    : empty('반품 신청 없음');
+}
+
+// ── 자동 갱신 (10초) ──────────────────────────────────────────
+loadDashboard();
+setInterval(loadTab, 10000);
+</script>
+</body>
+</html>

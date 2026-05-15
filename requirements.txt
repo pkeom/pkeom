@@ -5,5 +5,7 @@ apscheduler>=3.10
 beautifulsoup4>=4.12
 lxml>=4.9
 bcrypt>=4.0
+flask>=3.0
+psutil>=5.9
 # pyinstaller는 로컬 exe 빌드 전용 — GitHub Actions에서는 불필요
 # pyinstaller>=6.0

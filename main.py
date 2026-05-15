@@ -135,6 +135,18 @@ def main():
     scheduler.start()
     logger.info("자동화 스케줄러 시작 완료 (즉시 첫 실행 포함)")
 
+    # 웹 대시보드 시작 (별도 데몬 스레드)
+    try:
+        from dashboard import run_dashboard
+        dash_thread = threading.Thread(
+            target=run_dashboard, daemon=True, name="dashboard"
+        )
+        dash_thread.start()
+        print("  대시보드: http://localhost:2713", flush=True)
+        logger.info("웹 대시보드 시작: http://localhost:2713")
+    except Exception as e:
+        logger.warning("웹 대시보드 시작 실패 (무시하고 계속): %s", e)
+
     stop_event = threading.Event()
 
     # 주기적 상태 출력 스레드

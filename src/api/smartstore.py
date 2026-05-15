@@ -158,6 +158,17 @@ class SmartstoreAPI:
         resp.raise_for_status()
         return resp.json()
 
+    def get_products(self, size: int = 100) -> list:
+        """판매자 상품 목록 조회"""
+        resp = requests.get(
+            f"{self.BASE_URL}/v2/products",
+            headers=self._headers(),
+            params={"size": size},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("simpleProducts", data.get("contents", data.get("products", [])))
+
     def get_returns(self, hours: int = 1) -> list:
         """반품 신청 목록 조회 (최근 hours시간 이내 RETURN_REQUEST 상태)"""
         from datetime import datetime, timedelta, timezone
