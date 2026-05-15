@@ -458,7 +458,7 @@ class TestScenario6_EmailNotification(SimulationTestBase):
         self.assertIn("송장", subject)
 
     def test_inventory_error_email_sent(self):
-        self.mock_domaekkuk.get_stock.side_effect = Exception("재고 오류")
+        self.mock_domaekkuk.get_product.side_effect = Exception("재고 오류")
         InventorySync(
             self.mock_ss, self.mock_domaekkuk, self.mock_domaemae,
             self.mapping_repo, self.mock_notifier, self.cache_path,
