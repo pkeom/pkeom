@@ -91,9 +91,12 @@ def _is_running() -> bool:
     try:
         import psutil
         for p in psutil.process_iter(["cmdline"]):
-            cmdline = p.info.get("cmdline") or []
-            if any("main.py" in c for c in cmdline):
-                return True
+            try:
+                cmdline = p.info.get("cmdline") or []
+                if any("main.py" in c for c in cmdline):
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
     except Exception:
         pass
     return False
