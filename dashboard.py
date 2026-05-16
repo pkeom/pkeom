@@ -87,15 +87,19 @@ def _is_today(dt_str: str) -> bool:
 
 
 def _is_running() -> bool:
-    """main.py 프로세스가 실행 중인지 확인"""
+    """main.py 프로세스가 실행 중인지 확인 (Windows / Linux / Android 공통)"""
     try:
         import psutil
-        for p in psutil.process_iter(["cmdline"]):
+        for p in psutil.process_iter(["name", "cmdline"]):
             try:
+                name    = p.info.get("name") or ""
                 cmdline = p.info.get("cmdline") or []
+                if "main.py" in name:
+                    return True
                 if any("main.py" in c for c in cmdline):
                     return True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except (psutil.NoSuchProcess, psutil.AccessDenied,
+                    psutil.ZombieProcess, OSError):
                 continue
     except Exception:
         pass
