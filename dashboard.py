@@ -6,7 +6,6 @@
 """
 import json
 import logging
-import socket
 import sys
 from datetime import datetime, date
 from pathlib import Path
@@ -283,15 +282,6 @@ def api_ss_product(pid):
 
 # ── 진입점 ────────────────────────────────────────────────────────
 
-def _get_lan_ip() -> str:
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-    except Exception:
-        return "확인불가"
-
-
 def run_dashboard(host: str = "0.0.0.0", port: int = 2713):
     """대시보드 서버 실행 (별도 스레드에서 호출)"""
     wz_log = logging.getLogger("werkzeug")
@@ -300,7 +290,5 @@ def run_dashboard(host: str = "0.0.0.0", port: int = 2713):
 
 
 if __name__ == "__main__":
-    lan_ip = _get_lan_ip()
-    print(f"대시보드 (이 PC):  http://localhost:2713", flush=True)
-    print(f"대시보드 (태블릿): http://{lan_ip}:2713", flush=True)
+    print("대시보드: http://localhost:2713", flush=True)
     run_dashboard()
