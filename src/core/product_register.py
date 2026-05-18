@@ -686,6 +686,7 @@ def calculate_selling_price(supply_price: int, shipping: int = 3_000,
     원가 = supply_price + shipping
     판매가 = ceil(원가 / (1 - margin) / 100) * 100
     """
+    margin = max(0.01, min(0.99, float(margin)))
     return math.ceil((supply_price + shipping) / (1 - margin) / 100) * 100
 
 

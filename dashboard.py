@@ -274,6 +274,9 @@ def api_register_preview():
     d      = request.json or {}
     url    = d.get("url", "").strip()
     margin = float(d.get("margin", 0.3))
+    if margin >= 1.0:
+        margin = margin / 100
+    margin = max(0.01, min(0.99, margin))
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
     if not _dm_cli:
@@ -283,6 +286,8 @@ def api_register_preview():
         selling_price = calculate_selling_price(info["supply_price"], margin=margin) if info["supply_price"] else 0
         return jsonify({**info, "selling_price": selling_price, "cost": info["supply_price"] + 3000})
     except Exception as e:
+        import traceback
+        logger.error("register preview 오류: %s\n%s", e, traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 
@@ -292,6 +297,9 @@ def api_register_submit():
     d           = request.json or {}
     url         = d.get("url", "").strip()
     margin      = float(d.get("margin", 0.3))
+    if margin >= 1.0:
+        margin = margin / 100
+    margin      = max(0.01, min(0.99, margin))
     category_id = d.get("category_id", "").strip()
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
