@@ -265,6 +265,52 @@ def api_supplier_product():
         return jsonify({"error": str(e)}), 500
 
 
+# ── 상품 자동 등록 ───────────────────────────────────────────────
+
+@app.route("/api/register/preview", methods=["POST"])
+def api_register_preview():
+    from src.core.product_register import fetch_product_info, calculate_selling_price
+    d      = request.json or {}
+    url    = d.get("url", "").strip()
+    margin = float(d.get("margin", 0.3))
+    if not url:
+        return jsonify({"error": "URL을 입력하세요"}), 400
+    if not _dm_cli:
+        return jsonify({"error": "도매매/도매꾹 API 미초기화"}), 500
+    try:
+        info          = fetch_product_info(url, _dm_cli)
+        selling_price = calculate_selling_price(info["supply_price"], margin=margin) if info["supply_price"] else 0
+        return jsonify({**info, "selling_price": selling_price, "cost": info["supply_price"] + 3000})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/register/submit", methods=["POST"])
+def api_register_submit():
+    from src.core.product_register import register_product
+    d           = request.json or {}
+    url         = d.get("url", "").strip()
+    margin      = float(d.get("margin", 0.3))
+    category_id = d.get("category_id", "").strip()
+    if not url:
+        return jsonify({"error": "URL을 입력하세요"}), 400
+    if not _ss_api or not _dm_cli:
+        return jsonify({"error": "스마트스토어/도매처 API 미초기화"}), 500
+    try:
+        result = register_product(
+            url             = url,
+            margin          = margin,
+            smartstore_api  = _ss_api,
+            supplier_client = _dm_cli,
+            settings        = _cfg or {},
+            mapping_repo    = _mapping_repo,
+            category_id     = category_id,
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e), "success": False}), 500
+
+
 # ── 스마트스토어 상품 ──────────────────────────────────────────────
 
 @app.route("/api/smartstore/products")

@@ -257,6 +257,35 @@ tbody tr:hover td { background: #FAFBFC; }
 .down { color: var(--green); font-weight: 700; }
 .hint { font-size: 11px; color: var(--text3); margin-top: 4px; }
 .row-gap { margin-bottom: 14px; }
+
+/* ── Register tab ── */
+.reg-split { display: grid; grid-template-columns: 400px 1fr; gap: 14px; align-items: start; }
+@media (max-width: 860px) { .reg-split { grid-template-columns: 1fr; } }
+.price-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--blue-bg); border-radius: var(--r-sm);
+  padding: 14px 16px; margin-bottom: 14px;
+}
+.price-row .pr-label { font-size: 12px; color: var(--text2); margin-bottom: 2px; }
+.price-row .pr-val   { font-size: 20px; font-weight: 900; color: var(--blue); }
+.price-row .pr-arrow { font-size: 18px; color: var(--text3); flex-shrink: 0; }
+.info-table { width: 100%; font-size: 13px; }
+.info-table td { padding: 7px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+.info-table tr:last-child td { border: none; }
+.info-table td:first-child { color: var(--text2); width: 120px; font-size: 12px; font-weight: 600; }
+.reg-result {
+  border-radius: var(--r-sm); padding: 16px;
+  font-size: 13px; line-height: 1.7; margin-top: 14px;
+}
+.reg-result.ok  { background: var(--green-bg); color: #00875A; }
+.reg-result.err { background: var(--red-bg);   color: var(--red); }
+.spin {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid currentColor; border-top-color: transparent;
+  border-radius: 50%; animation: spin 0.7s linear infinite;
+  vertical-align: middle; margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -269,6 +298,7 @@ tbody tr:hover td { background: #FAFBFC; }
     <button class="nav-tab" data-tab="mapping">매핑 관리</button>
     <button class="nav-tab" data-tab="orders">주문 현황</button>
     <button class="nav-tab" data-tab="budget">예산 관리</button>
+    <button class="nav-tab" data-tab="register">상품 등록</button>
     <button class="nav-tab" data-tab="prices">가격 변동<span class="nav-dot" id="price-dot"></span></button>
     <button class="nav-tab" data-tab="returns">반품 목록<span class="nav-dot" id="return-dot"></span></button>
   </div>
@@ -479,7 +509,84 @@ tbody tr:hover td { background: #FAFBFC; }
   </div>
 </div>
 
-<!-- ── 5. Prices ──────────────────────────────────────────────── -->
+<!-- ── 5. Register ────────────────────────────────────────────── -->
+<div id="panel-register" class="panel">
+  <div class="reg-split">
+
+    <!-- 좌: 입력 폼 -->
+    <div>
+      <div class="sh"><div class="sh-title">상품 자동 등록</div></div>
+      <div class="card">
+
+        <div class="fg">
+          <label class="fl">도매매 / 도매꾹 링크</label>
+          <input class="fi" id="reg-url"
+            placeholder="https://domeggook.com/12345  또는  https://www.domaemae.co.kr/...?no=12345">
+        </div>
+
+        <div class="fg">
+          <label class="fl">마진율 (%)</label>
+          <div class="flex-row">
+            <input class="fi" id="reg-margin" type="number" value="30" min="1" max="90" step="1" style="width:90px">
+            <span style="color:var(--text2);font-size:12px">% &nbsp;·&nbsp; 원가 ÷ (1 − 마진율) = 판매가, 100원 단위 올림</span>
+          </div>
+        </div>
+
+        <div class="fg">
+          <label class="fl">스마트스토어 카테고리 ID <span style="font-weight:400;text-transform:none">(선택)</span></label>
+          <input class="fi" id="reg-cat" placeholder="예: 50000803  —  비워두면 자동 감지">
+          <div class="hint">카테고리 ID는 네이버 커머스 API /v1/product-attributes/categories 에서 확인</div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn btn-ghost" id="reg-preview-btn" onclick="regPreview()" style="flex:1">
+            🔍 미리보기
+          </button>
+          <button class="btn btn-blue" id="reg-submit-btn" onclick="regSubmit()" style="flex:1" disabled>
+            📦 스마트스토어 등록
+          </button>
+        </div>
+
+        <div id="reg-status" style="margin-top:10px;font-size:12px;color:var(--text2);min-height:18px"></div>
+      </div>
+    </div>
+
+    <!-- 우: 미리보기 결과 -->
+    <div>
+      <div class="sh"><div class="sh-title">미리보기</div></div>
+      <div class="card" id="reg-preview-card" style="min-height:200px">
+        <div class="empty" id="reg-empty">
+          <div class="empty-ico">🏷️</div>
+          링크를 입력하고 미리보기를 클릭하세요
+        </div>
+
+        <!-- 가격 요약 (미리보기 후 표시) -->
+        <div id="reg-price-row" class="price-row" style="display:none">
+          <div>
+            <div class="pr-label">원가 (공급가 + 배송비 3,000원)</div>
+            <div class="pr-val" id="reg-cost">-</div>
+          </div>
+          <div class="pr-arrow">→</div>
+          <div>
+            <div class="pr-label">판매가</div>
+            <div class="pr-val" id="reg-sell">-</div>
+          </div>
+        </div>
+
+        <!-- 상세 테이블 (미리보기 후 표시) -->
+        <table class="info-table" id="reg-info-table" style="display:none">
+          <tbody id="reg-info-body"></tbody>
+        </table>
+
+        <!-- 등록 결과 메시지 -->
+        <div id="reg-result" class="reg-result" style="display:none"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── 6. Prices ──────────────────────────────────────────────── -->
 <div id="panel-prices" class="panel">
   <div class="sh">
     <div class="sh-title">가격 변동 알림</div>
@@ -613,6 +720,7 @@ function loadTab() {
     mapping:   loadMappings,
     orders:    () => loadOrders(curStatus),
     budget:    loadBudget,
+    register:  () => {},
     prices:    loadPrices,
     returns:   loadReturns,
   }[curTab] || (() => {}))();
@@ -851,6 +959,131 @@ async function markAllRead() {
   await post('/api/price-alerts/read-all', {});
   toast('전체 읽음 처리 완료');
   loadPrices();
+}
+
+// ── 5. Register ───────────────────────────────────────────────
+let _regInfo = null;  // 미리보기로 수집한 상품 정보
+
+function regSetStatus(msg, loading = false) {
+  $('reg-status').innerHTML = loading
+    ? `<span class="spin"></span>${msg}`
+    : msg;
+}
+
+function regShowEmpty(msg) {
+  $('reg-empty').innerHTML = `<div class="empty-ico">🏷️</div>${msg}`;
+  $('reg-empty').style.display = '';
+  $('reg-price-row').style.display   = 'none';
+  $('reg-info-table').style.display  = 'none';
+  $('reg-result').style.display      = 'none';
+}
+
+function regShowPreview(info, sellingPrice) {
+  _regInfo = info;
+  $('reg-empty').style.display = 'none';
+  $('reg-result').style.display = 'none';
+
+  // 가격 요약
+  $('reg-cost').textContent = fmt(info.cost || (info.supply_price + 3000));
+  $('reg-sell').textContent = fmt(sellingPrice);
+  $('reg-price-row').style.display = 'flex';
+
+  // 상세 테이블
+  const rows = [
+    ['공급사',       info.supplier === 'domaekkuk' ? '도매꾹' : '도매매'],
+    ['상품명',       info.title || '-'],
+    ['공급가',       fmt(info.supply_price || 0)],
+    ['재고',         fmtN(info.stock || 0) + '개'],
+    ['원산지',       info.origin || '-'],
+    ['모델명',       info.model  || '-'],
+    ['KC인증번호',   info.kc_cert_no || '(없음)'],
+    ['카테고리',     info.category_name || '-'],
+    ['대표이미지',   info.main_image
+        ? `<a href="${info.main_image}" target="_blank" style="color:var(--blue)">확인</a>`
+        : '(없음)'],
+    ['추가이미지',   `${(info.sub_images||[]).length}장`],
+    ['상세이미지',   `${(info.detail_images||[]).length}장`],
+    ['옵션',         (info.options||[]).length > 0
+        ? (info.options||[]).map(o => o.name).join(' / ')
+        : '옵션 없음'],
+    ['자동 태그',    info.title
+        ? info.title.split(/[\s\[\]()]+/).filter(w => w.length >= 2).slice(0,10).join(', ')
+        : '-'],
+  ];
+
+  $('reg-info-body').innerHTML = rows
+    .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
+    .join('');
+  $('reg-info-table').style.display = '';
+}
+
+async function regPreview() {
+  const url    = $('reg-url').value.trim();
+  const margin = parseInt($('reg-margin').value || '30') / 100;
+  if (!url) { toast('링크를 입력하세요'); return; }
+
+  $('reg-preview-btn').disabled = true;
+  $('reg-submit-btn').disabled  = true;
+  regSetStatus('상품 정보 수집 중…', true);
+
+  try {
+    const d = await post('/api/register/preview', {url, margin});
+    if (d.error) {
+      regSetStatus('오류: ' + d.error);
+      regShowEmpty('수집 실패: ' + d.error);
+    } else {
+      regShowPreview(d, d.selling_price);
+      regSetStatus('미리보기 완료. 내용을 확인하고 [스마트스토어 등록]을 클릭하세요.');
+      $('reg-submit-btn').disabled = false;
+    }
+  } catch (e) {
+    regSetStatus('네트워크 오류: ' + e.message);
+    regShowEmpty('수집 실패');
+  }
+  $('reg-preview-btn').disabled = false;
+}
+
+async function regSubmit() {
+  if (!_regInfo) { toast('먼저 미리보기를 실행하세요'); return; }
+
+  const title = _regInfo.title || '이 상품';
+  if (!confirm(`"${title.slice(0,30)}"을(를) 스마트스토어에 등록하시겠습니까?\n\n실제 API 호출이 발생합니다.`)) return;
+
+  const url       = $('reg-url').value.trim();
+  const margin    = parseInt($('reg-margin').value || '30') / 100;
+  const catId     = $('reg-cat').value.trim();
+
+  $('reg-submit-btn').disabled  = true;
+  $('reg-preview-btn').disabled = true;
+  regSetStatus('스마트스토어 등록 중…', true);
+  $('reg-result').style.display = 'none';
+
+  try {
+    const d = await post('/api/register/submit', {url, margin, category_id: catId});
+    const resultDiv = $('reg-result');
+
+    if (d.success) {
+      resultDiv.className = 'reg-result ok';
+      resultDiv.innerHTML =
+        `✅ 등록 완료!<br>` +
+        `상품 ID: <strong>${d.product_id || '-'}</strong><br>` +
+        `판매가: <strong>${fmt(d.selling_price || 0)}</strong><br>` +
+        `매핑이 자동 저장되었습니다.`;
+      regSetStatus('등록 완료!');
+      _regInfo = null;
+      $('reg-url').value = '';
+    } else {
+      resultDiv.className = 'reg-result err';
+      resultDiv.innerHTML = `❌ 등록 실패<br>${d.error || '알 수 없는 오류'}`;
+      regSetStatus('등록 실패');
+      $('reg-submit-btn').disabled = false;
+    }
+    resultDiv.style.display = '';
+  } catch (e) {
+    regSetStatus('네트워크 오류: ' + e.message);
+    $('reg-submit-btn').disabled = false;
+  }
+  $('reg-preview-btn').disabled = false;
 }
 
 // ── 6. Returns ────────────────────────────────────────────────
