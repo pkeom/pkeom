@@ -2,79 +2,523 @@
 import math
 import re
 import logging
-import threading
-from typing import Optional
+import time
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-# 도매꾹/도매매 카테고리명 키워드 → 스마트스토어 leafCategoryId 간이 매핑
-# 실제 카테고리 ID는 네이버 커머스 API /v1/product-attributes/categories 로 조회 가능
+# ── 상수 ───────────────────────────────────────────────────────────
+
+_DOME_API_URL = "https://domemedb.domeggook.com/ssl/api/"
+_TIMEOUT      = 30
+_MAX_RETRIES  = 3
+
+# 브라우저 공통 헤더
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+_BROWSER_HEADERS = {
+    "User-Agent":      _BROWSER_UA,
+    "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                       "image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection":      "keep-alive",
+}
+# API 전용 헤더 (JSON 응답)
+_API_HEADERS = {
+    "User-Agent":      _BROWSER_UA,
+    "Accept":          "application/json, text/plain, */*",
+    "Accept-Language": "ko-KR,ko;q=0.9",
+}
+
+# 카테고리 키워드 → 스마트스토어 leafCategoryId 간이 매핑
 _CATEGORY_MAP = {
-    "패션의류": "50000000",
-    "패션잡화": "50000001",
-    "화장품": "50000002",
-    "미용": "50000002",
-    "디지털": "50000003",
-    "가전": "50000003",
-    "가구": "50000004",
-    "인테리어": "50000004",
-    "출산": "50000005",
-    "육아": "50000005",
-    "식품": "50000006",
-    "스포츠": "50000007",
-    "레저": "50000007",
-    "생활": "50000008",
-    "건강": "50000008",
-    "완구": "50000011",
-    "취미": "50000011",
-    "문구": "50000012",
-    "오피스": "50000012",
-    "반려동물": "50000013",
-    "자동차": "50000014",
+    "패션의류": "50000000", "패션잡화": "50000001",
+    "화장품":   "50000002", "미용":     "50000002",
+    "디지털":   "50000003", "가전":     "50000003",
+    "가구":     "50000004", "인테리어": "50000004",
+    "출산":     "50000005", "육아":     "50000005",
+    "식품":     "50000006",
+    "스포츠":   "50000007", "레저":     "50000007",
+    "생활":     "50000008", "건강":     "50000008",
+    "완구":     "50000011", "취미":     "50000011",
+    "문구":     "50000012", "오피스":   "50000012",
+    "반려동물": "50000013", "자동차":   "50000014",
 }
 
 
-def extract_product_id(url: str) -> tuple[str, str]:
-    """URL 또는 숫자 ID에서 (supplier, product_id) 추출.
+# ── 세션 팩토리 ────────────────────────────────────────────────────
 
-    Returns:
-        ("domaekkuk" | "domaemae", "상품번호")
-    Raises:
-        ValueError: 파싱 불가 형식
+def _make_session(referer: str = "") -> requests.Session:
+    """브라우저 헤더 + 재시도 어댑터가 달린 Session 생성."""
+    session = requests.Session()
+
+    # 5xx, 429 에 대해 최대 3회 재시도 (지수 백오프)
+    retry = Retry(
+        total=_MAX_RETRIES,
+        backoff_factor=1.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "POST"],
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://",  adapter)
+
+    session.headers.update(_BROWSER_HEADERS)
+    if referer:
+        session.headers["Referer"] = referer
+    return session
+
+
+def _retry_get(session: requests.Session, url: str, **kwargs) -> requests.Response:
+    """403 등 일시적 차단에 대해 수동 재시도 (1 s 간격)."""
+    kwargs.setdefault("timeout", _TIMEOUT)
+    last_exc: Exception = RuntimeError("no attempt")
+    for attempt in range(_MAX_RETRIES):
+        try:
+            resp = session.get(url, **kwargs)
+            if resp.status_code == 403 and attempt < _MAX_RETRIES - 1:
+                logger.debug("403 수신 (%s), %d초 후 재시도", url, attempt + 1)
+                time.sleep(attempt + 1)
+                continue
+            return resp
+        except requests.RequestException as e:
+            last_exc = e
+            if attempt < _MAX_RETRIES - 1:
+                time.sleep(attempt + 1)
+    raise last_exc
+
+
+def _retry_post(session: requests.Session, url: str, **kwargs) -> requests.Response:
+    kwargs.setdefault("timeout", _TIMEOUT)
+    last_exc: Exception = RuntimeError("no attempt")
+    for attempt in range(_MAX_RETRIES):
+        try:
+            resp = session.post(url, **kwargs)
+            if resp.status_code == 403 and attempt < _MAX_RETRIES - 1:
+                time.sleep(attempt + 1)
+                continue
+            return resp
+        except requests.RequestException as e:
+            last_exc = e
+            if attempt < _MAX_RETRIES - 1:
+                time.sleep(attempt + 1)
+    raise last_exc
+
+
+# ── URL 파싱 ───────────────────────────────────────────────────────
+
+def extract_product_id(url: str) -> tuple[str, str]:
+    """URL 또는 숫자 ID → (supplier, product_id).
+
+    지원 형식:
+      domeggook.com/{no}              → domaekkuk
+      domeme.domeggook.com/s/{no}     → domaemae
+      domaemae.co.kr/...?no={no}      → domaemae
+      숫자                            → domaekkuk (기본)
     """
     url = url.strip()
-    # 도매꾹: domeggook.com/{no}
-    m = re.search(r"domeggook\.com/(\d+)", url)
+
+    # 도매매: domeme.domeggook.com/s/{no}
+    m = re.search(r"domeme\.domeggook\.com/s/(\d+)", url)
+    if m:
+        return "domaemae", m.group(1)
+
+    # 도매꾹: www.domeggook.com/{no}  (domeme 제외)
+    m = re.search(r"(?<!domeme\.)domeggook\.com/(\d+)", url)
     if m:
         return "domaekkuk", m.group(1)
-    # 도매매: domaemae.co.kr/...?no={no}
+
+    # 구 도매매: domaemae.co.kr
     m = re.search(r"domaemae\.co\.kr.*?[?&]no=(\d+)", url)
     if m:
         return "domaemae", m.group(1)
     m = re.search(r"domaemae\.co\.kr/(\d+)", url)
     if m:
         return "domaemae", m.group(1)
+
     # 숫자만
     if re.fullmatch(r"\d+", url):
         return "domaekkuk", url
-    raise ValueError(f"지원하지 않는 URL: {url}")
+
+    raise ValueError(f"지원하지 않는 URL 형식: {url}")
 
 
-def calculate_selling_price(supply_price: int, shipping: int = 3_000, margin: float = 0.3) -> int:
+# ── 도우미 ──────────────────────────────────────────────────────────
+
+def _fix_url(src: str) -> str:
+    if src.startswith("//"):
+        return "https:" + src
+    if src.startswith("/") and not src.startswith("//"):
+        return "https://www.domeggook.com" + src
+    return src
+
+
+def _parse_options(select_opt) -> list[dict]:
+    if not isinstance(select_opt, dict):
+        return []
+    opts = []
+    seen: set[str] = set()
+    for code, info in select_opt.items():
+        if not isinstance(info, dict):
+            continue
+        if int(info.get("hid", 0)) == 2:
+            continue
+        name = str(info.get("name", "")).strip()
+        if name and code not in seen:
+            opts.append({"id": code, "name": name})
+            seen.add(code)
+    return opts
+
+
+def _parse_category(cat_d) -> str:
+    if isinstance(cat_d, dict):
+        return (cat_d.get("name") or cat_d.get("cateName") or
+                cat_d.get("categoryName") or "")
+    if isinstance(cat_d, list) and cat_d:
+        return str(cat_d[-1])
+    return ""
+
+
+def _parse_images(img_d: dict) -> tuple[str, list[str], str]:
+    """(main_image, sub_images, detail_html)"""
+    if not isinstance(img_d, dict):
+        return "", [], ""
+
+    raw_main = img_d.get("main") or img_d.get("big") or img_d.get("url") or ""
+    if isinstance(raw_main, list):
+        raw_main = raw_main[0] if raw_main else ""
+    main = _fix_url(str(raw_main)) if raw_main else ""
+
+    raw_sub = img_d.get("sub") or img_d.get("list") or []
+    subs = [_fix_url(str(s)) for s in raw_sub if s][:9] if isinstance(raw_sub, list) else []
+
+    raw_detail = img_d.get("detail") or ""
+    detail_html = raw_detail if isinstance(raw_detail, str) and raw_detail.startswith("<") else ""
+
+    return main, subs, detail_html
+
+
+# ── 도매꾹 ─────────────────────────────────────────────────────────
+
+def _domaekkuk_api(product_id: str, api_key: str) -> dict:
+    """도매꾹 getItemView API 호출 (브라우저 헤더 포함)."""
+    referer = f"https://www.domeggook.com/{product_id}"
+    session = _make_session(referer)
+    session.headers.update(_API_HEADERS)
+    session.headers["Referer"] = referer
+    session.headers["Origin"]  = "https://www.domeggook.com"
+
+    params = {
+        "mode": "getItemView",
+        "ver":  "4.5",
+        "no":   product_id,
+        "aid":  api_key,
+        "om":   "json",
+    }
+    resp = _retry_get(session, _DOME_API_URL, params=params)
+    resp.raise_for_status()
+    return resp.json().get("domeggook", resp.json())
+
+
+def _scrape_domaekkuk(product_id: str) -> dict:
+    """도매꾹 상품 페이지 스크래핑 (API 실패 fallback)."""
+    page_url = f"https://www.domeggook.com/{product_id}"
+    session  = _make_session(referer="https://www.domeggook.com/")
+
+    try:
+        resp = _retry_get(session, page_url)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning("도매꾹 스크래핑 실패(%s): %s", product_id, e)
+        return {}
+
+    soup   = BeautifulSoup(resp.text, "lxml")
+    result: dict = {}
+
+    # 기본 정보 — 페이지 JSON-LD 또는 메타 태그에서 추출 시도
+    for script in soup.select("script[type='application/ld+json']"):
+        try:
+            import json
+            data = json.loads(script.string or "")
+            if data.get("@type") in ("Product", "product"):
+                result.setdefault("title",        data.get("name", ""))
+                result.setdefault("supply_price", 0)
+                offers = data.get("offers", {})
+                if isinstance(offers, dict):
+                    result["supply_price"] = int(float(offers.get("price", 0)))
+        except Exception:
+            pass
+
+    # 제목 — h1 태그 fallback
+    if not result.get("title"):
+        h1 = soup.select_one("h1.product-title, h1.title, h1, .product-name")
+        if h1:
+            result["title"] = h1.get_text(strip=True)
+
+    # 대표이미지
+    for sel in [
+        "img#productImage", ".product-image img", ".big-img img",
+        ".main-image img", ".item-img img", ".product-photo img",
+        "img[id*='main']", ".swiper-slide img",
+    ]:
+        el = soup.select_one(sel)
+        if el and (el.get("src") or el.get("data-src")):
+            result["main_image"] = _fix_url(el.get("src") or el.get("data-src"))
+            break
+
+    # 추가이미지
+    for sel in [".thumbnail-list img", ".thumb-list img", ".small-img img",
+                ".product-thumbs img", ".sub-images img"]:
+        imgs = soup.select(sel)
+        if imgs:
+            result["sub_images"] = [
+                _fix_url(i.get("src") or i.get("data-src", ""))
+                for i in imgs if (i.get("src") or i.get("data-src"))
+            ][:9]
+            break
+
+    # 상세설명
+    for sel in [
+        ".product-detail", "#productDetail", "#itemDetail",
+        ".detail-content", ".item-detail", ".desc-area", "#desc_area",
+        "[class*='detail']", "[id*='detail']",
+    ]:
+        el = soup.select_one(sel)
+        if el:
+            result["detail_html"]   = str(el)
+            result["detail_images"] = [
+                _fix_url(i.get("src") or i.get("data-src", ""))
+                for i in el.select("img")
+                if (i.get("src") or i.get("data-src"))
+            ]
+            break
+
+    # KC 인증번호
+    m = re.search(r"[A-Z]{2,3}-\d{3,4}-\d{4,6}", resp.text)
+    if m:
+        result["kc_cert_no"] = m.group(0)
+
+    return result
+
+
+# ── 도매매 ─────────────────────────────────────────────────────────
+
+def _domaemae_api(product_id: str, client) -> dict:
+    """도매매 getItemView API 호출 (DomaemaeClient 세션 재활용)."""
+    # 세션(sId) 보장
+    client._ensure_session()
+
+    referer = f"https://domeme.domeggook.com/s/{product_id}"
+    session = _make_session(referer)
+    session.headers.update(_API_HEADERS)
+    session.headers["Referer"] = referer
+    session.headers["Origin"]  = "https://domeme.domeggook.com"
+
+    params = {
+        "mode": "getItemView",
+        "ver":  "4.5",
+        "no":   product_id,
+        "aid":  client.api_key,
+        "sId":  client._sid,
+        "om":   "json",
+    }
+    resp = _retry_get(session, _DOME_API_URL, params=params)
+    resp.raise_for_status()
+    return resp.json().get("domeggook", resp.json())
+
+
+def _scrape_domaemae(product_id: str) -> dict:
+    """도매매 상품 페이지 스크래핑 (API 실패 fallback)."""
+    # domeme.domeggook.com/s/{no} 우선, 구 domaemae.co.kr fallback
+    urls = [
+        f"https://domeme.domeggook.com/s/{product_id}",
+        f"https://www.domaemae.co.kr/product_detail.php?no={product_id}",
+    ]
+    session = _make_session(referer="https://domeme.domeggook.com/")
+    resp    = None
+
+    for url in urls:
+        try:
+            r = _retry_get(session, url)
+            if r.ok:
+                resp = r
+                break
+            logger.debug("도매매 스크래핑 %s → %d", url, r.status_code)
+        except Exception as e:
+            logger.debug("도매매 스크래핑 오류 %s: %s", url, e)
+
+    if resp is None:
+        logger.warning("도매매 스크래핑 모두 실패 (product_id=%s)", product_id)
+        return {}
+
+    soup   = BeautifulSoup(resp.text, "lxml")
+    result: dict = {}
+
+    # 대표이미지
+    for sel in [
+        ".main-image img", ".product-thumb img", "#mainImg",
+        ".rep-img img", ".item-img img", ".big-img img",
+        ".swiper-slide img", "img[id*='main']",
+    ]:
+        el = soup.select_one(sel)
+        if el and (el.get("src") or el.get("data-src")):
+            result["main_image"] = _fix_url(el.get("src") or el.get("data-src"))
+            break
+
+    # 추가이미지
+    for sel in [".sub-images img", ".thumbnail img", ".img-list img",
+                ".thumb-list img", ".product-thumbs img"]:
+        imgs = soup.select(sel)
+        if imgs:
+            result["sub_images"] = [
+                _fix_url(i.get("src") or i.get("data-src", ""))
+                for i in imgs if (i.get("src") or i.get("data-src"))
+            ][:9]
+            break
+
+    # 상세설명
+    for sel in [
+        ".product-detail", "#detailContent", ".detail-area",
+        ".item-detail", "#desc_area", "[class*='detail']",
+    ]:
+        el = soup.select_one(sel)
+        if el:
+            result["detail_html"]   = str(el)
+            result["detail_images"] = [
+                _fix_url(i.get("src") or i.get("data-src", ""))
+                for i in el.select("img")
+                if (i.get("src") or i.get("data-src"))
+            ]
+            break
+
+    # KC 인증번호
+    m = re.search(r"[A-Z]{2,3}-\d{3,4}-\d{4,6}", resp.text)
+    if m:
+        result["kc_cert_no"] = m.group(0)
+
+    return result
+
+
+# ── 상품 정보 수집 (메인) ──────────────────────────────────────────
+
+def fetch_product_info(url: str, client) -> dict:
+    """도매꾹/도매매 URL에서 상품 정보 수집.
+
+    Args:
+        url:    상품 URL 또는 상품번호
+        client: DomaemaeClient (세션/sId 관리 포함)
+
+    Returns dict keys:
+        supplier, product_id, supplier_url,
+        title, supply_price, stock,
+        origin, model, kc_cert_no,
+        main_image, sub_images, detail_images, detail_html,
+        options, category_id, category_name
+    """
+    supplier, product_id = extract_product_id(url)
+    logger.info("상품 수집 시작: supplier=%s, product_id=%s", supplier, product_id)
+
+    # ── API 호출 ────────────────────────────────────────────────
+    raw: dict = {}
+    if supplier == "domaekkuk":
+        try:
+            raw = _domaekkuk_api(product_id, client.api_key)
+            logger.info("도매꾹 API 성공")
+        except Exception as e:
+            logger.warning("도매꾹 API 실패, 스크래핑으로 fallback: %s", e)
+    else:
+        try:
+            raw = _domaemae_api(product_id, client)
+            logger.info("도매매 API 성공")
+        except Exception as e:
+            logger.warning("도매매 API 실패, 스크래핑으로 fallback: %s", e)
+
+    # ── API 결과 파싱 ────────────────────────────────────────────
+    basis   = raw.get("basis", {})
+    price_d = raw.get("price", {})
+    qty     = raw.get("qty", {})
+
+    title        = basis.get("title", "")
+    supply_price = int(price_d.get("supply") or price_d.get("dome") or 0)
+    stock        = int(qty.get("inventory", 0))
+    origin       = basis.get("origin") or basis.get("madeIn") or ""
+    model        = basis.get("model")  or basis.get("modelNo") or ""
+    kc_cert_no   = (basis.get("kc_cert_no") or basis.get("kcCertNo")
+                    or basis.get("certNo") or "")
+    cat_name     = _parse_category(raw.get("category", {}))
+    options      = _parse_options(raw.get("selectOpt", {}))
+    main_image, sub_images, detail_html = _parse_images(
+        raw.get("img", raw.get("images", {}))
+    )
+    detail_images: list[str] = []
+
+    # ── 스크래핑으로 부족한 필드 보완 ────────────────────────────
+    need_scrape = not title or not supply_price or not main_image
+    if need_scrape or not detail_html:
+        logger.info("스크래핑 실행 (title=%r, price=%s, img=%r)",
+                    bool(title), supply_price, bool(main_image))
+        scraped = (_scrape_domaekkuk if supplier == "domaekkuk"
+                   else _scrape_domaemae)(product_id)
+
+        if not title:
+            title = scraped.get("title", "")
+        if not supply_price:
+            supply_price = scraped.get("supply_price", 0)
+        if not main_image:
+            main_image = scraped.get("main_image", "")
+        if not sub_images:
+            sub_images = scraped.get("sub_images", [])
+        if not detail_images:
+            detail_images = scraped.get("detail_images", [])
+        if not detail_html:
+            detail_html = scraped.get("detail_html", "")
+        if not kc_cert_no:
+            kc_cert_no = scraped.get("kc_cert_no", "")
+
+    logger.info("수집 완료: title=%r, price=%s, options=%d개",
+                title, supply_price, len(options))
+
+    return {
+        "supplier":      supplier,
+        "product_id":    product_id,
+        "supplier_url":  url,
+        "title":         title,
+        "supply_price":  supply_price,
+        "stock":         stock,
+        "origin":        origin,
+        "model":         model,
+        "kc_cert_no":    kc_cert_no,
+        "main_image":    main_image,
+        "sub_images":    sub_images,
+        "detail_images": detail_images,
+        "detail_html":   detail_html,
+        "options":       options,
+        "category_id":   cat_name,
+        "category_name": cat_name,
+    }
+
+
+# ── 판매가·태그·카테고리 ──────────────────────────────────────────
+
+def calculate_selling_price(supply_price: int, shipping: int = 3_000,
+                            margin: float = 0.3) -> int:
     """판매가 계산 (100원 단위 올림).
-
     원가 = supply_price + shipping
     판매가 = ceil(원가 / (1 - margin) / 100) * 100
     """
-    cost = supply_price + shipping
-    return math.ceil(cost / (1 - margin) / 100) * 100
+    return math.ceil((supply_price + shipping) / (1 - margin) / 100) * 100
 
 
 def generate_tags(product_name: str, max_tags: int = 10) -> list[str]:
-    """상품명 키워드로 태그 자동 생성."""
     stop = {"및", "의", "이", "가", "을", "를", "은", "는", "에", "와", "과",
             "로", "으로", "도", "에서", "부터", "까지", "한", "하는", "하여",
             "세트", "포함", "배송", "무료"}
@@ -91,233 +535,21 @@ def generate_tags(product_name: str, max_tags: int = 10) -> list[str]:
 
 
 def map_category(supplier_category: str, default_id: str = "") -> str:
-    """공급사 카테고리명 → 스마트스토어 leafCategoryId."""
     for keyword, cat_id in _CATEGORY_MAP.items():
         if keyword in supplier_category:
             return cat_id
     return default_id or "50000000"
 
 
-# ── 웹 스크래핑 ────────────────────────────────────────────────────
+# ── 스마트스토어 payload 구성 ──────────────────────────────────────
 
-_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-
-
-def _fix_url(src: str) -> str:
-    if src.startswith("//"):
-        return "https:" + src
-    return src
-
-
-def _scrape_domaekkuk(product_id: str) -> dict:
-    """도매꾹 상품 페이지에서 이미지·KC인증 스크래핑."""
-    url = f"https://www.domeggook.com/{product_id}"
-    try:
-        resp = requests.get(url, headers=_HEADERS, timeout=15)
-        resp.raise_for_status()
-    except Exception as e:
-        logger.warning("도매꾹 스크래핑 실패(%s): %s", product_id, e)
-        return {}
-
-    soup = BeautifulSoup(resp.text, "lxml")
-    result: dict = {}
-
-    # 대표이미지
-    for sel in ["img#productImage", ".product-image img", ".main-image img", ".big-image img"]:
-        el = soup.select_one(sel)
-        if el and el.get("src"):
-            result["main_image"] = _fix_url(el["src"])
-            break
-
-    # 추가이미지
-    subs = []
-    for sel in [".thumbnail-list img", ".sub-images img", ".small-img img"]:
-        imgs = soup.select(sel)
-        if imgs:
-            subs = [_fix_url(i["src"]) for i in imgs if i.get("src")][:9]
-            break
-    result["sub_images"] = subs
-
-    # 상세설명
-    for sel in [".product-detail", "#productDetail", ".detail-content", ".item-detail"]:
-        el = soup.select_one(sel)
-        if el:
-            result["detail_html"] = str(el)
-            result["detail_images"] = [_fix_url(i["src"]) for i in el.select("img") if i.get("src")]
-            break
-
-    # KC 인증번호
-    m = re.search(r"[A-Z]{2,3}-\d{3,4}-\d{4,6}", resp.text)
-    if m:
-        result["kc_cert_no"] = m.group(0)
-
-    return result
-
-
-def _scrape_domaemae(product_id: str) -> dict:
-    """도매매 상품 페이지에서 이미지·KC인증 스크래핑."""
-    url = f"https://www.domaemae.co.kr/product_detail.php?no={product_id}"
-    try:
-        resp = requests.get(url, headers=_HEADERS, timeout=15)
-        resp.raise_for_status()
-    except Exception as e:
-        logger.warning("도매매 스크래핑 실패(%s): %s", product_id, e)
-        return {}
-
-    soup = BeautifulSoup(resp.text, "lxml")
-    result: dict = {}
-
-    for sel in [".main-image img", ".product-thumb img", "#mainImg", ".rep-img img"]:
-        el = soup.select_one(sel)
-        if el and el.get("src"):
-            result["main_image"] = _fix_url(el["src"])
-            break
-
-    subs = []
-    for sel in [".sub-images img", ".thumbnail img", ".img-list img"]:
-        imgs = soup.select(sel)
-        if imgs:
-            subs = [_fix_url(i["src"]) for i in imgs if i.get("src")][:9]
-            break
-    result["sub_images"] = subs
-
-    for sel in [".product-detail", "#detailContent", ".detail-area", ".item-detail"]:
-        el = soup.select_one(sel)
-        if el:
-            result["detail_html"] = str(el)
-            result["detail_images"] = [_fix_url(i["src"]) for i in el.select("img") if i.get("src")]
-            break
-
-    m = re.search(r"[A-Z]{2,3}-\d{3,4}-\d{4,6}", resp.text)
-    if m:
-        result["kc_cert_no"] = m.group(0)
-
-    return result
-
-
-# ── 상품 정보 수집 ─────────────────────────────────────────────────
-
-def fetch_product_info(url: str, client) -> dict:
-    """도매매/도매꾹 URL에서 상품 정보 수집.
-
-    Args:
-        url: 상품 URL 또는 상품번호
-        client: DomaemaeClient 인스턴스 (세션 관리 포함)
-
-    Returns: {
-        supplier, product_id, supplier_url,
-        title, supply_price, stock,
-        origin, model, kc_cert_no,
-        main_image, sub_images, detail_images, detail_html,
-        options, category_id, category_name
-    }
-    """
-    supplier, product_id = extract_product_id(url)
-
-    # API로 기본 정보 조회
-    raw = client._get("getItemView", "4.5", {"no": product_id})
-    basis    = raw.get("basis", {})
-    price_d  = raw.get("price", {})
-    qty      = raw.get("qty", {})
-    cat_d    = raw.get("category", {})
-
-    supply_price = int(price_d.get("supply") or price_d.get("dome") or 0)
-    stock = int(qty.get("inventory", 0))
-
-    # 카테고리
-    cat_name = ""
-    if isinstance(cat_d, dict):
-        cat_name = (cat_d.get("name") or cat_d.get("cateName") or
-                    cat_d.get("categoryName") or "")
-    elif isinstance(cat_d, list) and cat_d:
-        cat_name = str(cat_d[-1])
-
-    # 옵션
-    select_opt = raw.get("selectOpt", {})
-    options = []
-    if isinstance(select_opt, dict):
-        for code, info in select_opt.items():
-            if not isinstance(info, dict):
-                continue
-            if int(info.get("hid", 0)) == 2:
-                continue
-            name = str(info.get("name", "")).strip()
-            if name:
-                options.append({"id": code, "name": name})
-
-    # API에서 이미지 시도
-    img_d = raw.get("img", raw.get("images", {}))
-    main_image = ""
-    sub_images: list[str] = []
-    detail_images: list[str] = []
-    detail_html = ""
-
-    if isinstance(img_d, dict):
-        raw_main = img_d.get("main") or img_d.get("big") or img_d.get("url") or ""
-        if isinstance(raw_main, list):
-            raw_main = raw_main[0] if raw_main else ""
-        main_image = _fix_url(str(raw_main)) if raw_main else ""
-
-        raw_sub = img_d.get("sub") or img_d.get("list") or []
-        if isinstance(raw_sub, list):
-            sub_images = [_fix_url(str(s)) for s in raw_sub if s][:9]
-
-        raw_detail = img_d.get("detail") or ""
-        if isinstance(raw_detail, str) and raw_detail.startswith("<"):
-            detail_html = raw_detail
-
-    # 웹 스크래핑으로 보완
-    scraped = (_scrape_domaekkuk if supplier == "domaekkuk" else _scrape_domaemae)(product_id)
-
-    if not main_image:
-        main_image = scraped.get("main_image", "")
-    if not sub_images:
-        sub_images = scraped.get("sub_images", [])
-    if not detail_images:
-        detail_images = scraped.get("detail_images", [])
-    if not detail_html:
-        detail_html = scraped.get("detail_html", "")
-
-    kc_cert_no = (
-        basis.get("kc_cert_no") or basis.get("kcCertNo") or
-        basis.get("certNo") or scraped.get("kc_cert_no") or ""
-    )
-
-    return {
-        "supplier":      supplier,
-        "product_id":    product_id,
-        "supplier_url":  url,
-        "title":         basis.get("title", ""),
-        "supply_price":  supply_price,
-        "stock":         stock,
-        "origin":        basis.get("origin") or basis.get("madeIn") or "",
-        "model":         basis.get("model") or basis.get("modelNo") or "",
-        "kc_cert_no":    kc_cert_no,
-        "main_image":    main_image,
-        "sub_images":    sub_images,
-        "detail_images": detail_images,
-        "detail_html":   detail_html,
-        "options":       options,
-        "category_id":   cat_name,   # 원본 카테고리명 (GUI에서 SS ID로 변환)
-        "category_name": cat_name,
-    }
-
-
-# ── 스마트스토어 payload 구성 ────────────────────────────────────────
-
-def build_smartstore_payload(
-    info: dict,
-    selling_price: int,
-    settings: dict,
-    category_id: str = "",
-) -> dict:
-    """스마트스토어 상품 등록 API payload 구성."""
+def build_smartstore_payload(info: dict, selling_price: int,
+                             settings: dict, category_id: str = "") -> dict:
     seller_phone   = settings.get("seller_phone", "")
-    tags           = generate_tags(info["title"])
     default_cat_id = settings.get("default_category_id", "50000000")
     leaf_cat_id    = category_id or map_category(info.get("category_name", ""), default_cat_id)
+    tags           = generate_tags(info["title"])
 
-    # 상세설명 HTML
     if info.get("detail_html"):
         detail_content = info["detail_html"]
     elif info.get("detail_images"):
@@ -325,7 +557,6 @@ def build_smartstore_payload(
     else:
         detail_content = f"<p>{info.get('title', '')}</p>"
 
-    # 이미지
     images: dict = {}
     if info.get("main_image"):
         images["representativeImage"] = {"url": info["main_image"]}
@@ -361,8 +592,8 @@ def build_smartstore_payload(
                 "originAreaInfo": {
                     "originNation": info.get("origin") or "국내",
                 },
-                "taxType":          "TAX",
-                "singlePackageYn":  False,
+                "taxType":         "TAX",
+                "singlePackageYn": False,
                 "productInfoProvidedNotice": {
                     "productInfoProvidedNoticeType": "ETC",
                     "etc": {
@@ -377,38 +608,28 @@ def build_smartstore_payload(
         }
     }
 
-    # 모델명
     if info.get("model"):
         payload["originProduct"]["detailAttribute"]["naverShoppingSearchInfo"] = {
             "modelName": info["model"]
         }
 
-    # KC 인증
     if info.get("kc_cert_no"):
         payload["originProduct"]["detailAttribute"]["productCertificationInfos"] = [
-            {
-                "certificationKind":   "KC_CERTIFICATION",
-                "certificationNumber": info["kc_cert_no"],
-            }
+            {"certificationKind": "KC_CERTIFICATION",
+             "certificationNumber": info["kc_cert_no"]}
         ]
 
-    # 옵션
     if info.get("options"):
         payload["originProduct"]["optionInfo"] = {
             "optionCombinationGroupNames": {"optionGroupName1": "옵션"},
             "optionCombinations": [
-                {
-                    "optionName1":   opt["name"],
-                    "stockQuantity": 999,
-                    "price":         0,
-                    "usable":        True,
-                }
+                {"optionName1": opt["name"], "stockQuantity": 999,
+                 "price": 0, "usable": True}
                 for opt in info["options"]
             ],
             "useStockManagement": True,
         }
 
-    # 태그
     if tags:
         payload["originProduct"]["tag"] = [{"text": t} for t in tags]
 
@@ -417,22 +638,10 @@ def build_smartstore_payload(
 
 # ── 메인 등록 함수 ─────────────────────────────────────────────────
 
-def register_product(
-    url: str,
-    margin: float,
-    smartstore_api,
-    supplier_client,
-    settings: dict,
-    mapping_repo,
-    category_id: str = "",
-) -> dict:
-    """상품 수집 → 판매가 계산 → 스마트스토어 등록 → 매핑 저장.
-
-    Returns:
-        {"success": True,  "product_id": str, "selling_price": int, "info": dict}
-        {"success": False, "error": str, "info": dict (수집 완료 시)}
-    """
-    # 1. 상품 정보 수집
+def register_product(url: str, margin: float, smartstore_api,
+                     supplier_client, settings: dict, mapping_repo,
+                     category_id: str = "") -> dict:
+    """수집 → 판매가 계산 → 스마트스토어 등록 → 매핑 저장."""
     try:
         info = fetch_product_info(url, supplier_client)
     except Exception as e:
@@ -443,13 +652,9 @@ def register_product(
     if not info.get("supply_price"):
         return {"success": False, "error": "공급가를 가져오지 못했습니다.", "info": info}
 
-    # 2. 판매가 계산
     selling_price = calculate_selling_price(info["supply_price"], margin=margin)
+    payload       = build_smartstore_payload(info, selling_price, settings, category_id)
 
-    # 3. payload 구성
-    payload = build_smartstore_payload(info, selling_price, settings, category_id)
-
-    # 4. 스마트스토어 등록
     try:
         resp = requests.post(
             f"{smartstore_api.BASE_URL}/v2/products",
@@ -468,7 +673,6 @@ def register_product(
         logger.error("스마트스토어 상품 등록 실패: %s", e)
         return {"success": False, "error": str(e), "info": info, "selling_price": selling_price}
 
-    # 5. 매핑 저장
     try:
         mapping_repo.add(
             ss_product_id      = ss_prod_id,
