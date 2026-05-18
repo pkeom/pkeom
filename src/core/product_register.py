@@ -826,10 +826,10 @@ def build_smartstore_payload(info: dict, selling_price: int,
 
 # ── 메인 등록 함수 ─────────────────────────────────────────────────
 
-def register_product(url: str, margin: float, smartstore_api,
+def register_product(url: str, selling_price: int, smartstore_api,
                      supplier_client, settings: dict, mapping_repo,
                      category_id: str = "") -> dict:
-    """수집 → 판매가 계산 → 스마트스토어 등록 → 매핑 저장."""
+    """수집 → 스마트스토어 등록 → 매핑 저장."""
     try:
         info = fetch_product_info(url, supplier_client)
     except Exception as e:
@@ -840,8 +840,9 @@ def register_product(url: str, margin: float, smartstore_api,
     if not info.get("supply_price"):
         return {"success": False, "error": "공급가를 가져오지 못했습니다.", "info": info}
 
-    selling_price = calculate_selling_price(info["supply_price"], margin=margin)
-    payload       = build_smartstore_payload(info, selling_price, settings, category_id)
+    if not selling_price:
+        selling_price = (info["supply_price"] or 0) + 3000
+    payload = build_smartstore_payload(info, selling_price, settings, category_id)
 
     try:
         resp = requests.post(
@@ -862,11 +863,13 @@ def register_product(url: str, margin: float, smartstore_api,
         return {"success": False, "error": str(e), "info": info, "selling_price": selling_price}
 
     try:
+        cost              = (info["supply_price"] or 0) + 3000
+        price_margin_rate = round(selling_price / cost, 6) if cost else 1.0
         mapping_repo.add(
             ss_product_id      = ss_prod_id,
             supplier           = info["supplier"],
             supplier_url_or_id = url,
-            price_margin_rate  = round(1 / (1 - margin), 6),
+            price_margin_rate  = price_margin_rate,
             memo               = f"자동등록 {info['title'][:40]}",
         )
     except Exception as e:

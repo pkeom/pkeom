@@ -525,11 +525,8 @@ tbody tr:hover td { background: #FAFBFC; }
         </div>
 
         <div class="fg">
-          <label class="fl">마진율 (%)</label>
-          <div class="flex-row">
-            <input class="fi" id="reg-margin" type="number" value="30" min="1" max="90" step="1" style="width:90px">
-            <span style="color:var(--text2);font-size:12px">% &nbsp;·&nbsp; 원가 × (1 + 마진율÷100) = 판매가, 100원 단위 올림</span>
-          </div>
+          <label class="fl">판매가 (원) <span style="font-weight:400;text-transform:none">— 비워두면 원가(공급가+배송비)로 자동 설정</span></label>
+          <input class="fi" id="reg-sell-input" type="number" min="0" step="100" placeholder="예: 9900  —  비우면 원가로 자동 설정">
         </div>
 
         <div class="fg">
@@ -1018,8 +1015,8 @@ function regShowPreview(info, sellingPrice) {
 }
 
 async function regPreview() {
-  const url    = $('reg-url').value.trim();
-  const margin = parseInt($('reg-margin').value || '30') / 100;
+  const url           = $('reg-url').value.trim();
+  const selling_price = parseInt($('reg-sell-input').value || '0');
   if (!url) { toast('링크를 입력하세요'); return; }
 
   $('reg-preview-btn').disabled = true;
@@ -1027,11 +1024,14 @@ async function regPreview() {
   regSetStatus('상품 정보 수집 중…', true);
 
   try {
-    const d = await post('/api/register/preview', {url, margin});
+    const d = await post('/api/register/preview', {url, selling_price});
     if (d.error) {
       regSetStatus('오류: ' + d.error);
       regShowEmpty('수집 실패: ' + d.error);
     } else {
+      if (!$('reg-sell-input').value) {
+        $('reg-sell-input').value = d.selling_price;
+      }
       regShowPreview(d, d.selling_price);
       regSetStatus('미리보기 완료. 내용을 확인하고 [스마트스토어 등록]을 클릭하세요.');
       $('reg-submit-btn').disabled = false;
@@ -1049,9 +1049,9 @@ async function regSubmit() {
   const title = _regInfo.title || '이 상품';
   if (!confirm(`"${title.slice(0,30)}"을(를) 스마트스토어에 등록하시겠습니까?\n\n실제 API 호출이 발생합니다.`)) return;
 
-  const url       = $('reg-url').value.trim();
-  const margin    = parseInt($('reg-margin').value || '30') / 100;
-  const catId     = $('reg-cat').value.trim();
+  const url           = $('reg-url').value.trim();
+  const selling_price = parseInt($('reg-sell-input').value || '0');
+  const catId         = $('reg-cat').value.trim();
 
   $('reg-submit-btn').disabled  = true;
   $('reg-preview-btn').disabled = true;
@@ -1059,7 +1059,7 @@ async function regSubmit() {
   $('reg-result').style.display = 'none';
 
   try {
-    const d = await post('/api/register/submit', {url, margin, category_id: catId});
+    const d = await post('/api/register/submit', {url, selling_price, category_id: catId});
     const resultDiv = $('reg-result');
 
     if (d.success) {

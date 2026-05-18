@@ -270,21 +270,20 @@ def api_supplier_product():
 
 @app.route("/api/register/preview", methods=["POST"])
 def api_register_preview():
-    from src.core.product_register import fetch_product_info, calculate_selling_price
-    d      = request.json or {}
-    url    = d.get("url", "").strip()
-    margin = float(d.get("margin", 0.3))
-    if margin >= 1.0:
-        margin = margin / 100
-    margin = max(0.0, margin)
+    from src.core.product_register import fetch_product_info
+    d             = request.json or {}
+    url           = d.get("url", "").strip()
+    selling_price = int(d.get("selling_price", 0))
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
     if not _dm_cli:
         return jsonify({"error": "도매매/도매꾹 API 미초기화"}), 500
     try:
-        info          = fetch_product_info(url, _dm_cli)
-        selling_price = calculate_selling_price(info["supply_price"], margin=margin) if info["supply_price"] else 0
-        return jsonify({**info, "selling_price": selling_price, "cost": info["supply_price"] + 3000})
+        info = fetch_product_info(url, _dm_cli)
+        cost = (info["supply_price"] or 0) + 3000
+        if not selling_price:
+            selling_price = cost
+        return jsonify({**info, "selling_price": selling_price, "cost": cost})
     except Exception as e:
         import traceback
         logger.error("register preview 오류: %s\n%s", e, traceback.format_exc())
@@ -294,13 +293,10 @@ def api_register_preview():
 @app.route("/api/register/submit", methods=["POST"])
 def api_register_submit():
     from src.core.product_register import register_product
-    d           = request.json or {}
-    url         = d.get("url", "").strip()
-    margin      = float(d.get("margin", 0.3))
-    if margin >= 1.0:
-        margin = margin / 100
-    margin      = max(0.0, margin)
-    category_id = d.get("category_id", "").strip()
+    d             = request.json or {}
+    url           = d.get("url", "").strip()
+    selling_price = int(d.get("selling_price", 0))
+    category_id   = d.get("category_id", "").strip()
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
     if not _ss_api or not _dm_cli:
@@ -308,7 +304,7 @@ def api_register_submit():
     try:
         result = register_product(
             url             = url,
-            margin          = margin,
+            selling_price   = selling_price,
             smartstore_api  = _ss_api,
             supplier_client = _dm_cli,
             settings        = _cfg or {},
