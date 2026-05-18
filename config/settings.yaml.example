@@ -25,6 +25,12 @@ email:
 
 budget: 500000                        # 발주 예산 (원). 0이면 예산 관리 비활성화.
 
+# 상품 자동 등록 설정
+seller_phone: ""                      # A/S 전화번호 (예: "0212345678")
+return_address: ""                    # 반품/교환지 주소
+default_margin: 0.3                   # 기본 마진율 (30%)
+default_category_id: "50000000"       # 스마트스토어 기본 카테고리 ID
+
 schedule:
   order_collect_interval: 10        # 주문 수집 주기 (분)
   invoice_sync_interval: 15         # 송장 동기화 주기 (분)

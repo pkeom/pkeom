@@ -5,11 +5,12 @@ from gui.dashboard import DashboardFrame
 from gui.mapping_editor import MappingEditorFrame
 from gui.price_alerts import PriceAlertFrame
 from gui.settings_editor import SettingsEditorFrame
+from gui.product_register import ProductRegisterFrame
 from src.core.price_alert_repository import PriceAlertRepository
 
 _alert_repo = PriceAlertRepository()
 
-_TAB_ALERT_IDX = 2   # "가격 알림" 탭 인덱스 (0-based)
+_TAB_ALERT_IDX = 3   # "가격 알림" 탭 인덱스 (0-based) — 상품등록 탭 추가로 +1
 
 
 class MainWindow:
@@ -26,15 +27,17 @@ class MainWindow:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True, padx=8, pady=8)
 
-        self.dashboard    = DashboardFrame(self.notebook)
-        self.mapping      = MappingEditorFrame(self.notebook)
-        self.price_alerts = PriceAlertFrame(self.notebook, on_read=self._update_badge)
-        self.settings     = SettingsEditorFrame(self.notebook)
+        self.dashboard        = DashboardFrame(self.notebook)
+        self.mapping          = MappingEditorFrame(self.notebook)
+        self.product_register = ProductRegisterFrame(self.notebook)
+        self.price_alerts     = PriceAlertFrame(self.notebook, on_read=self._update_badge)
+        self.settings         = SettingsEditorFrame(self.notebook)
 
-        self.notebook.add(self.dashboard.frame,    text="  대시보드  ")
-        self.notebook.add(self.mapping.frame,      text="  상품 매핑  ")
-        self.notebook.add(self.price_alerts.frame, text="  가격 알림  ")
-        self.notebook.add(self.settings.frame,     text="  설정  ")
+        self.notebook.add(self.dashboard.frame,        text="  대시보드  ")
+        self.notebook.add(self.mapping.frame,          text="  상품 매핑  ")
+        self.notebook.add(self.product_register.frame, text="  상품 등록  ")
+        self.notebook.add(self.price_alerts.frame,     text="  가격 알림  ")
+        self.notebook.add(self.settings.frame,         text="  설정  ")
 
         self._update_badge()
 
