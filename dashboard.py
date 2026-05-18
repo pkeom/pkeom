@@ -27,6 +27,7 @@ from src.api.domaemae import DomaemaeClient
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 # ── 전역 인스턴스 ─────────────────────────────────────────────────
 _order_repo    = OrderRepository()
