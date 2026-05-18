@@ -6,7 +6,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-API_URL = "https://domemedb.domeggook.com/ssl/api/"
+API_URL = "https://domeggook.com/ssl/api/"
 _RENEW_BUFFER = 30  # sIdRenewDate 만료 N초 전에 갱신
 
 

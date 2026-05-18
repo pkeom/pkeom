@@ -1,4 +1,6 @@
 """도매매/도매꾹 상품 → 스마트스토어 자동 등록"""
+import itertools
+import json
 import math
 import re
 import logging
@@ -13,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # ── 상수 ───────────────────────────────────────────────────────────
 
-_DOME_API_URL = "https://domemedb.domeggook.com/ssl/api/"
+_DOME_API_URL = "https://domeggook.com/ssl/api/"
 _TIMEOUT      = 30
 _MAX_RETRIES  = 3
 
@@ -163,20 +165,47 @@ def _fix_url(src: str) -> str:
 
 
 def _parse_options(select_opt) -> list[dict]:
-    if not isinstance(select_opt, dict):
+    """selectOpt → 옵션 그룹 목록: [{"name": str, "values": [str, ...]}]
+
+    신규 API(2024+): selectOpt는 JSON 문자열이며
+    {"type":"combination","set":[{"name":str,"opts":[str,...]},...]} 형태.
+    """
+    if not select_opt:
         return []
-    opts = []
-    seen: set[str] = set()
-    for code, info in select_opt.items():
+    if isinstance(select_opt, str):
+        try:
+            data = json.loads(select_opt)
+        except Exception:
+            return []
+    else:
+        data = select_opt
+    if not isinstance(data, dict):
+        return []
+
+    if "set" in data:
+        result = []
+        for grp in data["set"]:
+            if not isinstance(grp, dict):
+                continue
+            name   = str(grp.get("name", "옵션")).strip() or "옵션"
+            values = [str(v).strip() for v in grp.get("opts", []) if str(v).strip()]
+            if values:
+                result.append({"name": name, "values": values})
+        return result
+
+    # 구형 형식: {"CODE": {"name": str, "hid": int}}
+    flat: list[str] = []
+    seen: set[str]  = set()
+    for code, info in data.items():
         if not isinstance(info, dict):
             continue
         if int(info.get("hid", 0)) == 2:
             continue
-        name = str(info.get("name", "")).strip()
-        if name and code not in seen:
-            opts.append({"id": code, "name": name})
+        n = str(info.get("name", "")).strip()
+        if n and code not in seen:
+            flat.append(n)
             seen.add(code)
-    return opts
+    return [{"name": "옵션", "values": flat}] if flat else []
 
 
 def _parse_category(cat_d) -> str:
@@ -808,13 +837,17 @@ def build_smartstore_payload(info: dict, selling_price: int,
         ]
 
     if info.get("options"):
+        groups = info["options"][:3]  # 스마트스토어 최대 3개 그룹
+        grp_names = {f"optionGroupName{i+1}": g["name"] for i, g in enumerate(groups)}
+        combos = list(itertools.product(*[g["values"] for g in groups]))
+        opt_combos = [
+            {f"optionName{i+1}": v for i, v in enumerate(combo)} |
+            {"stockQuantity": 999, "price": 0, "usable": True}
+            for combo in combos
+        ]
         payload["originProduct"]["optionInfo"] = {
-            "optionCombinationGroupNames": {"optionGroupName1": "옵션"},
-            "optionCombinations": [
-                {"optionName1": opt["name"], "stockQuantity": 999,
-                 "price": 0, "usable": True}
-                for opt in info["options"]
-            ],
+            "optionCombinationGroupNames": grp_names,
+            "optionCombinations": opt_combos,
             "useStockManagement": True,
         }
 

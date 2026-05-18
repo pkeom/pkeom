@@ -1001,7 +1001,10 @@ function regShowPreview(info, sellingPrice) {
     ['추가이미지',   `${(info.sub_images||[]).length}장`],
     ['상세이미지',   `${(info.detail_images||[]).length}장`],
     ['옵션',         (info.options||[]).length > 0
-        ? (info.options||[]).map(o => o.name).join(' / ')
+        ? (info.options||[]).map(g => {
+            const vals = (g.values||[]).slice(0,4).join(', ') + ((g.values||[]).length > 4 ? '…' : '');
+            return `${g.name}(${vals})`;
+          }).join(' + ')
         : '옵션 없음'],
     ['자동 태그',    info.title
         ? info.title.split(/[\s\[\]()]+/).filter(w => w.length >= 2).slice(0,10).join(', ')
@@ -1032,7 +1035,8 @@ async function regPreview() {
       if (!$('reg-sell-input').value) {
         $('reg-sell-input').value = d.selling_price;
       }
-      regShowPreview(d, d.selling_price);
+      const displayPrice = parseInt($('reg-sell-input').value) || d.selling_price;
+      regShowPreview(d, displayPrice);
       regSetStatus('미리보기 완료. 내용을 확인하고 [스마트스토어 등록]을 클릭하세요.');
       $('reg-submit-btn').disabled = false;
     }
