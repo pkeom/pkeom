@@ -4,7 +4,9 @@
 
 smartstore:
   client_id: "여기에_클라이언트_ID"
-  client_secret: "$2a$04$여기에_bcrypt_솔트_29자"
+  # 네이버 커머스 API 센터에서 발급된 시크릿 전체를 그대로 붙여넣기 (반드시 따옴표로 감싸세요)
+  # 형식 예시: "$2y$10$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  client_secret: "$2y$10$여기에_네이버_발급_client_secret_전체"
 
 domaekkuk:
   api_key: "여기에_도매꾹_API_키"

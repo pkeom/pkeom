@@ -12,12 +12,11 @@ class SmartstoreAPI:
     BASE_URL = "https://api.commerce.naver.com/external"
 
     def __init__(self, client_id: str, client_secret: str, account_type: str = "SELF"):
-        # GitHub Secrets 붙여넣기 시 줄바꿈·공백이 섞일 수 있으므로 방어적으로 정리
-        # split()+join()으로 중간에 끼어있는 공백·줄바꿈까지 모두 제거
-        self.client_id     = client_id.strip()
-        self.client_secret = "".join(client_secret.split())
-        # account_type: "SELF"(자체 개발) 또는 "SOLUTION"(솔루션 제공사)
-        self.account_type  = account_type.strip()
+        # YAML이 int/bool로 파싱하는 경우 대비 str() 변환 후
+        # split()+join()으로 앞·뒤·중간에 끼어있는 공백·줄바꿈·제어문자 모두 제거
+        self.client_id     = str(client_id).strip()
+        self.client_secret = "".join(str(client_secret).split())
+        self.account_type  = str(account_type).strip()
         self._token = None
         self._token_expires_at = 0
 
@@ -25,16 +24,27 @@ class SmartstoreAPI:
         if self._token and time.time() < self._token_expires_at - 60:
             return self._token
 
+        # ── 네이버 커머스 API 공식 서명 생성 ──────────────────────────────
+        # signature = Base64( bcrypt( "{client_id}_{timestamp}", client_secret ) )
+        # 참고: https://apicenter.commerce.naver.com (인증 토큰 발급 가이드)
+        #
+        # client_secret 은 네이버가 PHP bcrypt 로 생성한 $2y$ 형식 해시값이며,
+        # bcrypt.hashpw() 의 두 번째 인자(salt)로 직접 전달한다.
+        # bcrypt 4.0+ (Rust 백엔드) 는 $2y$/$2a$/$2b$ 모두 허용하므로
+        # prefix 변환 없이 원본 그대로 사용하는 것이 공식 예제와 일치한다.
         timestamp = str(int(time.time() * 1000))
         password  = f"{self.client_id}_{timestamp}"
 
-        # Naver가 발급하는 client_secret은 $2y$ 또는 $2a$ (PHP/구형 bcrypt) 형식.
-        # bcrypt >= 4.0 Rust 백엔드는 $2b$ 만 허용하므로 모든 구형 prefix를 교체한다.
         salt = self.client_secret.encode("utf-8")
-        for _old in (b"$2y$", b"$2a$", b"$2x$"):
-            if salt.startswith(_old):
-                salt = b"$2b$" + salt[4:]
-                break
+
+        # 유효성 사전 검사 — 비어있거나 bcrypt 형식이 아닌 경우 명확한 에러 제공
+        if not salt.startswith(b"$2"):
+            raise ValueError(
+                f"client_secret 이 유효한 bcrypt 형식이 아닙니다. "
+                f"네이버 커머스 API 센터에서 발급된 '$2y$...' 형식 시크릿을 "
+                f"config/settings.yaml 의 smartstore.client_secret 에 입력하세요. "
+                f"(현재 앞 10자: {self.client_secret[:10]!r})"
+            )
 
         hashed    = bcrypt.hashpw(password.encode("utf-8"), salt)
         signature = base64.b64encode(hashed).decode("utf-8")
