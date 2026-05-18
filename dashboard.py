@@ -276,7 +276,7 @@ def api_register_preview():
     margin = float(d.get("margin", 0.3))
     if margin >= 1.0:
         margin = margin / 100
-    margin = max(0.01, min(0.99, margin))
+    margin = max(0.0, margin)
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
     if not _dm_cli:
@@ -299,7 +299,7 @@ def api_register_submit():
     margin      = float(d.get("margin", 0.3))
     if margin >= 1.0:
         margin = margin / 100
-    margin      = max(0.01, min(0.99, margin))
+    margin      = max(0.0, margin)
     category_id = d.get("category_id", "").strip()
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400

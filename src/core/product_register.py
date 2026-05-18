@@ -684,10 +684,10 @@ def calculate_selling_price(supply_price: int, shipping: int = 3_000,
                             margin: float = 0.3) -> int:
     """판매가 계산 (100원 단위 올림).
     원가 = supply_price + shipping
-    판매가 = ceil(원가 / (1 - margin) / 100) * 100
+    판매가 = ceil(원가 × (1 + margin) / 100) * 100
     """
-    margin = max(0.01, min(0.99, float(margin)))
-    return math.ceil((supply_price + shipping) / (1 - margin) / 100) * 100
+    margin = max(0.0, float(margin))
+    return math.ceil((supply_price + shipping) * (1 + margin) / 100) * 100
 
 
 def generate_tags(product_name: str, max_tags: int = 10) -> list[str]:
