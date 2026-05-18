@@ -230,12 +230,13 @@ def _domaekkuk_api(product_id: str, api_key: str) -> dict:
 
 
 def _scrape_domaekkuk(product_id: str) -> dict:
-    """도매꾹 상품 페이지 스크래핑 (API 실패 fallback)."""
+    """도매꾹 상품 페이지 스크래핑 (실제 HTML 구조 기반)."""
     page_url = f"https://www.domeggook.com/{product_id}"
     session  = _make_session(referer="https://www.domeggook.com/")
 
     try:
-        resp = _retry_get(session, page_url)
+        resp          = _retry_get(session, page_url)
+        resp.encoding = "euc-kr"  # 도매꾹 EUC-KR 인코딩 명시 설정 (필수)
         resp.raise_for_status()
     except Exception as e:
         logger.warning("도매꾹 스크래핑 실패(%s): %s", product_id, e)
@@ -244,68 +245,126 @@ def _scrape_domaekkuk(product_id: str) -> dict:
     soup   = BeautifulSoup(resp.text, "lxml")
     result: dict = {}
 
-    # 기본 정보 — 페이지 JSON-LD 또는 메타 태그에서 추출 시도
-    for script in soup.select("script[type='application/ld+json']"):
-        try:
-            import json
-            data = json.loads(script.string or "")
-            if data.get("@type") in ("Product", "product"):
-                result.setdefault("title",        data.get("name", ""))
-                result.setdefault("supply_price", 0)
-                offers = data.get("offers", {})
-                if isinstance(offers, dict):
-                    result["supply_price"] = int(float(offers.get("price", 0)))
-        except Exception:
-            pass
-
-    # 제목 — h1 태그 fallback
+    # ── 1. 상품명 ─────────────────────────────────────────────────
+    og_title = soup.find("meta", {"property": "og:title"})
+    if og_title:
+        title = re.sub(r"^\[도매꾹\]\s*", "", og_title.get("content", "")).strip()
+        if title:
+            result["title"] = title
     if not result.get("title"):
-        h1 = soup.select_one("h1.product-title, h1.title, h1, .product-name")
+        h1 = soup.select_one("h1#lInfoItemTitle, h1.lInfoRow")
         if h1:
             result["title"] = h1.get_text(strip=True)
 
-    # 대표이미지
-    for sel in [
-        "img#productImage", ".product-image img", ".big-img img",
-        ".main-image img", ".item-img img", ".product-photo img",
-        "img[id*='main']", ".swiper-slide img",
-    ]:
-        el = soup.select_one(sel)
-        if el and (el.get("src") or el.get("data-src")):
-            result["main_image"] = _fix_url(el.get("src") or el.get("data-src"))
-            break
+    # ── 2. 공급가 ─────────────────────────────────────────────────
+    price_el = soup.select_one("div.lItemPrice")
+    if price_el:
+        digits = re.sub(r"[^\d]", "", price_el.get_text())
+        if digits:
+            result["supply_price"] = int(digits)
+    if not result.get("supply_price"):
+        og_desc = soup.find("meta", {"property": "og:description"})
+        if og_desc:
+            m = re.search(r"([\d,]+)원", og_desc.get("content", ""))
+            if m:
+                result["supply_price"] = int(m.group(1).replace(",", ""))
 
-    # 추가이미지
-    for sel in [".thumbnail-list img", ".thumb-list img", ".small-img img",
-                ".product-thumbs img", ".sub-images img"]:
-        imgs = soup.select(sel)
-        if imgs:
-            result["sub_images"] = [
-                _fix_url(i.get("src") or i.get("data-src", ""))
-                for i in imgs if (i.get("src") or i.get("data-src"))
-            ][:9]
-            break
+    # ── 3. 재고수량 ───────────────────────────────────────────────
+    qty_el = soup.select_one("tr.lInfoQty td.lInfoItemContent")
+    if qty_el:
+        digits = re.sub(r"[^\d]", "", qty_el.get_text())
+        if digits:
+            result["stock"] = int(digits)
 
-    # 상세설명
-    for sel in [
-        ".product-detail", "#productDetail", "#itemDetail",
-        ".detail-content", ".item-detail", ".desc-area", "#desc_area",
-        "[class*='detail']", "[id*='detail']",
-    ]:
-        el = soup.select_one(sel)
-        if el:
-            result["detail_html"]   = str(el)
-            result["detail_images"] = [
-                _fix_url(i.get("src") or i.get("data-src", ""))
-                for i in el.select("img")
-                if (i.get("src") or i.get("data-src"))
-            ]
-            break
+    # ── 4. 대표이미지 ─────────────────────────────────────────────
+    og_img = soup.find("meta", {"property": "og:image"})
+    if og_img:
+        result["main_image"] = og_img.get("content", "")
 
-    # KC 인증번호
-    m = re.search(r"[A-Z]{2,3}-\d{3,4}-\d{4,6}", resp.text)
-    if m:
-        result["kc_cert_no"] = m.group(0)
+    # ── 5. 추가이미지 (#lThumbImgWrap a.thumbLightbox) ────────────
+    sub_imgs: list[str] = []
+    for a in soup.select("#lThumbImgWrap a.thumbLightbox"):
+        img = a.find("img")
+        if img:
+            src = _fix_url(img.get("src") or img.get("data-src", ""))
+            if src and src not in sub_imgs:
+                sub_imgs.append(src)
+    result["sub_images"] = sub_imgs[:9]
+
+    # ── 6. 원산지 ─────────────────────────────────────────────────
+    origin_el = soup.select_one("tr.lInfoItemCountry td.lInfoItemCountryContent")
+    if origin_el:
+        result["origin"] = origin_el.get_text(strip=True)
+
+    # ── 7. 최소구매수량 ───────────────────────────────────────────
+    minqty_el = soup.select_one("tr.lInfoPurchase td.lInfoItemContent")
+    if minqty_el:
+        digits = re.sub(r"[^\d]", "", minqty_el.get_text())
+        result["min_qty"] = int(digits) if digits else 1
+    else:
+        result["min_qty"] = 1
+
+    # ── 8. KC 인증 ────────────────────────────────────────────────
+    cert_el = soup.select_one("div.lCert.lHasImg")
+    if cert_el:
+        cert_title = cert_el.select_one("div.lCertTitle")
+        if cert_title:
+            m = re.search(r"\[(.+?)\]", cert_title.get_text())
+            if m:
+                result["kc_cert_type"] = m.group(1).strip()
+        cert_num = cert_el.select_one("div.lCertNum")
+        if cert_num:
+            raw_num = cert_num.get_text(strip=True)
+            raw_num = re.split(r"자세히", raw_num)[0].strip()
+            m = re.search(r"[A-Z0-9]{2,3}-\d{3,6}", raw_num)
+            result["kc_cert_no"] = m.group(0) if m else raw_num
+
+    # ── 9. 카테고리 (breadcrumb #lPath) ──────────────────────────
+    cat_parts: list[str] = []
+    cat_code = ""
+    lcat2 = soup.find(id="lPathCat2")
+    if lcat2:
+        a2 = lcat2.find("a")
+        txt = a2.get_text(strip=True) if a2 else lcat2.get_text(strip=True)
+        if txt:
+            cat_parts.append(txt)
+    for n in range(3, 8):
+        cat_el = soup.find(id=f"lPathCat{n}")
+        if not cat_el:
+            break
+        first_a = cat_el.find("a")
+        if not first_a:
+            break
+        href = first_a.get("href", "")
+        txt  = first_a.get_text(strip=True)
+        m    = re.search(r"ca=([\w_]+)", href)
+        if m:
+            cat_code = m.group(1)
+        if txt:
+            cat_parts.append(txt)
+    result["category_name"] = " > ".join(cat_parts)
+    result["category_code"] = cat_code  # 예: "17_05_07_06_00"
+
+    # ── 10. 상세설명 이미지 (supportListFrame iframe) ─────────────
+    try:
+        iframe_url = (
+            f"https://www.domeggook.com"
+            f"/main/item/itemView/supportListFrame.php?no={product_id}"
+        )
+        det_resp          = _retry_get(session, iframe_url)
+        det_resp.encoding = "euc-kr"
+        if det_resp.ok:
+            det_soup   = BeautifulSoup(det_resp.text, "lxml")
+            det_imgs: list[str] = []
+            for img in det_soup.find_all("img"):
+                src = _fix_url(img.get("src") or img.get("data-src", ""))
+                if src and ("cdn" in src or "upload" in src) and src not in det_imgs:
+                    det_imgs.append(src)
+            result["detail_images"] = det_imgs
+            body = det_soup.find("body")
+            result["detail_html"]   = str(body) if body else det_resp.text[:200_000]
+    except Exception as e:
+        logger.debug("도매꾹 상세이미지 수집 실패: %s", e)
 
     return result
 
@@ -452,14 +511,19 @@ def fetch_product_info(url: str, client) -> dict:
     stock        = int(qty.get("inventory", 0))
     origin       = basis.get("origin") or basis.get("madeIn") or ""
     model        = basis.get("model")  or basis.get("modelNo") or ""
+    brand        = basis.get("brand")  or basis.get("brandName") or ""
+    manufacturer = basis.get("manufacturer") or basis.get("maker") or ""
     kc_cert_no   = (basis.get("kc_cert_no") or basis.get("kcCertNo")
                     or basis.get("certNo") or "")
+    kc_cert_type = basis.get("kc_cert_type") or basis.get("kcCertType") or ""
+    min_qty      = int(basis.get("minQty") or basis.get("min_qty") or 1)
     cat_name     = _parse_category(raw.get("category", {}))
     options      = _parse_options(raw.get("selectOpt", {}))
     main_image, sub_images, detail_html = _parse_images(
         raw.get("img", raw.get("images", {}))
     )
     detail_images: list[str] = []
+    category_code = ""
 
     # ── 스크래핑으로 부족한 필드 보완 ────────────────────────────
     need_scrape = not title or not supply_price or not main_image
@@ -483,6 +547,17 @@ def fetch_product_info(url: str, client) -> dict:
             detail_html = scraped.get("detail_html", "")
         if not kc_cert_no:
             kc_cert_no = scraped.get("kc_cert_no", "")
+        if not kc_cert_type:
+            kc_cert_type = scraped.get("kc_cert_type", "")
+        if not origin:
+            origin = scraped.get("origin", "")
+        if min_qty <= 1:
+            min_qty = scraped.get("min_qty", 1)
+        if not stock:
+            stock = scraped.get("stock", 0)
+        if not cat_name:
+            cat_name = scraped.get("category_name", "")
+        category_code = scraped.get("category_code", "")
 
     logger.info("수집 완료: title=%r, price=%s, options=%d개",
                 title, supply_price, len(options))
@@ -494,9 +569,13 @@ def fetch_product_info(url: str, client) -> dict:
         "title":         title,
         "supply_price":  supply_price,
         "stock":         stock,
+        "min_qty":       min_qty,
         "origin":        origin,
         "model":         model,
+        "brand":         brand,
+        "manufacturer":  manufacturer,
         "kc_cert_no":    kc_cert_no,
+        "kc_cert_type":  kc_cert_type,
         "main_image":    main_image,
         "sub_images":    sub_images,
         "detail_images": detail_images,
@@ -504,6 +583,7 @@ def fetch_product_info(url: str, client) -> dict:
         "options":       options,
         "category_id":   cat_name,
         "category_name": cat_name,
+        "category_code": category_code,
     }
 
 
@@ -608,14 +688,30 @@ def build_smartstore_payload(info: dict, selling_price: int,
         }
     }
 
+    naver_search_info: dict = {}
     if info.get("model"):
-        payload["originProduct"]["detailAttribute"]["naverShoppingSearchInfo"] = {
-            "modelName": info["model"]
-        }
+        naver_search_info["modelName"] = info["model"]
+    if info.get("brand"):
+        naver_search_info["brandName"] = info["brand"]
+    if info.get("manufacturer"):
+        naver_search_info["manufacturerName"] = info["manufacturer"]
+    if naver_search_info:
+        payload["originProduct"]["detailAttribute"]["naverShoppingSearchInfo"] = naver_search_info
 
     if info.get("kc_cert_no"):
+        cert_type_map = {
+            "안전인증":       "KC_CERTIFICATION",
+            "안전확인":       "SAFETY_CONFIRMATION",
+            "공급자적합성":   "SUPPLIER_CONFORMITY",
+            "자율안전":       "VOLUNTARY_SAFETY",
+        }
+        cert_type = info.get("kc_cert_type", "")
+        cert_kind = next(
+            (v for k, v in cert_type_map.items() if k in cert_type),
+            "KC_CERTIFICATION",
+        )
         payload["originProduct"]["detailAttribute"]["productCertificationInfos"] = [
-            {"certificationKind": "KC_CERTIFICATION",
+            {"certificationKind": cert_kind,
              "certificationNumber": info["kc_cert_no"]}
         ]
 
