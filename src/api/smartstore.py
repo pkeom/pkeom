@@ -13,8 +13,9 @@ class SmartstoreAPI:
 
     def __init__(self, client_id: str, client_secret: str, account_type: str = "SELF"):
         # GitHub Secrets 붙여넣기 시 줄바꿈·공백이 섞일 수 있으므로 방어적으로 정리
+        # split()+join()으로 중간에 끼어있는 공백·줄바꿈까지 모두 제거
         self.client_id     = client_id.strip()
-        self.client_secret = client_secret.strip()
+        self.client_secret = "".join(client_secret.split())
         # account_type: "SELF"(자체 개발) 또는 "SOLUTION"(솔루션 제공사)
         self.account_type  = account_type.strip()
         self._token = None
@@ -27,11 +28,13 @@ class SmartstoreAPI:
         timestamp = str(int(time.time() * 1000))
         password  = f"{self.client_id}_{timestamp}"
 
-        # Naver가 발급하는 client_secret은 $2y$ (PHP bcrypt) 형식.
-        # Python bcrypt는 $2b$만 허용하므로 prefix를 교체한다.
+        # Naver가 발급하는 client_secret은 $2y$ 또는 $2a$ (PHP/구형 bcrypt) 형식.
+        # bcrypt >= 4.0 Rust 백엔드는 $2b$ 만 허용하므로 모든 구형 prefix를 교체한다.
         salt = self.client_secret.encode("utf-8")
-        if salt.startswith(b"$2y$"):
-            salt = b"$2b$" + salt[4:]
+        for _old in (b"$2y$", b"$2a$", b"$2x$"):
+            if salt.startswith(_old):
+                salt = b"$2b$" + salt[4:]
+                break
 
         hashed    = bcrypt.hashpw(password.encode("utf-8"), salt)
         signature = base64.b64encode(hashed).decode("utf-8")
