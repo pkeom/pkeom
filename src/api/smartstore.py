@@ -179,25 +179,35 @@ class SmartstoreAPI:
         return resp.json()["images"][0]["url"]
 
     def upload_image_data(self, data: bytes, content_type: str, filename: str) -> str:
-        """이미 다운로드된 이미지 바이트를 Naver 상품 이미지 CDN에 업로드하고 URL을 반환한다."""
+        """이미 다운로드된 이미지 바이트를 Naver 상품 이미지 CDN에 업로드하고 URL을 반환한다.
+
+        429 Rate Limit 시 최대 3회 backoff 재시도.
+        """
         import io
         if not content_type.startswith("image/"):
             raise ValueError(f"유효한 이미지 Content-Type이 아닙니다: {content_type}")
-        resp = requests.post(
-            f"{self.BASE_URL}/v1/product-images/upload",
-            headers={"Authorization": f"Bearer {self._get_token()}"},
-            files={"imageFiles": (filename, io.BytesIO(data), content_type)},
-            timeout=30,
-        )
-        if not resp.ok:
-            try:
-                body = resp.json()
-            except Exception:
-                body = resp.text
-            raise requests.HTTPError(
-                f"이미지 업로드 실패 {resp.status_code}: {body}", response=resp
+        for attempt in range(3):
+            resp = requests.post(
+                f"{self.BASE_URL}/v1/product-images/upload",
+                headers={"Authorization": f"Bearer {self._get_token()}"},
+                files={"imageFiles": (filename, io.BytesIO(data), content_type)},
+                timeout=30,
             )
-        return resp.json()["images"][0]["url"]
+            if resp.status_code == 429:
+                wait = (attempt + 1) * 3  # 3s → 6s → 9s
+                logger.warning("이미지 업로드 Rate Limit (429), %d초 후 재시도 (%d/3)", wait, attempt + 1)
+                time.sleep(wait)
+                continue
+            if not resp.ok:
+                try:
+                    body = resp.json()
+                except Exception:
+                    body = resp.text
+                raise requests.HTTPError(
+                    f"이미지 업로드 실패 {resp.status_code}: {body}", response=resp
+                )
+            return resp.json()["images"][0]["url"]
+        raise requests.HTTPError(f"이미지 업로드 Rate Limit — 3회 재시도 후 실패: {filename}")
 
     def get_orders(self, status: str = "PAYED", days: int = 1) -> list:
         """주문 목록 조회 (days: 최근 몇 일치)

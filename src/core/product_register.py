@@ -1052,9 +1052,22 @@ def register_product(url: str, selling_price: int, smartstore_api,
 
     # detail_html 내 <img src> URL → Naver CDN URL로 교체
     if info.get("detail_html"):
+        def _is_ui_image(src: str) -> bool:
+            """사이트 UI 아이콘/배경 이미지 여부 — 상품 상세 이미지가 아님."""
+            fname = src.split("/")[-1].split("?")[0].lower()
+            if any(fname.startswith(p) for p in ("ico_", "bg_", "btn_", "icon_")):
+                return True
+            # domeggook UI 이미지 경로 (/image/item/ 또는 /image/common/)
+            if "/image/item/" in src or "/image/common/" in src:
+                return True
+            return False
+
         def _replace_img(m):
             src = m.group(1)
             if src.startswith("http") and "pstatic.net" not in src:
+                if _is_ui_image(src):
+                    logger.debug("UI 이미지 스킵: %s", src[:80])
+                    return ""  # 아이콘/배경 태그 제거
                 try:
                     return m.group(0).replace(src, _upload(src))
                 except Exception as e:
