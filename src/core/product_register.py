@@ -914,7 +914,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
     origin_product: dict = {
         "statusType":    "SALE",
         "saleType":      "NEW",
-        "name":          info["title"],
+        "name":          info["title"][:50],
         "detailContent": detail_content,
         "images":        images,
         "salePrice":     selling_price,
@@ -983,21 +983,27 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if naver_search_info:
         payload["originProduct"]["detailAttribute"]["naverShoppingSearchInfo"] = naver_search_info
 
-    if info.get("kc_cert_no"):
+    kc_cert_no   = (info.get("kc_cert_no") or "").strip()
+    kc_cert_type = (info.get("kc_cert_type") or "").strip()
+    if kc_cert_no and kc_cert_type:
         cert_type_map = {
             "안전인증":     "KC_CERTIFICATION",
             "안전확인":     "SAFETY_CONFIRMATION",
             "공급자적합성": "SUPPLIER_CONFORMITY",
             "자율안전":     "VOLUNTARY_SAFETY",
         }
-        cert_type = info.get("kc_cert_type", "")
         cert_kind = next(
-            (v for k, v in cert_type_map.items() if k in cert_type),
-            "KC_CERTIFICATION",
+            (v for k, v in cert_type_map.items() if k in kc_cert_type),
+            None,
         )
-        payload["originProduct"]["detailAttribute"]["productCertificationInfos"] = [
-            {"certificationKind": cert_kind, "certificationNumber": info["kc_cert_no"]}
-        ]
+        if cert_kind:
+            payload["originProduct"]["detailAttribute"]["productCertificationInfos"] = [
+                {"certificationKind": cert_kind, "certificationNumber": kc_cert_no}
+            ]
+        else:
+            logger.warning("KC인증번호 있으나 매핑 불가한 인증유형(%r) — 인증 정보 제외", kc_cert_type)
+    elif kc_cert_no:
+        logger.warning("KC인증번호 있으나 인증유형 없음 — 인증 정보 제외 (no=%r)", kc_cert_no)
 
     if info.get("options"):
         groups = info["options"][:3]
