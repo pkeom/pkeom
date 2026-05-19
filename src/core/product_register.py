@@ -180,22 +180,29 @@ def _fetch_image_bytes(url: str, session: requests.Session) -> tuple[bytes, str,
     Returns: (raw_bytes, content_type, filename)
     """
     resp = _retry_get(session, url)
+    raw_ct   = resp.headers.get("Content-Type", "(없음)")
+    first4   = resp.content[:4] if resp.content else b""
+    logger.info(
+        "이미지 다운로드: status=%s  Content-Type=%s  첫4바이트=%s  size=%d  url=%s",
+        resp.status_code, raw_ct, first4.hex(), len(resp.content), url[:100],
+    )
+
     if not resp.ok:
         raise requests.HTTPError(
             f"이미지 다운로드 실패 {resp.status_code}: {url}", response=resp
         )
 
-    content_type = resp.headers.get("Content-Type", "").split(";")[0].strip()
+    content_type = raw_ct.split(";")[0].strip()
     if not content_type.startswith("image/"):
         # application/octet-stream 등 비이미지 Content-Type → magic bytes로 실제 타입 감지
         detected = _detect_image_type(resp.content)
         if detected:
-            logger.debug("Content-Type 감지: %s → %s (%s)", content_type, detected, url[:80])
+            logger.info("magic bytes 감지: %s → %s", content_type, detected)
             content_type = detected
         else:
             raise ValueError(
                 f"이미지 URL이 유효한 이미지를 반환하지 않음 "
-                f"(Content-Type: {content_type}): {url}"
+                f"(Content-Type: {content_type}, 첫4바이트: {first4.hex()}): {url}"
             )
 
     ext = _IMG_EXT_MAP.get(content_type, ".jpg")
