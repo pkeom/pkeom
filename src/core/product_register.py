@@ -894,10 +894,22 @@ def build_smartstore_payload(info: dict, selling_price: int,
     leaf_cat_id  = category_id  # resolve_category()가 미리 결정한 값 (빈 문자열 가능)
     tags         = generate_tags(info["title"])
 
+    # detail_html에서 Naver CDN에 업로드된 이미지 태그만 추출해 깔끔한 HTML 구성
+    # (iframe 전체 body를 그대로 쓰면 네비게이션·스크립트 등 불필요한 HTML 포함됨)
     if info.get("detail_html"):
-        detail_content = info["detail_html"]
+        _naver_imgs = [
+            img.get("src", "")
+            for img in BeautifulSoup(info["detail_html"], "lxml").find_all("img")
+            if "pstatic.net" in img.get("src", "")
+        ]
+        if _naver_imgs:
+            detail_content = "\n".join(f'<img src="{u}"/>' for u in _naver_imgs)
+        elif info.get("detail_images"):
+            detail_content = "\n".join(f'<img src="{u}"/>' for u in info["detail_images"])
+        else:
+            detail_content = f"<p>{info.get('title', '')}</p>"
     elif info.get("detail_images"):
-        detail_content = "".join(f'<img src="{u}"/>' for u in info["detail_images"])
+        detail_content = "\n".join(f'<img src="{u}"/>' for u in info["detail_images"])
     else:
         detail_content = f"<p>{info.get('title', '')}</p>"
 
@@ -907,19 +919,19 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if info.get("sub_images"):
         images["optionalImages"] = [{"url": u} for u in info["sub_images"][:9]]
 
-    # originAreaCode: "00"=원산지표시 생략, "03"=국내산
-    # "NONE"은 API가 거부하므로 사용 불가
+    # originAreaCode: Naver 커머스 API 스펙
+    #   "01" = 국내산, "02" = 수입산, "04" = 기타(직접입력)
     origin_text = (info.get("origin") or "").strip()
     _domestic = {"국내", "국내산", "한국", "한국산", "Korea", "KR", "국산"}
     if origin_text in _domestic or any(k in origin_text for k in _domestic):
-        origin_area_code = "03"
+        origin_area_code = "01"
         origin_content   = ""
     elif origin_text:
-        origin_area_code = "00"
-        origin_content   = origin_text
+        origin_area_code = "04"
+        origin_content   = origin_text[:100]
     else:
-        origin_area_code = "00"
-        origin_content   = ""
+        origin_area_code = "04"
+        origin_content   = "상세설명 참조"
 
     origin_product: dict = {
         "statusType":    "SALE",
@@ -949,8 +961,9 @@ def build_smartstore_payload(info: dict, selling_price: int,
                 "afterServiceGuideContent":    "구매 후 문의사항은 판매자에게 연락해주세요.",
             },
             "originAreaInfo": {
-                "originAreaCode": origin_area_code,
-                "content":        origin_content,
+                "originAreaCode":    origin_area_code,
+                "content":           origin_content,
+                "directProductionYn": "N",
             },
             "taxType":         "TAX",
             "minorPurchasable": True,
