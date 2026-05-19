@@ -124,6 +124,21 @@ _IMG_EXT_MAP = {
 }
 
 
+def _detect_image_type(data: bytes) -> str | None:
+    """바이트 시그니처(magic bytes)로 이미지 MIME 타입 감지. 알 수 없으면 None."""
+    if data[:3] == b'\xff\xd8\xff':
+        return "image/jpeg"
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return "image/gif"
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return "image/webp"
+    if data[:2] == b'BM':
+        return "image/bmp"
+    return None
+
+
 def _make_image_session(supplier: str, product_id: str, supplier_client) -> requests.Session:
     """이미지 다운로드용 세션 생성.
 
@@ -167,12 +182,18 @@ def _fetch_image_bytes(url: str, session: requests.Session) -> tuple[bytes, str,
             f"이미지 다운로드 실패 {resp.status_code}: {url}", response=resp
         )
 
-    content_type = resp.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+    content_type = resp.headers.get("Content-Type", "").split(";")[0].strip()
     if not content_type.startswith("image/"):
-        raise ValueError(
-            f"이미지 URL이 유효한 이미지를 반환하지 않음 "
-            f"(Content-Type: {content_type}): {url}"
-        )
+        # application/octet-stream 등 비이미지 Content-Type → magic bytes로 실제 타입 감지
+        detected = _detect_image_type(resp.content)
+        if detected:
+            logger.debug("Content-Type 감지: %s → %s (%s)", content_type, detected, url[:80])
+            content_type = detected
+        else:
+            raise ValueError(
+                f"이미지 URL이 유효한 이미지를 반환하지 않음 "
+                f"(Content-Type: {content_type}): {url}"
+            )
 
     ext = _IMG_EXT_MAP.get(content_type, ".jpg")
     filename = url.split("/")[-1].split("?")[0] or f"image{ext}"

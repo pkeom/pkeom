@@ -140,12 +140,17 @@ class SmartstoreAPI:
             raise requests.HTTPError(
                 f"이미지 다운로드 실패 {dl.status_code}: {image_url}", response=dl
             )
-        content_type = dl.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
-        # content-type이 image가 아니면 실제 이미지가 아닌 HTML 등을 받은 것
+        content_type = dl.headers.get("Content-Type", "").split(";")[0].strip()
         if not content_type.startswith("image/"):
-            raise ValueError(
-                f"이미지 URL이 유효한 이미지를 반환하지 않음 (Content-Type: {content_type}): {image_url}"
-            )
+            # application/octet-stream 등 → magic bytes로 실제 타입 감지
+            from src.core.product_register import _detect_image_type
+            detected = _detect_image_type(dl.content)
+            if detected:
+                content_type = detected
+            else:
+                raise ValueError(
+                    f"이미지 URL이 유효한 이미지를 반환하지 않음 (Content-Type: {content_type}): {image_url}"
+                )
         ext_map = {"image/jpeg": ".jpg", "image/png": ".png",
                    "image/gif": ".gif", "image/bmp": ".bmp", "image/webp": ".webp"}
         ext = ext_map.get(content_type, ".jpg")
