@@ -56,6 +56,30 @@ _CATEGORY_MAP = {
 }
 
 
+def _parse_price(raw) -> int:
+    """가격 파싱: 단순 정수 또는 수량별 가격 형식(예: '1+2700|10+2650|...')을 처리.
+
+    수량별 가격이면 1개 단위 가격(첫 번째 항목)을 사용한다.
+    """
+    if not raw:
+        return 0
+    s = str(raw).strip()
+    if not s:
+        return 0
+    # 수량별 가격 형식: "1+2700|10+2650|50+2630" → 2700
+    if "+" in s or "|" in s:
+        first = s.split("|")[0]          # "1+2700"
+        part  = first.split("+")[-1]     # "2700"
+        try:
+            return int(re.sub(r"[^\d]", "", part))
+        except ValueError:
+            pass
+    try:
+        return int(re.sub(r"[^\d]", "", s))
+    except ValueError:
+        return 0
+
+
 # ── 세션 팩토리 ────────────────────────────────────────────────────
 
 def _make_session(referer: str = "") -> requests.Session:
@@ -492,7 +516,10 @@ def _scrape_domaekkuk(product_id: str) -> dict:
         det_resp          = _retry_get(session, iframe_url)
         det_resp.encoding = "euc-kr"
         if det_resp.ok:
-            det_soup   = BeautifulSoup(det_resp.text, "lxml")
+            det_soup = BeautifulSoup(det_resp.text, "lxml")
+            # 문의게시판·스크립트·폼 등 불필요 요소 제거
+            for el in det_soup.select("#lSupportList, script, form, style, iframe"):
+                el.decompose()
             det_imgs: list[str] = []
             for img in det_soup.find_all("img"):
                 src = _fix_url(img.get("src") or img.get("data-src", ""))
@@ -500,7 +527,7 @@ def _scrape_domaekkuk(product_id: str) -> dict:
                     det_imgs.append(src)
             result["detail_images"] = det_imgs
             body = det_soup.find("body")
-            result["detail_html"]   = str(body) if body else det_resp.text[:200_000]
+            result["detail_html"]   = str(body) if body else ""
     except Exception as e:
         logger.debug("도매꾹 상세이미지 수집 실패: %s", e)
 
@@ -679,7 +706,10 @@ def _scrape_domaemae(product_id: str) -> dict:
         det_resp          = _retry_get(session, iframe_url)
         det_resp.encoding = "euc-kr"
         if det_resp.ok:
-            det_soup   = BeautifulSoup(det_resp.text, "lxml")
+            det_soup = BeautifulSoup(det_resp.text, "lxml")
+            # 문의게시판·스크립트·폼 등 불필요 요소 제거
+            for el in det_soup.select("#lSupportList, script, form, style, iframe"):
+                el.decompose()
             det_imgs: list[str] = []
             for img in det_soup.find_all("img"):
                 src = _fix_url(img.get("src") or img.get("data-src", ""))
@@ -687,7 +717,7 @@ def _scrape_domaemae(product_id: str) -> dict:
                     det_imgs.append(src)
             result["detail_images"] = det_imgs
             body = det_soup.find("body")
-            result["detail_html"]   = str(body) if body else det_resp.text[:200_000]
+            result["detail_html"]   = str(body) if body else ""
     except Exception as e:
         logger.debug("도매매 상세이미지 수집 실패: %s", e)
 
@@ -734,7 +764,7 @@ def fetch_product_info(url: str, client) -> dict:
     qty     = raw.get("qty", {})
 
     title        = basis.get("title", "")
-    supply_price = int(price_d.get("supply") or price_d.get("dome") or 0)
+    supply_price = _parse_price(price_d.get("supply") or price_d.get("dome"))
     stock        = int(qty.get("inventory", 0))
     origin       = basis.get("origin") or basis.get("madeIn") or ""
     model        = basis.get("model")  or basis.get("modelNo") or ""
@@ -920,23 +950,38 @@ def build_smartstore_payload(info: dict, selling_price: int,
         images["optionalImages"] = [{"url": u} for u in info["sub_images"][:9]]
 
     # originAreaCode: Naver 커머스 API 스펙
-    #   "01" = 국내산, "02" = 수입산, "04" = 기타(직접입력)
+    #   "01" = 국내산, "CN"/"JP"/... = 수입산 국가코드, "04" = 기타(직접입력)
     origin_text = (info.get("origin") or "").strip()
-    _domestic = {"국내", "국내산", "한국", "한국산", "Korea", "KR", "국산"}
-    if origin_text in _domestic or any(k in origin_text for k in _domestic):
+    _origin_lower = origin_text.lower()
+    _domestic_kw = ("국내", "국산", "한국", "korea", " kr")
+    _country_map = {
+        ("중국", "china", " cn"): "CN",
+        ("일본", "japan", " jp"): "JP",
+        ("미국", "usa", "u.s", " us"): "US",
+        ("베트남", "vietnam", " vn"): "VN",
+        ("태국", "thailand", " th"): "TH",
+        ("인도", "india", " in"): "IN",
+        ("독일", "germany", " de"): "DE",
+        ("이탈리아", "italy", " it"): "IT",
+        ("프랑스", "france", " fr"): "FR",
+        ("영국", "uk", "england", " gb"): "GB",
+    }
+    if any(k in _origin_lower for k in _domestic_kw):
         origin_area_code = "01"
         origin_content   = ""
-    elif origin_text:
-        origin_area_code = "04"
-        origin_content   = origin_text[:100]
     else:
         origin_area_code = "04"
-        origin_content   = "상세설명 참조"
+        origin_content   = origin_text[:100] if origin_text else "상세설명 참조"
+        for keywords, code in _country_map.items():
+            if any(k in _origin_lower for k in keywords):
+                origin_area_code = code
+                origin_content   = ""
+                break
 
     origin_product: dict = {
         "statusType":    "SALE",
         "saleType":      "NEW",
-        "name":          info["title"][:50],
+        "name":          info["title"][:100],
         "detailContent": detail_content,
         "images":        images,
         "salePrice":     selling_price,
