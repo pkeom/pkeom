@@ -764,6 +764,18 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if info.get("sub_images"):
         images["optionalImages"] = [{"url": u} for u in info["sub_images"][:9]]
 
+    # originAreaCode: "NONE"=미표시, "03"=국내산 — 원산지 문자열을 코드로 변환
+    origin_text = (info.get("origin") or "").strip()
+    if origin_text in ("국내", "한국", "Korea", "KR"):
+        origin_area_code = "03"
+        origin_content   = ""
+    elif origin_text:
+        origin_area_code = "NONE"
+        origin_content   = origin_text
+    else:
+        origin_area_code = "NONE"
+        origin_content   = ""
+
     payload: dict = {
         "originProduct": {
             "statusType":     "SALE",
@@ -782,8 +794,10 @@ def build_smartstore_payload(info: dict, selling_price: int,
                     "baseFee":            3000,
                     "deliveryFeePayType": "PREPAY",
                 },
-                "returnDeliveryFee":   3000,
-                "exchangeDeliveryFee": 6000,
+                "claimDeliveryInfo": {
+                    "returnDeliveryFee":   3000,
+                    "exchangeDeliveryFee": 6000,
+                },
             },
             "detailAttribute": {
                 "afterServiceInfo": {
@@ -791,10 +805,11 @@ def build_smartstore_payload(info: dict, selling_price: int,
                     "afterServiceGuideContent":    "구매 후 문의사항은 판매자에게 연락해주세요.",
                 },
                 "originAreaInfo": {
-                    "originNation": info.get("origin") or "국내",
+                    "originAreaCode": origin_area_code,
+                    "content":        origin_content,
                 },
-                "taxType":         "TAX",
-                "singlePackageYn": False,
+                "taxType":      "TAX",
+                "minorPurchasable": True,
                 "productInfoProvidedNotice": {
                     "productInfoProvidedNoticeType": "ETC",
                     "etc": {
@@ -806,7 +821,11 @@ def build_smartstore_payload(info: dict, selling_price: int,
                     },
                 },
             },
-        }
+        },
+        "smartstoreChannelProduct": {
+            "naverShoppingRegistration":      True,
+            "channelProductDisplayStatusType": "ON",
+        },
     }
 
     naver_search_info: dict = {}
@@ -841,9 +860,10 @@ def build_smartstore_payload(info: dict, selling_price: int,
         grp_names = {f"optionGroupName{i+1}": g["name"] for i, g in enumerate(groups)}
         combos = list(itertools.product(*[g["values"] for g in groups]))
         opt_combos = [
+            {"id": idx + 1} |
             {f"optionName{i+1}": v for i, v in enumerate(combo)} |
             {"stockQuantity": 999, "price": 0, "usable": True}
-            for combo in combos
+            for idx, combo in enumerate(combos)
         ]
         payload["originProduct"]["optionInfo"] = {
             "optionCombinationGroupNames": grp_names,
@@ -884,7 +904,22 @@ def register_product(url: str, selling_price: int, smartstore_api,
             json=payload,
             timeout=30,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            try:
+                err_body = resp.json()
+            except Exception:
+                err_body = resp.text
+            logger.error(
+                "스마트스토어 상품 등록 실패 [%s]: %s",
+                resp.status_code, err_body,
+            )
+            return {
+                "success": False,
+                "error": f"HTTP {resp.status_code}",
+                "detail": err_body,
+                "info": info,
+                "selling_price": selling_price,
+            }
         result     = resp.json()
         ss_prod_id = str(
             result.get("originProductNo") or
