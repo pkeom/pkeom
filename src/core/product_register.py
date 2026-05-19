@@ -802,7 +802,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
             },
             "detailAttribute": {
                 "afterServiceInfo": {
-                    "afterServiceTelephoneNumber": seller_phone,
+                    "afterServiceTelephoneNumber": seller_phone or "00-0000-0000",
                     "afterServiceGuideContent":    "구매 후 문의사항은 판매자에게 연락해주세요.",
                 },
                 "originAreaInfo": {
@@ -907,19 +907,20 @@ def register_product(url: str, selling_price: int, smartstore_api,
         keyword = info.get("category_name") or info.get("title", "")[:10]
         category_id = smartstore_api.find_leaf_category(keyword, fallback_id=default_cat)
 
-    # 이미지를 Naver CDN에 업로드 (외부 URL 직접 사용 불가)
+    # 이미지를 Naver CDN에 업로드 (외부 URL 직접 사용 불가 — 실패 시 등록 중단)
     if info.get("main_image"):
         try:
             info["main_image"] = smartstore_api.upload_image(info["main_image"])
         except Exception as e:
-            logger.warning("대표 이미지 업로드 실패: %s", e)
+            logger.error("대표 이미지 업로드 실패: %s", e)
+            return {"success": False, "error": f"대표 이미지 업로드 실패: {e}", "info": info}
     if info.get("sub_images"):
         uploaded = []
-        for url in info["sub_images"][:9]:
+        for sub_url in info["sub_images"][:9]:
             try:
-                uploaded.append(smartstore_api.upload_image(url))
+                uploaded.append(smartstore_api.upload_image(sub_url))
             except Exception as e:
-                logger.warning("서브 이미지 업로드 실패 (%s): %s", url, e)
+                logger.warning("서브 이미지 업로드 실패 (%s): %s", sub_url, e)
         info["sub_images"] = uploaded
 
     payload = build_smartstore_payload(info, selling_price, settings, category_id)

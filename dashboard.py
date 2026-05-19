@@ -347,6 +347,29 @@ def run_dashboard(host: str = "0.0.0.0", port: int = 2713):
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 
 
+def _setup_logging():
+    log_cfg  = (_cfg or {}).get("logging", {})
+    log_dir  = Path(log_cfg.get("log_dir", "data/logs"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    level = getattr(logging, log_cfg.get("level", "INFO").upper(), logging.INFO)
+    from logging.handlers import RotatingFileHandler
+    handler = RotatingFileHandler(
+        log_dir / "app.log",
+        maxBytes    = log_cfg.get("max_bytes", 10_485_760),
+        backupCount = log_cfg.get("backup_count", 5),
+        encoding    = "utf-8",
+    )
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    ))
+    root = logging.getLogger()
+    root.setLevel(level)
+    if not any(isinstance(h, RotatingFileHandler) for h in root.handlers):
+        root.addHandler(handler)
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
+
 if __name__ == "__main__":
+    _setup_logging()
     print("대시보드: http://localhost:2713", flush=True)
     run_dashboard()

@@ -1078,7 +1078,15 @@ async function regSubmit() {
       $('reg-url').value = '';
     } else {
       resultDiv.className = 'reg-result err';
-      resultDiv.innerHTML = `❌ 등록 실패<br>${d.error || '알 수 없는 오류'}`;
+      let errMsg = d.error || '알 수 없는 오류';
+      const detail = d.detail;
+      if (detail && detail.invalidInputs && detail.invalidInputs.length) {
+        const fields = detail.invalidInputs.map(f => `• ${f.name}: ${f.message}`).join('<br>');
+        errMsg += `<br><small style="opacity:.8">${fields}</small>`;
+      } else if (detail && detail.message) {
+        errMsg += `<br><small style="opacity:.8">${detail.message}</small>`;
+      }
+      resultDiv.innerHTML = `❌ 등록 실패<br>${errMsg}`;
       regSetStatus('등록 실패');
       $('reg-submit-btn').disabled = false;
     }
