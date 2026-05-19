@@ -790,7 +790,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
                 "deliveryType":          "DELIVERY",
                 "deliveryAttributeType": "NORMAL",
                 "deliveryFee": {
-                    "deliveryFeeType":    "CHARGE",
+                    "deliveryFeeType":    "PAID",
                     "baseFee":            3000,
                     "deliveryFeePayType": "PREPAY",
                 },
@@ -813,6 +813,9 @@ def build_smartstore_payload(info: dict, selling_price: int,
                 "productInfoProvidedNotice": {
                     "productInfoProvidedNoticeType": "ETC",
                     "etc": {
+                        "itemName":                 info.get("title", "상품 설명 참조")[:100],
+                        "modelName":                info.get("model") or "상품 설명 참조",
+                        "manufacturer":             info.get("manufacturer") or "상품 설명 참조",
                         "returnCostReason":         "상품 설명 참조",
                         "noRefundReason":           "상품 설명 참조",
                         "qualityAssuranceStandard": "상품 설명 참조",
@@ -823,7 +826,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
             },
         },
         "smartstoreChannelProduct": {
-            "naverShoppingRegistration":      True,
+            "naverShoppingRegistration":       True,
             "channelProductDisplayStatusType": "ON",
         },
     }
