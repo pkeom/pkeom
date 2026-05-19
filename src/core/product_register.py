@@ -213,6 +213,16 @@ def _fetch_image_bytes(url: str, session: requests.Session) -> tuple[bytes, str,
     return resp.content, content_type, filename
 
 
+def _is_ui_image(src: str) -> bool:
+    """도매꾹/도매매 사이트 UI 아이콘·배경 이미지 여부 판별."""
+    fname = src.split("/")[-1].split("?")[0].lower()
+    if any(fname.startswith(p) for p in ("ico_", "bg_", "btn_", "icon_")):
+        return True
+    if "/image/item/" in src or "/image/common/" in src:
+        return True
+    return False
+
+
 # ── URL 파싱 ───────────────────────────────────────────────────────
 
 def extract_product_id(url: str) -> tuple[str, str]:
@@ -947,7 +957,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
             "productInfoProvidedNotice": {
                 "productInfoProvidedNoticeType": "ETC",
                 "etc": {
-                    "itemName":                 info.get("title", "상품 설명 참조")[:100],
+                    "itemName":                 info.get("title", "상품 설명 참조")[:50],
                     "modelName":                info.get("model") or "상품 설명 참조",
                     "manufacturer":             info.get("manufacturer") or "상품 설명 참조",
                     "afterServiceDirector":     seller_phone or "상품 설명 참조",
@@ -983,27 +993,8 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if naver_search_info:
         payload["originProduct"]["detailAttribute"]["naverShoppingSearchInfo"] = naver_search_info
 
-    kc_cert_no   = (info.get("kc_cert_no") or "").strip()
-    kc_cert_type = (info.get("kc_cert_type") or "").strip()
-    if kc_cert_no and kc_cert_type:
-        cert_type_map = {
-            "안전인증":     "KC_CERTIFICATION",
-            "안전확인":     "SAFETY_CONFIRMATION",
-            "공급자적합성": "SUPPLIER_CONFORMITY",
-            "자율안전":     "VOLUNTARY_SAFETY",
-        }
-        cert_kind = next(
-            (v for k, v in cert_type_map.items() if k in kc_cert_type),
-            None,
-        )
-        if cert_kind:
-            payload["originProduct"]["detailAttribute"]["productCertificationInfos"] = [
-                {"certificationKind": cert_kind, "certificationNumber": kc_cert_no}
-            ]
-        else:
-            logger.warning("KC인증번호 있으나 매핑 불가한 인증유형(%r) — 인증 정보 제외", kc_cert_type)
-    elif kc_cert_no:
-        logger.warning("KC인증번호 있으나 인증유형 없음 — 인증 정보 제외 (no=%r)", kc_cert_no)
+    if info.get("kc_cert_no"):
+        logger.info("KC인증번호 있으나 인증기관명 미수집 — 인증 정보 제외 (no=%r)", info["kc_cert_no"])
 
     if info.get("options"):
         groups = info["options"][:3]
@@ -1081,10 +1072,13 @@ def register_product(url: str, selling_price: int, smartstore_api,
                 logger.warning("서브 이미지 업로드 실패 (%s): %s", sub_url, e)
         info["sub_images"] = uploaded
 
-    # detail_images → Naver CDN URL로 교체
+    # detail_images → Naver CDN URL로 교체 (UI 아이콘 제외)
     if info.get("detail_images"):
         uploaded_detail = []
         for d_url in info["detail_images"]:
+            if _is_ui_image(d_url):
+                logger.debug("UI 이미지 스킵 (detail_images): %s", d_url[:80])
+                continue
             try:
                 uploaded_detail.append(_upload(d_url))
             except Exception as e:
@@ -1094,16 +1088,6 @@ def register_product(url: str, selling_price: int, smartstore_api,
 
     # detail_html 내 <img src> URL → Naver CDN URL로 교체
     if info.get("detail_html"):
-        def _is_ui_image(src: str) -> bool:
-            """사이트 UI 아이콘/배경 이미지 여부 — 상품 상세 이미지가 아님."""
-            fname = src.split("/")[-1].split("?")[0].lower()
-            if any(fname.startswith(p) for p in ("ico_", "bg_", "btn_", "icon_")):
-                return True
-            # domeggook UI 이미지 경로 (/image/item/ 또는 /image/common/)
-            if "/image/item/" in src or "/image/common/" in src:
-                return True
-            return False
-
         def _replace_img(m):
             src = m.group(1)
             if src.startswith("http") and "pstatic.net" not in src:
