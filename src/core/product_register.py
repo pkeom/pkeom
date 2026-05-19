@@ -839,14 +839,50 @@ def map_category(supplier_category: str, default_id: str = "") -> str:
     return default_id or "50000000"
 
 
+def resolve_category(info: dict, smartstore_api, category_id: str = "") -> tuple[str, str]:
+    """카테고리 ID를 단계적으로 자동 결정한다.
+
+    1단계: 공급처 카테고리명 각 레벨 (세부 → 대분류)
+    2단계: 상품명 키워드 (2글자 이상 단어, 최대 5개)
+    3단계: 빈 문자열 반환 (수동 입력 필요)
+
+    Returns: (category_id, match_info)
+    """
+    if category_id:
+        return category_id, f"사용자 지정 ({category_id})"
+
+    cat_name = (info.get("category_name") or "").strip()
+    title    = (info.get("title") or "").strip()
+
+    # 1단계: 공급처 카테고리명 → 레벨별 분리 후 세부부터 검색
+    if cat_name:
+        parts = [p.strip() for p in re.split(r"[>|/\\]", cat_name) if p.strip()]
+        for part in reversed(parts):
+            found = smartstore_api.find_leaf_category(part)
+            if found:
+                logger.info("카테고리 자동매칭 성공 (카테고리명 '%s'): %s", part, found)
+                return found, f"카테고리명 '{part}'"
+
+    # 2단계: 상품명 키워드 (2글자 이상 단어, 최대 5개 시도)
+    words = [w for w in re.split(r"[\s/\[\]()\-_,·]+", title) if len(w) >= 2]
+    for word in words[:5]:
+        found = smartstore_api.find_leaf_category(word)
+        if found:
+            logger.info("카테고리 자동매칭 성공 (상품명 키워드 '%s'): %s", word, found)
+            return found, f"상품명 키워드 '{word}'"
+
+    # 3단계: 미매칭
+    logger.warning("카테고리 자동매칭 실패 — cat=%r  title=%r", cat_name[:30], title[:30])
+    return "", "미매칭 (수동 설정 필요)"
+
+
 # ── 스마트스토어 payload 구성 ──────────────────────────────────────
 
 def build_smartstore_payload(info: dict, selling_price: int,
                              settings: dict, category_id: str = "") -> dict:
-    seller_phone   = settings.get("seller_phone", "")
-    default_cat_id = settings.get("default_category_id", "50000000")
-    leaf_cat_id    = category_id or map_category(info.get("category_name", ""), default_cat_id)
-    tags           = generate_tags(info["title"])
+    seller_phone = settings.get("seller_phone", "")
+    leaf_cat_id  = category_id  # resolve_category()가 미리 결정한 값 (빈 문자열 가능)
+    tags         = generate_tags(info["title"])
 
     if info.get("detail_html"):
         detail_content = info["detail_html"]
@@ -875,57 +911,62 @@ def build_smartstore_payload(info: dict, selling_price: int,
         origin_area_code = "00"
         origin_content   = ""
 
-    payload: dict = {
-        "originProduct": {
-            "statusType":     "SALE",
-            "saleType":       "NEW",
-            "leafCategoryId": leaf_cat_id,
-            "name":           info["title"],
-            "detailContent":  detail_content,
-            "images":         images,
-            "salePrice":      selling_price,
-            "stockQuantity":  999,
-            "deliveryInfo": {
-                "deliveryType":          "DELIVERY",
-                "deliveryAttributeType": "NORMAL",
-                "deliveryCompany":       settings.get("delivery_company", "CJGLS"),
-                "deliveryFee": {
-                    "deliveryFeeType":    "PAID",
-                    "baseFee":            3000,
-                    "deliveryFeePayType": "PREPAID",
-                },
-                "claimDeliveryInfo": {
-                    "returnDeliveryFee":   3000,
-                    "exchangeDeliveryFee": 6000,
-                },
+    origin_product: dict = {
+        "statusType":    "SALE",
+        "saleType":      "NEW",
+        "name":          info["title"],
+        "detailContent": detail_content,
+        "images":        images,
+        "salePrice":     selling_price,
+        "stockQuantity": 999,
+        "deliveryInfo": {
+            "deliveryType":          "DELIVERY",
+            "deliveryAttributeType": "NORMAL",
+            "deliveryCompany":       settings.get("delivery_company", "CJGLS"),
+            "deliveryFee": {
+                "deliveryFeeType":    "PAID",
+                "baseFee":            3000,
+                "deliveryFeePayType": "PREPAID",
             },
-            "detailAttribute": {
-                "afterServiceInfo": {
-                    "afterServiceTelephoneNumber": seller_phone or "00-0000-0000",
-                    "afterServiceGuideContent":    "구매 후 문의사항은 판매자에게 연락해주세요.",
-                },
-                "originAreaInfo": {
-                    "originAreaCode": origin_area_code,
-                    "content":        origin_content,
-                },
-                "taxType":      "TAX",
-                "minorPurchasable": True,
-                "productInfoProvidedNotice": {
-                    "productInfoProvidedNoticeType": "ETC",
-                    "etc": {
-                        "itemName":                 info.get("title", "상품 설명 참조")[:100],
-                        "modelName":                info.get("model") or "상품 설명 참조",
-                        "manufacturer":             info.get("manufacturer") or "상품 설명 참조",
-                        "afterServiceDirector":     seller_phone or "상품 설명 참조",
-                        "returnCostReason":         "상품 설명 참조",
-                        "noRefundReason":           "상품 설명 참조",
-                        "qualityAssuranceStandard": "상품 설명 참조",
-                        "compensationProcedure":    "상품 설명 참조",
-                        "troubleShootingContents":  "상품 설명 참조",
-                    },
+            "claimDeliveryInfo": {
+                "returnDeliveryFee":   3000,
+                "exchangeDeliveryFee": 6000,
+            },
+        },
+        "detailAttribute": {
+            "afterServiceInfo": {
+                "afterServiceTelephoneNumber": seller_phone or "00-0000-0000",
+                "afterServiceGuideContent":    "구매 후 문의사항은 판매자에게 연락해주세요.",
+            },
+            "originAreaInfo": {
+                "originAreaCode": origin_area_code,
+                "content":        origin_content,
+            },
+            "taxType":         "TAX",
+            "minorPurchasable": True,
+            "productInfoProvidedNotice": {
+                "productInfoProvidedNoticeType": "ETC",
+                "etc": {
+                    "itemName":                 info.get("title", "상품 설명 참조")[:100],
+                    "modelName":                info.get("model") or "상품 설명 참조",
+                    "manufacturer":             info.get("manufacturer") or "상품 설명 참조",
+                    "afterServiceDirector":     seller_phone or "상품 설명 참조",
+                    "returnCostReason":         "상품 설명 참조",
+                    "noRefundReason":           "상품 설명 참조",
+                    "qualityAssuranceStandard": "상품 설명 참조",
+                    "compensationProcedure":    "상품 설명 참조",
+                    "troubleShootingContents":  "상품 설명 참조",
                 },
             },
         },
+    }
+
+    # leafCategoryId: 빈 문자열이면 네이버 API 오류 방지를 위해 키 자체를 제외
+    if leaf_cat_id:
+        origin_product["leafCategoryId"] = leaf_cat_id
+
+    payload: dict = {
+        "originProduct": origin_product,
         "smartstoreChannelProduct": {
             "naverShoppingRegistration":       True,
             "channelProductDisplayStatusType": "ON",
@@ -944,10 +985,10 @@ def build_smartstore_payload(info: dict, selling_price: int,
 
     if info.get("kc_cert_no"):
         cert_type_map = {
-            "안전인증":       "KC_CERTIFICATION",
-            "안전확인":       "SAFETY_CONFIRMATION",
-            "공급자적합성":   "SUPPLIER_CONFORMITY",
-            "자율안전":       "VOLUNTARY_SAFETY",
+            "안전인증":     "KC_CERTIFICATION",
+            "안전확인":     "SAFETY_CONFIRMATION",
+            "공급자적합성": "SUPPLIER_CONFORMITY",
+            "자율안전":     "VOLUNTARY_SAFETY",
         }
         cert_type = info.get("kc_cert_type", "")
         cert_kind = next(
@@ -955,14 +996,13 @@ def build_smartstore_payload(info: dict, selling_price: int,
             "KC_CERTIFICATION",
         )
         payload["originProduct"]["detailAttribute"]["productCertificationInfos"] = [
-            {"certificationKind": cert_kind,
-             "certificationNumber": info["kc_cert_no"]}
+            {"certificationKind": cert_kind, "certificationNumber": info["kc_cert_no"]}
         ]
 
     if info.get("options"):
-        groups = info["options"][:3]  # 스마트스토어 최대 3개 그룹
+        groups = info["options"][:3]
         grp_names = {f"optionGroupName{i+1}": g["name"] for i, g in enumerate(groups)}
-        combos = list(itertools.product(*[g["values"] for g in groups]))
+        combos    = list(itertools.product(*[g["values"] for g in groups]))
         opt_combos = [
             {"id": idx + 1} |
             {f"optionName{i+1}": v for i, v in enumerate(combo)} |
@@ -971,8 +1011,8 @@ def build_smartstore_payload(info: dict, selling_price: int,
         ]
         payload["originProduct"]["optionInfo"] = {
             "optionCombinationGroupNames": grp_names,
-            "optionCombinations": opt_combos,
-            "useStockManagement": True,
+            "optionCombinations":          opt_combos,
+            "useStockManagement":          True,
         }
 
     if tags:
@@ -1000,11 +1040,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
     if not selling_price:
         selling_price = (info["supply_price"] or 0) + 3000
 
-    # category_id 미지정 시 API로 leaf 카테고리 실시간 조회
-    if not category_id:
-        default_cat = settings.get("default_category_id", "50021299")
-        keyword = info.get("category_name") or info.get("title", "")[:10]
-        category_id = smartstore_api.find_leaf_category(keyword, fallback_id=default_cat)
+    category_id, category_match = resolve_category(info, smartstore_api, category_id)
 
     # ── 모든 이미지를 Naver CDN에 업로드 (외부 URL 직접 사용 불가) ──
     supplier   = info.get("supplier", "domaekkuk")
@@ -1128,8 +1164,10 @@ def register_product(url: str, selling_price: int, smartstore_api,
         logger.warning("매핑 저장 실패 (등록은 성공): %s", e)
 
     return {
-        "success":       True,
-        "product_id":    ss_prod_id,
-        "selling_price": selling_price,
-        "info":          info,
+        "success":        True,
+        "product_id":     ss_prod_id,
+        "selling_price":  selling_price,
+        "category_id":    category_id,
+        "category_match": category_match,
+        "info":           info,
     }

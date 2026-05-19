@@ -84,22 +84,26 @@ class SmartstoreAPI:
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self._get_token()}"}
 
-    def find_leaf_category(self, keyword: str, fallback_id: str = "50021299") -> str:
-        """키워드로 Naver 카테고리를 검색해 첫 번째 leaf(말단) 카테고리 ID를 반환한다."""
+    def find_leaf_category(self, keyword: str) -> str | None:
+        """키워드로 Naver 카테고리를 검색해 첫 번째 leaf(말단) 카테고리 ID를 반환한다.
+        매칭 결과가 없으면 None을 반환한다.
+        """
+        if not keyword or not keyword.strip():
+            return None
         try:
             resp = requests.get(
                 f"{self.BASE_URL}/v1/categories",
                 headers=self._headers(),
-                params={"keyword": keyword},
+                params={"keyword": keyword.strip()},
                 timeout=10,
             )
             if resp.ok:
                 for cat in resp.json():
                     if cat.get("last"):
-                        return cat["id"]
+                        return str(cat["id"])
         except Exception as e:
             logger.warning("카테고리 조회 실패 (%s): %s", keyword, e)
-        return fallback_id
+        return None
 
     # 도메인별 Referer 매핑 (hotlink 방지 우회)
     _REFERER_MAP = {

@@ -1072,6 +1072,7 @@ async function regSubmit() {
         `✅ 등록 완료!<br>` +
         `상품 ID: <strong>${d.product_id || '-'}</strong><br>` +
         `판매가: <strong>${fmt(d.selling_price || 0)}</strong><br>` +
+        (d.category_match ? `카테고리: <strong>${d.category_match}</strong><br>` : '') +
         `매핑이 자동 저장되었습니다.`;
       regSetStatus('등록 완료!');
       _regInfo = null;
