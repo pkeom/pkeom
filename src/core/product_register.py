@@ -949,34 +949,13 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if info.get("sub_images"):
         images["optionalImages"] = [{"url": u} for u in info["sub_images"][:9]]
 
-    # originAreaCode: Naver 커머스 API 스펙
-    #   "01" = 국내산, "CN"/"JP"/... = 수입산 국가코드, "04" = 기타(직접입력)
-    origin_text = (info.get("origin") or "").strip()
-    _origin_lower = origin_text.lower()
-    _domestic_kw = ("국내", "국산", "한국", "korea", " kr")
-    _country_map = {
-        ("중국", "china", " cn"): "CN",
-        ("일본", "japan", " jp"): "JP",
-        ("미국", "usa", "u.s", " us"): "US",
-        ("베트남", "vietnam", " vn"): "VN",
-        ("태국", "thailand", " th"): "TH",
-        ("인도", "india", " in"): "IN",
-        ("독일", "germany", " de"): "DE",
-        ("이탈리아", "italy", " it"): "IT",
-        ("프랑스", "france", " fr"): "FR",
-        ("영국", "uk", "england", " gb"): "GB",
-    }
-    if any(k in _origin_lower for k in _domestic_kw):
-        origin_area_code = "01"
-        origin_content   = ""
-    else:
-        origin_area_code = "04"
-        origin_content   = origin_text[:100] if origin_text else "상세설명 참조"
-        for keywords, code in _country_map.items():
-            if any(k in _origin_lower for k in keywords):
-                origin_area_code = code
-                origin_content   = ""
-                break
+    # Naver Commerce API v2 originAreaCode 스펙:
+    #   "01" = 수산물/농임산물 전용 (일반 공산품에 사용 불가)
+    #   "02" = 수입산 — importer(수입사) + 수입국 필드 추가 필수 (미수집)
+    #   "03" = 원산지표시면제 — 일반 공산품(전자, 잡화 등)에 유효
+    # 도매꾹/도매매 상품(주로 제조품)은 원산지 정보 불완전 → "03" 사용
+    origin_area_code = "03"
+    origin_content   = ""
 
     origin_product: dict = {
         "statusType":    "SALE",

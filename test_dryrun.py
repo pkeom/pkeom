@@ -51,9 +51,8 @@ RUNS_PER_PRODUCT = 5
 REQUIRED_TOTAL   = 50  # 목표: 10개 상품 × 5회 = 50회 연속 통과
 
 VALID_ORIGIN_CODES = {
-    "01", "02", "03", "04",
-    "CN", "JP", "US", "VN", "TH", "IN", "DE", "IT", "FR", "GB",
-    "AU", "CA", "MX", "BR", "ID", "MY", "PH", "SG", "TW", "HK",
+    "03",   # 원산지표시면제 — 일반 공산품(전자, 잡화 등)에 유효, Naver API 확인됨
+    # "02" = 수입산 (importer 필드 필수 — 미지원), "01" = 수산/농임산물 전용
 }
 
 
@@ -102,8 +101,8 @@ def validate_payload(payload: dict) -> list[str]:
             errors.append("originAreaCode 누락")
         elif code not in VALID_ORIGIN_CODES:
             errors.append(f"originAreaCode 유효하지 않음: {code!r}")
-        if code == "04" and not oai.get("content"):
-            errors.append("originAreaCode='04'인데 content 비어있음")
+        if code not in VALID_ORIGIN_CODES:
+            errors.append(f"originAreaCode={code!r}는 API 미지원 코드")
 
     # productInfoProvidedNotice.etc.itemName ≤ 50자
     ppn_etc = da.get("productInfoProvidedNotice", {}).get("etc", {})
