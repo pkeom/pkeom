@@ -142,11 +142,16 @@ class SmartstoreAPI:
             )
         content_type = dl.headers.get("Content-Type", "").split(";")[0].strip()
         if not content_type.startswith("image/"):
-            # application/octet-stream 등 → magic bytes로 실제 타입 감지
-            from src.core.product_register import _detect_image_type
-            detected = _detect_image_type(dl.content)
-            if detected:
-                content_type = detected
+            # application/octet-stream 등 비이미지 Content-Type → magic bytes로 실제 타입 감지
+            raw = dl.content
+            if raw and raw[0] == 0xFF and raw[1] == 0xD8:
+                content_type = "image/jpeg"
+            elif raw.startswith(b'\x89PNG\r\n\x1a\n'):
+                content_type = "image/png"
+            elif raw.startswith(b'GIF87a') or raw.startswith(b'GIF89a'):
+                content_type = "image/gif"
+            elif raw.startswith(b'RIFF') and len(raw) >= 12 and raw[8:12] == b'WEBP':
+                content_type = "image/webp"
             else:
                 raise ValueError(
                     f"이미지 URL이 유효한 이미지를 반환하지 않음 (Content-Type: {content_type}): {image_url}"
