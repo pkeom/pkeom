@@ -126,15 +126,18 @@ _IMG_EXT_MAP = {
 
 def _detect_image_type(data: bytes) -> str | None:
     """바이트 시그니처(magic bytes)로 이미지 MIME 타입 감지. 알 수 없으면 None."""
-    if data[:3] == b'\xff\xd8\xff':
+    if not data:
+        return None
+    # JPEG: SOI 마커 FF D8 (이후 바이트 무관)
+    if data[0] == 0xFF and data[1] == 0xD8:
         return "image/jpeg"
-    if data[:8] == b'\x89PNG\r\n\x1a\n':
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
         return "image/png"
-    if data[:6] in (b'GIF87a', b'GIF89a'):
+    if data.startswith(b'GIF87a') or data.startswith(b'GIF89a'):
         return "image/gif"
-    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+    if data.startswith(b'RIFF') and len(data) >= 12 and data[8:12] == b'WEBP':
         return "image/webp"
-    if data[:2] == b'BM':
+    if data.startswith(b'BM'):
         return "image/bmp"
     return None
 
