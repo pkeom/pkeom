@@ -116,6 +116,61 @@ def _retry_post(session: requests.Session, url: str, **kwargs) -> requests.Respo
     raise last_exc
 
 
+# ── 공급처 인증 이미지 다운로드 ─────────────────────────────────────────
+
+_IMG_EXT_MAP = {
+    "image/jpeg": ".jpg", "image/png": ".png",
+    "image/gif": ".gif",  "image/bmp": ".bmp", "image/webp": ".webp",
+}
+
+
+def _fetch_image_bytes(url: str, supplier: str, supplier_client) -> tuple[bytes, str, str]:
+    """공급처 인증 세션으로 이미지 바이트 다운로드.
+
+    domaemae는 sId 쿠키 + domeme Referer, 그 외는 해당 도메인 Referer를 사용한다.
+    Returns: (raw_bytes, content_type, filename)
+    """
+    from urllib.parse import urlparse
+
+    session = _make_session()
+
+    if supplier == "domaemae":
+        supplier_client._ensure_session()
+        # sId를 쿠키로 전달해 CloudFront 등 CDN 인증 우회
+        session.cookies.set("sId", supplier_client._sid, domain=".domeggook.com")
+        session.headers.update({
+            "Referer": "https://domeme.domeggook.com/",
+            "Origin":  "https://domeme.domeggook.com",
+            "Accept":  "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        })
+    else:
+        host = urlparse(url).netloc.lower()
+        session.headers.update({
+            "Referer": f"https://{host}/",
+            "Accept":  "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        })
+
+    resp = _retry_get(session, url)
+    if not resp.ok:
+        raise requests.HTTPError(
+            f"이미지 다운로드 실패 {resp.status_code}: {url}", response=resp
+        )
+
+    content_type = resp.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+    if not content_type.startswith("image/"):
+        raise ValueError(
+            f"이미지 URL이 유효한 이미지를 반환하지 않음 "
+            f"(Content-Type: {content_type}): {url}"
+        )
+
+    ext = _IMG_EXT_MAP.get(content_type, ".jpg")
+    filename = url.split("/")[-1].split("?")[0] or f"image{ext}"
+    if not any(filename.lower().endswith(e) for e in _IMG_EXT_MAP.values()):
+        filename += ext
+
+    return resp.content, content_type, filename
+
+
 # ── URL 파싱 ───────────────────────────────────────────────────────
 
 def extract_product_id(url: str) -> tuple[str, str]:
@@ -910,10 +965,17 @@ def register_product(url: str, selling_price: int, smartstore_api,
         category_id = smartstore_api.find_leaf_category(keyword, fallback_id=default_cat)
 
     # ── 모든 이미지를 Naver CDN에 업로드 (외부 URL 직접 사용 불가) ──
+    supplier = info.get("supplier", "domaekkuk")
+
+    def _upload(url: str) -> str:
+        """공급처 인증 세션으로 이미지를 다운로드한 뒤 Naver CDN에 업로드."""
+        data, ct, fname = _fetch_image_bytes(url, supplier, supplier_client)
+        return smartstore_api.upload_image_data(data, ct, fname)
+
     # 대표 이미지 (필수 — 실패 시 등록 중단)
     if info.get("main_image"):
         try:
-            naver_url = smartstore_api.upload_image(info["main_image"])
+            naver_url = _upload(info["main_image"])
             logger.info("대표 이미지 업로드 완료: %s -> %s", info["main_image"][:60], naver_url)
             info["main_image"] = naver_url
         except Exception as e:
@@ -927,7 +989,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
         uploaded = []
         for sub_url in info["sub_images"][:9]:
             try:
-                uploaded.append(smartstore_api.upload_image(sub_url))
+                uploaded.append(_upload(sub_url))
             except Exception as e:
                 logger.warning("서브 이미지 업로드 실패 (%s): %s", sub_url, e)
         info["sub_images"] = uploaded
@@ -937,7 +999,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
         uploaded_detail = []
         for d_url in info["detail_images"]:
             try:
-                uploaded_detail.append(smartstore_api.upload_image(d_url))
+                uploaded_detail.append(_upload(d_url))
             except Exception as e:
                 logger.warning("상세 이미지 업로드 실패 (%s): %s", d_url, e)
                 uploaded_detail.append(d_url)  # 실패 시 원본 유지
@@ -949,7 +1011,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
             src = m.group(1)
             if src.startswith("http") and "pstatic.net" not in src:
                 try:
-                    return m.group(0).replace(src, smartstore_api.upload_image(src))
+                    return m.group(0).replace(src, _upload(src))
                 except Exception as e:
                     logger.warning("상세 HTML 이미지 업로드 실패 (%s): %s", src[:60], e)
             return m.group(0)

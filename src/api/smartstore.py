@@ -101,13 +101,51 @@ class SmartstoreAPI:
             logger.warning("카테고리 조회 실패 (%s): %s", keyword, e)
         return fallback_id
 
+    # 도메인별 Referer 매핑 (hotlink 방지 우회)
+    _REFERER_MAP = {
+        "domeggook.com":   "https://www.domeggook.com/",
+        "domaemae.co.kr":  "https://www.domaemae.co.kr/",
+        "domeme.domeggook.com": "https://domeme.domeggook.com/",
+        "gi.esmplus.com":  "https://www.domeggook.com/",
+        "dnvefa72aowie.cloudfront.net": "https://domeme.domeggook.com/",
+    }
+    _DOWNLOAD_UA = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+
+    def _download_headers(self, image_url: str) -> dict:
+        """이미지 URL 도메인에 맞는 다운로드 헤더 반환."""
+        from urllib.parse import urlparse
+        host = urlparse(image_url).netloc.lower()
+        referer = next(
+            (v for k, v in self._REFERER_MAP.items() if host.endswith(k)),
+            f"https://{host}/",
+        )
+        return {
+            "User-Agent":      self._DOWNLOAD_UA,
+            "Referer":         referer,
+            "Accept":          "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+        }
+
     def upload_image(self, image_url: str) -> str:
         """외부 이미지 URL을 Naver 상품 이미지 CDN에 업로드하고 반환된 URL을 돌려준다."""
         import io
-        dl = requests.get(image_url, timeout=15,
-                          headers={"User-Agent": "Mozilla/5.0"})
-        dl.raise_for_status()
+        dl = requests.get(image_url, timeout=20,
+                          headers=self._download_headers(image_url))
+        if not dl.ok:
+            raise requests.HTTPError(
+                f"이미지 다운로드 실패 {dl.status_code}: {image_url}", response=dl
+            )
         content_type = dl.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+        # content-type이 image가 아니면 실제 이미지가 아닌 HTML 등을 받은 것
+        if not content_type.startswith("image/"):
+            raise ValueError(
+                f"이미지 URL이 유효한 이미지를 반환하지 않음 (Content-Type: {content_type}): {image_url}"
+            )
         ext_map = {"image/jpeg": ".jpg", "image/png": ".png",
                    "image/gif": ".gif", "image/bmp": ".bmp", "image/webp": ".webp"}
         ext = ext_map.get(content_type, ".jpg")
@@ -118,6 +156,27 @@ class SmartstoreAPI:
             f"{self.BASE_URL}/v1/product-images/upload",
             headers={"Authorization": f"Bearer {self._get_token()}"},
             files={"imageFiles": (filename, io.BytesIO(dl.content), content_type)},
+            timeout=30,
+        )
+        if not resp.ok:
+            try:
+                body = resp.json()
+            except Exception:
+                body = resp.text
+            raise requests.HTTPError(
+                f"이미지 업로드 실패 {resp.status_code}: {body}", response=resp
+            )
+        return resp.json()["images"][0]["url"]
+
+    def upload_image_data(self, data: bytes, content_type: str, filename: str) -> str:
+        """이미 다운로드된 이미지 바이트를 Naver 상품 이미지 CDN에 업로드하고 URL을 반환한다."""
+        import io
+        if not content_type.startswith("image/"):
+            raise ValueError(f"유효한 이미지 Content-Type이 아닙니다: {content_type}")
+        resp = requests.post(
+            f"{self.BASE_URL}/v1/product-images/upload",
+            headers={"Authorization": f"Bearer {self._get_token()}"},
+            files={"imageFiles": (filename, io.BytesIO(data), content_type)},
             timeout=30,
         )
         if not resp.ok:
