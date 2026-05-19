@@ -348,25 +348,36 @@ def run_dashboard(host: str = "0.0.0.0", port: int = 2713):
 
 
 def _setup_logging():
+    from logging.handlers import RotatingFileHandler
+
     log_cfg  = (_cfg or {}).get("logging", {})
     log_dir  = Path(log_cfg.get("log_dir", "data/logs"))
     log_dir.mkdir(parents=True, exist_ok=True)
     level = getattr(logging, log_cfg.get("level", "INFO").upper(), logging.INFO)
-    from logging.handlers import RotatingFileHandler
-    handler = RotatingFileHandler(
-        log_dir / "app.log",
-        maxBytes    = log_cfg.get("max_bytes", 10_485_760),
-        backupCount = log_cfg.get("backup_count", 5),
-        encoding    = "utf-8",
-    )
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s: %(message)s"
-    ))
+    fmt   = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+
     root = logging.getLogger()
     root.setLevel(level)
+
+    # 파일 핸들러 (RotatingFileHandler)
     if not any(isinstance(h, RotatingFileHandler) for h in root.handlers):
-        root.addHandler(handler)
+        fh = RotatingFileHandler(
+            log_dir / "app.log",
+            maxBytes    = log_cfg.get("max_bytes", 10_485_760),
+            backupCount = log_cfg.get("backup_count", 5),
+            encoding    = "utf-8",
+        )
+        fh.setFormatter(fmt)
+        root.addHandler(fh)
+
+    # 콘솔 핸들러 (stderr) — RotatingFileHandler는 StreamHandler 서브클래스이므로 exact type 체크
+    if not any(type(h) is logging.StreamHandler for h in root.handlers):
+        sh = logging.StreamHandler()
+        sh.setFormatter(fmt)
+        root.addHandler(sh)
+
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
+    logger.info("로깅 초기화 완료 (level=%s, file=%s)", log_cfg.get("level", "INFO"), log_dir / "app.log")
 
 
 if __name__ == "__main__":

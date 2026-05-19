@@ -124,32 +124,43 @@ _IMG_EXT_MAP = {
 }
 
 
-def _fetch_image_bytes(url: str, supplier: str, supplier_client) -> tuple[bytes, str, str]:
-    """공급처 인증 세션으로 이미지 바이트 다운로드.
+def _make_image_session(supplier: str, product_id: str, supplier_client) -> requests.Session:
+    """이미지 다운로드용 세션 생성.
 
-    domaemae는 sId 쿠키 + domeme Referer, 그 외는 해당 도메인 Referer를 사용한다.
-    Returns: (raw_bytes, content_type, filename)
+    공급처 상품 페이지를 먼저 방문해 CloudFront 등 CDN의 세션 쿠키를 취득하고,
+    이후 모든 이미지 다운로드에 이 세션을 재사용한다.
     """
-    from urllib.parse import urlparse
-
-    session = _make_session()
-
     if supplier == "domaemae":
         supplier_client._ensure_session()
-        # sId를 쿠키로 전달해 CloudFront 등 CDN 인증 우회
-        session.cookies.set("sId", supplier_client._sid, domain=".domeggook.com")
-        session.headers.update({
-            "Referer": "https://domeme.domeggook.com/",
-            "Origin":  "https://domeme.domeggook.com",
-            "Accept":  "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        })
+        page_url = f"https://domeme.domeggook.com/s/{product_id}"
+        referer  = "https://domeme.domeggook.com/"
     else:
-        host = urlparse(url).netloc.lower()
-        session.headers.update({
-            "Referer": f"https://{host}/",
-            "Accept":  "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        })
+        page_url = f"https://www.domeggook.com/{product_id}"
+        referer  = "https://www.domeggook.com/"
 
+    session = _make_session(referer=referer)
+    session.headers.update({"Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"})
+
+    if supplier == "domaemae":
+        sid = getattr(supplier_client, "_sid", "")
+        if sid:
+            session.cookies.set("sId", sid, domain=".domeggook.com")
+
+    try:
+        resp = session.get(page_url, timeout=15)
+        logger.debug("이미지 세션 페이지 방문: %s → %s (cookies: %s)",
+                     page_url, resp.status_code, list(session.cookies.keys()))
+    except Exception as e:
+        logger.debug("이미지 세션 페이지 방문 실패 (계속 진행): %s", e)
+
+    return session
+
+
+def _fetch_image_bytes(url: str, session: requests.Session) -> tuple[bytes, str, str]:
+    """주어진 세션으로 이미지 URL에서 바이트 데이터 다운로드.
+
+    Returns: (raw_bytes, content_type, filename)
+    """
     resp = _retry_get(session, url)
     if not resp.ok:
         raise requests.HTTPError(
@@ -965,11 +976,14 @@ def register_product(url: str, selling_price: int, smartstore_api,
         category_id = smartstore_api.find_leaf_category(keyword, fallback_id=default_cat)
 
     # ── 모든 이미지를 Naver CDN에 업로드 (외부 URL 직접 사용 불가) ──
-    supplier = info.get("supplier", "domaekkuk")
+    supplier   = info.get("supplier", "domaekkuk")
+    product_id = info.get("product_id", "")
+    # 상품 페이지를 방문해 CDN 쿠키를 취득한 세션을 모든 이미지 다운로드에 재사용
+    img_session = _make_image_session(supplier, product_id, supplier_client)
 
     def _upload(url: str) -> str:
         """공급처 인증 세션으로 이미지를 다운로드한 뒤 Naver CDN에 업로드."""
-        data, ct, fname = _fetch_image_bytes(url, supplier, supplier_client)
+        data, ct, fname = _fetch_image_bytes(url, img_session)
         return smartstore_api.upload_image_data(data, ct, fname)
 
     # 대표 이미지 (필수 — 실패 시 등록 중단)
