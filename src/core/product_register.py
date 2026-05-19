@@ -764,16 +764,18 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if info.get("sub_images"):
         images["optionalImages"] = [{"url": u} for u in info["sub_images"][:9]]
 
-    # originAreaCode: "NONE"=미표시, "03"=국내산 — 원산지 문자열을 코드로 변환
+    # originAreaCode: "00"=원산지표시 생략, "03"=국내산
+    # "NONE"은 API가 거부하므로 사용 불가
     origin_text = (info.get("origin") or "").strip()
-    if origin_text in ("국내", "한국", "Korea", "KR"):
+    _domestic = {"국내", "국내산", "한국", "한국산", "Korea", "KR", "국산"}
+    if origin_text in _domestic or any(k in origin_text for k in _domestic):
         origin_area_code = "03"
         origin_content   = ""
     elif origin_text:
-        origin_area_code = "NONE"
+        origin_area_code = "00"
         origin_content   = origin_text
     else:
-        origin_area_code = "NONE"
+        origin_area_code = "00"
         origin_content   = ""
 
     payload: dict = {
@@ -907,13 +909,20 @@ def register_product(url: str, selling_price: int, smartstore_api,
         keyword = info.get("category_name") or info.get("title", "")[:10]
         category_id = smartstore_api.find_leaf_category(keyword, fallback_id=default_cat)
 
-    # 이미지를 Naver CDN에 업로드 (외부 URL 직접 사용 불가 — 실패 시 등록 중단)
+    # ── 모든 이미지를 Naver CDN에 업로드 (외부 URL 직접 사용 불가) ──
+    # 대표 이미지 (필수 — 실패 시 등록 중단)
     if info.get("main_image"):
         try:
-            info["main_image"] = smartstore_api.upload_image(info["main_image"])
+            naver_url = smartstore_api.upload_image(info["main_image"])
+            logger.info("대표 이미지 업로드 완료: %s -> %s", info["main_image"][:60], naver_url)
+            info["main_image"] = naver_url
         except Exception as e:
             logger.error("대표 이미지 업로드 실패: %s", e)
             return {"success": False, "error": f"대표 이미지 업로드 실패: {e}", "info": info}
+    else:
+        return {"success": False, "error": "대표 이미지가 없습니다. 상품을 등록할 수 없습니다.", "info": info}
+
+    # 서브 이미지
     if info.get("sub_images"):
         uploaded = []
         for sub_url in info["sub_images"][:9]:
@@ -922,6 +931,33 @@ def register_product(url: str, selling_price: int, smartstore_api,
             except Exception as e:
                 logger.warning("서브 이미지 업로드 실패 (%s): %s", sub_url, e)
         info["sub_images"] = uploaded
+
+    # detail_images → Naver CDN URL로 교체
+    if info.get("detail_images"):
+        uploaded_detail = []
+        for d_url in info["detail_images"]:
+            try:
+                uploaded_detail.append(smartstore_api.upload_image(d_url))
+            except Exception as e:
+                logger.warning("상세 이미지 업로드 실패 (%s): %s", d_url, e)
+                uploaded_detail.append(d_url)  # 실패 시 원본 유지
+        info["detail_images"] = uploaded_detail
+
+    # detail_html 내 <img src> URL → Naver CDN URL로 교체
+    if info.get("detail_html"):
+        def _replace_img(m):
+            src = m.group(1)
+            if src.startswith("http") and "pstatic.net" not in src:
+                try:
+                    return m.group(0).replace(src, smartstore_api.upload_image(src))
+                except Exception as e:
+                    logger.warning("상세 HTML 이미지 업로드 실패 (%s): %s", src[:60], e)
+            return m.group(0)
+        info["detail_html"] = re.sub(
+            r'<img[^>]+src=["\']([^"\']+)["\']',
+            _replace_img,
+            info["detail_html"],
+        )
 
     payload = build_smartstore_payload(info, selling_price, settings, category_id)
 
