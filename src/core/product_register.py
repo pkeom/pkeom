@@ -789,10 +789,11 @@ def build_smartstore_payload(info: dict, selling_price: int,
             "deliveryInfo": {
                 "deliveryType":          "DELIVERY",
                 "deliveryAttributeType": "NORMAL",
+                "deliveryCompany":       settings.get("delivery_company", "CJGLS"),
                 "deliveryFee": {
                     "deliveryFeeType":    "PAID",
                     "baseFee":            3000,
-                    "deliveryFeePayType": "PREPAY",
+                    "deliveryFeePayType": "PREPAID",
                 },
                 "claimDeliveryInfo": {
                     "returnDeliveryFee":   3000,
@@ -816,6 +817,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
                         "itemName":                 info.get("title", "상품 설명 참조")[:100],
                         "modelName":                info.get("model") or "상품 설명 참조",
                         "manufacturer":             info.get("manufacturer") or "상품 설명 참조",
+                        "afterServiceDirector":     seller_phone or "상품 설명 참조",
                         "returnCostReason":         "상품 설명 참조",
                         "noRefundReason":           "상품 설명 참조",
                         "qualityAssuranceStandard": "상품 설명 참조",
@@ -898,6 +900,28 @@ def register_product(url: str, selling_price: int, smartstore_api,
 
     if not selling_price:
         selling_price = (info["supply_price"] or 0) + 3000
+
+    # category_id 미지정 시 API로 leaf 카테고리 실시간 조회
+    if not category_id:
+        default_cat = settings.get("default_category_id", "50021299")
+        keyword = info.get("category_name") or info.get("title", "")[:10]
+        category_id = smartstore_api.find_leaf_category(keyword, fallback_id=default_cat)
+
+    # 이미지를 Naver CDN에 업로드 (외부 URL 직접 사용 불가)
+    if info.get("main_image"):
+        try:
+            info["main_image"] = smartstore_api.upload_image(info["main_image"])
+        except Exception as e:
+            logger.warning("대표 이미지 업로드 실패: %s", e)
+    if info.get("sub_images"):
+        uploaded = []
+        for url in info["sub_images"][:9]:
+            try:
+                uploaded.append(smartstore_api.upload_image(url))
+            except Exception as e:
+                logger.warning("서브 이미지 업로드 실패 (%s): %s", url, e)
+        info["sub_images"] = uploaded
+
     payload = build_smartstore_payload(info, selling_price, settings, category_id)
 
     try:

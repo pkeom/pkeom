@@ -84,6 +84,52 @@ class SmartstoreAPI:
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self._get_token()}"}
 
+    def find_leaf_category(self, keyword: str, fallback_id: str = "50021299") -> str:
+        """키워드로 Naver 카테고리를 검색해 첫 번째 leaf(말단) 카테고리 ID를 반환한다."""
+        try:
+            resp = requests.get(
+                f"{self.BASE_URL}/v1/categories",
+                headers=self._headers(),
+                params={"keyword": keyword},
+                timeout=10,
+            )
+            if resp.ok:
+                for cat in resp.json():
+                    if cat.get("last"):
+                        return cat["id"]
+        except Exception as e:
+            logger.warning("카테고리 조회 실패 (%s): %s", keyword, e)
+        return fallback_id
+
+    def upload_image(self, image_url: str) -> str:
+        """외부 이미지 URL을 Naver 상품 이미지 CDN에 업로드하고 반환된 URL을 돌려준다."""
+        import io
+        dl = requests.get(image_url, timeout=15,
+                          headers={"User-Agent": "Mozilla/5.0"})
+        dl.raise_for_status()
+        content_type = dl.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+        ext_map = {"image/jpeg": ".jpg", "image/png": ".png",
+                   "image/gif": ".gif", "image/bmp": ".bmp", "image/webp": ".webp"}
+        ext = ext_map.get(content_type, ".jpg")
+        filename = image_url.split("/")[-1].split("?")[0] or f"image{ext}"
+        if not any(filename.lower().endswith(e) for e in ext_map.values()):
+            filename += ext
+        resp = requests.post(
+            f"{self.BASE_URL}/v1/product-images/upload",
+            headers={"Authorization": f"Bearer {self._get_token()}"},
+            files={"imageFiles": (filename, io.BytesIO(dl.content), content_type)},
+            timeout=30,
+        )
+        if not resp.ok:
+            try:
+                body = resp.json()
+            except Exception:
+                body = resp.text
+            raise requests.HTTPError(
+                f"이미지 업로드 실패 {resp.status_code}: {body}", response=resp
+            )
+        return resp.json()["images"][0]["url"]
+
     def get_orders(self, status: str = "PAYED", days: int = 1) -> list:
         """주문 목록 조회 (days: 최근 몇 일치)
         last-changed-statuses API 최대 조회 범위: 24시간
