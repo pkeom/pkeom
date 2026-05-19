@@ -880,11 +880,10 @@ def map_category(supplier_category: str, default_id: str = "") -> str:
 
 
 def resolve_category(info: dict, smartstore_api, category_id: str = "") -> tuple[str, str]:
-    """카테고리 ID를 단계적으로 자동 결정한다.
+    """공급처 카테고리명으로만 네이버 카테고리 ID를 결정한다.
 
-    1단계: 공급처 카테고리명 각 레벨 (세부 → 대분류)
-    2단계: 상품명 키워드 (2글자 이상 단어, 최대 5개)
-    3단계: 빈 문자열 반환 (수동 입력 필요)
+    상품명 키워드 매칭은 오탐이 많아 완전 제거.
+    매칭 실패 시 빈 문자열 반환 — 잘못된 카테고리 등록으로 인한 판매 금지 방지.
 
     Returns: (category_id, match_info)
     """
@@ -892,27 +891,19 @@ def resolve_category(info: dict, smartstore_api, category_id: str = "") -> tuple
         return category_id, f"사용자 지정 ({category_id})"
 
     cat_name = (info.get("category_name") or "").strip()
-    title    = (info.get("title") or "").strip()
+    if not cat_name:
+        logger.warning("공급처 카테고리 정보 없음 — 카테고리 미지정")
+        return "", "카테고리 정보 없음"
 
-    # 1단계: 공급처 카테고리명 → 레벨별 분리 후 세부부터 검색
-    if cat_name:
-        parts = [p.strip() for p in re.split(r"[>|/\\]", cat_name) if p.strip()]
-        for part in reversed(parts):
-            found = smartstore_api.find_leaf_category(part)
-            if found:
-                logger.info("카테고리 자동매칭 성공 (카테고리명 '%s'): %s", part, found)
-                return found, f"카테고리명 '{part}'"
+    # 공급처 카테고리를 레벨별로 분리 (세부 → 대분류 순으로 시도)
+    parts = [p.strip() for p in re.split(r"[>|/\\]", cat_name) if len(p.strip()) >= 2]
+    for part in reversed(parts):
+        found_id, found_name = smartstore_api.find_leaf_category(part)
+        if found_id:
+            logger.info("카테고리 자동매칭: %r → %s (%s)", part, found_id, found_name)
+            return found_id, found_name
 
-    # 2단계: 상품명 키워드 (2글자 이상 단어, 최대 5개 시도)
-    words = [w for w in re.split(r"[\s/\[\]()\-_,·]+", title) if len(w) >= 2]
-    for word in words[:5]:
-        found = smartstore_api.find_leaf_category(word)
-        if found:
-            logger.info("카테고리 자동매칭 성공 (상품명 키워드 '%s'): %s", word, found)
-            return found, f"상품명 키워드 '{word}'"
-
-    # 3단계: 미매칭
-    logger.warning("카테고리 자동매칭 실패 — cat=%r  title=%r", cat_name[:30], title[:30])
+    logger.warning("카테고리 자동매칭 실패 (cat=%r)", cat_name[:40])
     return "", "미매칭 (수동 설정 필요)"
 
 
@@ -1030,8 +1021,11 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if naver_search_info:
         payload["originProduct"]["detailAttribute"]["naverShoppingSearchInfo"] = naver_search_info
 
-    if info.get("kc_cert_no"):
-        logger.info("KC인증번호 있으나 인증기관명 미수집 — 인증 정보 제외 (no=%r)", info["kc_cert_no"])
+    # KC인증(productCertificationInfos): 인증기관명을 수집하지 않으므로 payload에서 완전 제외.
+    # 어떤 조건에서도 productCertificationInfos 키를 추가하지 않는다.
+    if info.get("kc_cert_no") or info.get("kc_cert_type"):
+        logger.debug("KC인증 정보 제외 (kc_no=%r, kc_type=%r)",
+                     info.get("kc_cert_no"), info.get("kc_cert_type"))
 
     if info.get("options"):
         groups = info["options"][:3]
@@ -1144,29 +1138,69 @@ def register_product(url: str, selling_price: int, smartstore_api,
 
     payload = build_smartstore_payload(info, selling_price, settings, category_id)
 
-    try:
-        resp = requests.post(
+    def _post_product(pl: dict):
+        return requests.post(
             f"{smartstore_api.BASE_URL}/v2/products",
             headers=smartstore_api._headers(),
-            json=payload,
+            json=pl,
             timeout=30,
         )
+
+    _KC_KEYWORDS = ("certificationInfos", "certificationKind", "KC 인증", "kindType")
+
+    def _is_kc_cert_error(body) -> bool:
+        """Naver API가 KC인증 필수 오류를 반환했는지 확인.
+        응답 구조에 무관하게 전체 JSON 문자열에서 KC 관련 키워드를 탐색한다.
+        """
+        import json as _json
+        try:
+            body_str = _json.dumps(body, ensure_ascii=False)
+        except Exception:
+            body_str = str(body)
+        return any(kw in body_str for kw in _KC_KEYWORDS)
+
+    try:
+        resp = _post_product(payload)
         if not resp.ok:
             try:
                 err_body = resp.json()
             except Exception:
-                err_body = resp.text
-            logger.error(
-                "스마트스토어 상품 등록 실패 [%s]: %s",
-                resp.status_code, err_body,
-            )
-            return {
-                "success": False,
-                "error": f"HTTP {resp.status_code}",
-                "detail": err_body,
-                "info": info,
-                "selling_price": selling_price,
-            }
+                err_body = {"raw": resp.text}
+
+            logger.warning("스마트스토어 등록 오류 원문: %s", err_body)
+
+            # KC인증 필수 오류: 해당 카테고리는 법적으로 KC인증 정보 필수 → 수동 처리 필요
+            if _is_kc_cert_error(err_body) and category_id:
+                logger.warning(
+                    "KC인증 필수 카테고리 (%s, %s) — 이 카테고리는 KC인증 정보 필수 (법적 요구사항). "
+                    "KC인증 정보를 직접 입력하거나 카테고리를 변경해 수동 등록하세요.",
+                    category_id, category_match,
+                )
+                return {
+                    "success": False,
+                    "error": "KC인증 필수",
+                    "detail": (
+                        f"카테고리 [{category_match}]({category_id})는 KC인증 필수 카테고리입니다. "
+                        f"KC인증 정보를 직접 입력하거나, KC인증 불필요 카테고리로 변경해 수동 등록하세요."
+                    ),
+                    "info": info,
+                    "selling_price": selling_price,
+                    "category_id": category_id,
+                    "category_match": category_match,
+                }
+
+            if not resp.ok:
+                logger.error(
+                    "스마트스토어 상품 등록 실패 [%s]: %s",
+                    resp.status_code, err_body,
+                )
+                return {
+                    "success": False,
+                    "error": f"HTTP {resp.status_code}",
+                    "detail": err_body,
+                    "info": info,
+                    "selling_price": selling_price,
+                }
         result     = resp.json()
         ss_prod_id = str(
             result.get("originProductNo") or

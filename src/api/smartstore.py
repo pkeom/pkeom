@@ -84,26 +84,39 @@ class SmartstoreAPI:
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self._get_token()}"}
 
-    def find_leaf_category(self, keyword: str) -> str | None:
-        """키워드로 Naver 카테고리를 검색해 첫 번째 leaf(말단) 카테고리 ID를 반환한다.
-        매칭 결과가 없으면 None을 반환한다.
+    def find_leaf_category(self, keyword: str) -> tuple[str, str]:
+        """키워드로 Naver 카테고리를 검색하되, 반환된 카테고리명에 키워드가 실제로
+        포함되는 경우에만 유효 매칭으로 수락한다.
+
+        Naver /v1/categories?keyword= API는 해당 키워드 상품이 분포된 모든 카테고리를
+        반환하므로, 검색어와 무관한 카테고리(예: "선풍기" 검색 → "풀오버")가 먼저
+        올 수 있다. 카테고리명 포함 여부 확인으로 오탐을 방지한다.
+
+        Returns: (category_id, category_name) — 신뢰할 수 있는 매칭 없으면 ("", "")
         """
         if not keyword or not keyword.strip():
-            return None
+            return "", ""
+        keyword = keyword.strip()
+        kw_lower = keyword.lower()
         try:
             resp = requests.get(
                 f"{self.BASE_URL}/v1/categories",
                 headers=self._headers(),
-                params={"keyword": keyword.strip()},
+                params={"keyword": keyword},
                 timeout=10,
             )
             if resp.ok:
                 for cat in resp.json():
-                    if cat.get("last"):
-                        return str(cat["id"])
+                    if not cat.get("last"):
+                        continue
+                    name  = cat.get("name", "")
+                    whole = cat.get("wholeCategoryName", "") or name
+                    # 카테고리명(name 또는 wholeCategoryName)에 키워드가 포함될 때만 수락
+                    if kw_lower in name.lower() or kw_lower in whole.lower():
+                        return str(cat["id"]), whole or name
         except Exception as e:
             logger.warning("카테고리 조회 실패 (%s): %s", keyword, e)
-        return None
+        return "", ""
 
     # 도메인별 Referer 매핑 (hotlink 방지 우회)
     _REFERER_MAP = {

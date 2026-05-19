@@ -28,7 +28,7 @@ logger = logging.getLogger("realapi_test")
 
 # 테스트 대상 상품 (도매꾹 1개 + 도매매 1개)
 TEST_PRODUCTS = [
-    "https://www.domeggook.com/59922903",       # 터빈선풍기 (7,900원)
+    "https://www.domeggook.com/59500000",        # 동전지갑 — KC인증 불필요 (패션잡화)
     "https://domeme.domeggook.com/s/59921000",  # 여성 숄더백 (28,000원)
 ]
 
