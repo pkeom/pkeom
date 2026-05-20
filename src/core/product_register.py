@@ -543,13 +543,13 @@ def _scrape_domaekkuk(product_id: str) -> dict:
         result["min_qty"] = 1
 
     # ── 8. KC 인증 ────────────────────────────────────────────────
-    # lCertTitle 형식: "[제품유형] 인증유형" (예: "[전기용품] 안전인증")
+    # lCertTitle 형식: "[인증유형] 제품분류" (예: "[안전인증] 선풍기")
     # 인증기관명은 "자세히보기" 링크(safetykorea.kr)에서 수집
     cert_el = soup.select_one("div.lCert.lHasImg")
     if cert_el:
         cert_title = cert_el.select_one("div.lCertTitle")
         if cert_title:
-            m = re.search(r"\[.+?\]\s*(.*)", cert_title.get_text(strip=True), re.DOTALL)
+            m = re.search(r"\[(.+?)\]", cert_title.get_text(strip=True))
             if m:
                 cert_type = m.group(1).strip()
                 if cert_type:
@@ -747,12 +747,12 @@ def _scrape_domaemae(product_id: str) -> dict:
     result["min_qty"] = min_qty
 
     # ── 8. KC 인증 (동일 구조) ────────────────────────────────────
-    # 인증기관명은 "자세히보기" 링크(safetykorea.kr)에서 수집
+    # lCertTitle 형식: "[인증유형] 제품분류" — 인증기관명은 safetykorea.kr에서 수집
     cert_el = soup.select_one("div.lCert.lHasImg")
     if cert_el:
         cert_title = cert_el.select_one("div.lCertTitle")
         if cert_title:
-            m = re.search(r"\[.+?\]\s*(.*)", cert_title.get_text(strip=True), re.DOTALL)
+            m = re.search(r"\[(.+?)\]", cert_title.get_text(strip=True))
             if m:
                 cert_type = m.group(1).strip()
                 if cert_type:
