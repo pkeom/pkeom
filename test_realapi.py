@@ -26,13 +26,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("realapi_test")
 
-# 도매꾹 5개 (KC인증 불필요 카테고리로 구성)
+# 도매꾹 6개 (HOME_APPLIANCES + BAG + FURNITURE + ETC 포함)
 DOMAEKKUK_URLS = [
-    "https://www.domeggook.com/59916000",  # 서랍장 (가구/인테리어 — KC 불필요)
-    "https://www.domeggook.com/59921000",  # 여성 숄더백 (28,000원)
-    "https://www.domeggook.com/59919000",  # 알림판
-    "https://www.domeggook.com/59915000",  # 텀블러파우치 (2,430원)
-    "https://www.domeggook.com/59500000",  # 동전지갑
+    "https://www.domeggook.com/59922903",  # 휴대용선풍기 (디지털/가전 — HOME_APPLIANCES + KC)
+    "https://www.domeggook.com/59916000",  # 서랍장 (가구/인테리어 — FURNITURE)
+    "https://www.domeggook.com/59921000",  # 여성 숄더백 (BAG)
+    "https://www.domeggook.com/59919000",  # 알림판 (ETC)
+    "https://www.domeggook.com/59915000",  # 텀블러파우치 (ETC)
+    "https://www.domeggook.com/59500000",  # 동전지갑 (BAG)
 ]
 # 도매매 5개
 DOMAEMAE_URLS = [

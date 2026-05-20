@@ -1,4 +1,5 @@
 """도매매/도매꾹 상품 → 스마트스토어 자동 등록"""
+import datetime
 import itertools
 import json
 import math
@@ -1038,12 +1039,12 @@ _PHONE_FALLBACK = "02-0000-0000"
 
 
 def _get_notice_type(naver_category: str) -> str:
-    """Naver 카테고리명으로 상품정보제공고시 타입을 결정한다.
-    HOME_APPLIANCES 등 미지원 타입은 ETC로 폴백.
-    """
+    """Naver wholeCategoryName으로 상품정보제공고시 타입을 결정한다."""
     cat = naver_category
+    if cat.startswith("디지털/가전"):
+        return "HOME_APPLIANCES"
     if any(k in cat for k in ["가방", "지갑", "백팩", "클러치", "숄더백", "토트백", "크로스백",
-                               "파우치", "크로스", "힙색", "웨이스트백"]):
+                               "파우치", "크로스백", "힙색", "웨이스트백"]):
         return "BAG"
     if any(k in cat for k in ["가구", "소파", "침대", "책상", "의자", "선반", "서랍장", "수납장",
                                "책장", "행거", "붙박이", "옷장"]):
@@ -1064,6 +1065,23 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
         "afterServiceDirector": phone,
     }
 
+    if notice_type == "HOME_APPLIANCES":
+        # releaseDate: "YYYY-MM" 형식 필수 (API 실증)
+        release_date = datetime.date.today().replace(day=1).strftime("%Y-%m")
+        return {
+            "productInfoProvidedNoticeType": "HOME_APPLIANCES",
+            "homeAppliances": {
+                **common,
+                "certificationType":          "상품 상세 참조",
+                "size":                       info.get("size") or "상품 상세 참조",
+                "releaseDate":                release_date,
+                "warrantyPolicy":             "상품 상세 참조",
+                "additionalCost":             "상품 상세 참조",
+                "qualityAssuranceStandard":   "품질보증기준에 준함",
+                "compensationProcedure":      "소비자분쟁해결기준에 준함",
+                "defectiveGoodsRefundPolicy": "상품 상세 참조",
+            },
+        }
     if notice_type == "BAG":
         return {
             "productInfoProvidedNoticeType": "BAG",
@@ -1128,6 +1146,41 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
     }
 
 
+_ORIGIN_COUNTRY_MAP = {
+    "중국": "중국산", "일본": "일본산", "미국": "미국산", "베트남": "베트남산",
+    "인도": "인도산", "인도네시아": "인도네시아산", "태국": "태국산",
+    "대만": "대만산", "홍콩": "홍콩산", "캄보디아": "캄보디아산",
+    "방글라데시": "방글라데시산", "이탈리아": "이탈리아산", "독일": "독일산",
+    "프랑스": "프랑스산", "스페인": "스페인산", "영국": "영국산",
+    "포르투갈": "포르투갈산", "터키": "터키산",
+}
+_DOMESTIC_KEYWORDS = ["국내", "대한민국", "한국산", "국산"]
+
+
+def _build_origin_area(origin_text: str) -> dict:
+    """도매꾹/도매매 원산지 텍스트 → Naver originAreaInfo 변환.
+
+    코드 "02" (수입산) 은 수입국 선택 필드가 비공개 API 구조라 사용 불가.
+    코드 "04" (기타 직접입력) 으로 국가 텍스트를 저장, "03" 은 원산지표시면제.
+    """
+    text = (origin_text or "").strip()
+    if not text:
+        return {"originAreaCode": "03", "content": "", "directProductionYn": "N"}
+
+    for kw in _DOMESTIC_KEYWORDS:
+        if kw in text:
+            return {"originAreaCode": "04", "content": "국내산", "directProductionYn": "N"}
+
+    for country, label in _ORIGIN_COUNTRY_MAP.items():
+        if country in text:
+            return {"originAreaCode": "04", "content": label, "directProductionYn": "N"}
+
+    if "수입" in text or "아시아" in text or "유럽" in text:
+        return {"originAreaCode": "04", "content": text[:50], "directProductionYn": "N"}
+
+    return {"originAreaCode": "03", "content": "", "directProductionYn": "N"}
+
+
 # ── 스마트스토어 payload 구성 ──────────────────────────────────────
 
 def build_smartstore_payload(info: dict, selling_price: int,
@@ -1161,13 +1214,11 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if info.get("sub_images"):
         images["optionalImages"] = [{"url": u} for u in info["sub_images"][:9]]
 
-    # Naver Commerce API v2 originAreaCode 스펙:
-    #   "01" = 수산물/농임산물 전용 (일반 공산품에 사용 불가)
-    #   "02" = 수입산 — importer(수입사) + 수입국 필드 추가 필수 (미수집)
-    #   "03" = 원산지표시면제 — 일반 공산품(전자, 잡화 등)에 유효
-    # 도매꾹/도매매 상품(주로 제조품)은 원산지 정보 불완전 → "03" 사용
-    origin_area_code = "03"
-    origin_content   = ""
+    # Naver Commerce API v2 originAreaInfo:
+    #   "03" = 원산지표시면제 (content 무시, "상세설명에 표시" 고정)
+    #   "04" = 기타 직접입력 (content 자유 텍스트 저장)
+    #   "02" = 수입산 — 수입국 선택 필드 구조 미공개로 사용 불가
+    origin_area_info = _build_origin_area(info.get("origin", ""))
 
     origin_product: dict = {
         "statusType":    "SALE",
@@ -1196,11 +1247,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
                 "afterServiceTelephoneNumber": (seller_phone or "").strip() or _PHONE_FALLBACK,
                 "afterServiceGuideContent":    "구매 후 문의사항은 판매자에게 연락해주세요.",
             },
-            "originAreaInfo": {
-                "originAreaCode":    origin_area_code,
-                "content":           origin_content,
-                "directProductionYn": "N",
-            },
+            "originAreaInfo": origin_area_info,
             "taxType":         "TAX",
             "minorPurchasable": True,
             "productInfoProvidedNotice": _build_notice(
