@@ -1,8 +1,8 @@
 """
-스마트스토어 실제 상품등록 테스트 (2회)
-- dry-run 50회 연속 통과 후 실행
-- 도매꾹 1개 + 도매매 1개를 실제 Naver Commerce API로 등록
-- 등록 성공 시 originProductNo 반환
+스마트스토어 실제 상품등록 테스트 (도매꾹 5개 + 도매매 5개)
+- 카테고리 자동매핑 + KC인증 처리 검증
+- 실제 Naver Commerce API로 등록 시도
+- 모두 성공할 때까지 오류 수정 후 재테스트
 
 실행: python test_realapi.py
 """
@@ -26,11 +26,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger("realapi_test")
 
-# 테스트 대상 상품 (도매꾹 1개 + 도매매 1개)
-TEST_PRODUCTS = [
-    "https://www.domeggook.com/59500000",        # 동전지갑 — KC인증 불필요 (패션잡화)
-    "https://domeme.domeggook.com/s/59921000",  # 여성 숄더백 (28,000원)
+# 도매꾹 5개 (KC인증 불필요 카테고리로 구성)
+DOMAEKKUK_URLS = [
+    "https://www.domeggook.com/59916000",  # 서랍장 (가구/인테리어 — KC 불필요)
+    "https://www.domeggook.com/59921000",  # 여성 숄더백 (28,000원)
+    "https://www.domeggook.com/59919000",  # 알림판
+    "https://www.domeggook.com/59915000",  # 텀블러파우치 (2,430원)
+    "https://www.domeggook.com/59500000",  # 동전지갑
 ]
+# 도매매 5개
+DOMAEMAE_URLS = [
+    "https://domeme.domeggook.com/s/59916000",  # 서랍장
+    "https://domeme.domeggook.com/s/59921000",  # 여성 숄더백
+    "https://domeme.domeggook.com/s/59919000",  # 알림판
+    "https://domeme.domeggook.com/s/59915000",  # 텀블러파우치
+    "https://domeme.domeggook.com/s/59600000",  # 남성 클러치백
+]
+
+TEST_PRODUCTS = DOMAEKKUK_URLS + DOMAEMAE_URLS
 
 
 class _NullRepo:
@@ -53,14 +66,15 @@ def main():
     )
     mapping_repo = _NullRepo()
 
-    print("=" * 60)
-    print("스마트스토어 실제 상품등록 테스트 (2회)")
-    print("=" * 60)
+    print("=" * 70)
+    print("스마트스토어 실제 상품등록 테스트 (도매꾹 5개 + 도매매 5개)")
+    print("=" * 70)
 
     results = []
     for idx, url in enumerate(TEST_PRODUCTS, 1):
-        print(f"\n[{idx}/{len(TEST_PRODUCTS)}] 등록 중: {url}")
-        print("-" * 60)
+        supplier = "도매꾹" if "domeggook.com/" in url and "domeme" not in url else "도매매"
+        print(f"\n[{idx:02d}/{len(TEST_PRODUCTS)}] [{supplier}] {url}")
+        print("-" * 70)
 
         try:
             result = register_product(
@@ -70,24 +84,25 @@ def main():
                 supplier_client = supplier_client,
                 settings        = cfg,
                 mapping_repo    = mapping_repo,
-                category_id     = "",   # 자동 매칭
+                category_id     = "",   # 자동 매핑
             )
         except Exception as e:
             import traceback
             result = {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
-        results.append(result)
+        results.append({"url": url, **result})
 
         if result.get("success"):
             print(f"  ✅ 등록 성공!")
             print(f"     originProductNo : {result.get('product_id', '-')}")
             print(f"     판매가          : {result.get('selling_price', 0):,}원")
-            print(f"     카테고리 매칭   : {result.get('category_match', '-')}")
+            print(f"     카테고리        : {result.get('category_match', '-')} ({result.get('category_id', '-')})")
             if result.get("info"):
                 print(f"     상품명          : {result['info'].get('title', '')[:60]}")
+                print(f"     KC인증번호      : {result['info'].get('kc_cert_no', '없음') or '없음'}")
+                print(f"     KC인증기관      : {result['info'].get('kc_cert_agency', '없음') or '없음'}")
         else:
-            print(f"  ❌ 등록 실패")
-            print(f"     오류: {result.get('error', '알 수 없음')}")
+            print(f"  ❌ 등록 실패: {result.get('error', '알 수 없음')}")
             if result.get("detail"):
                 detail = result["detail"]
                 if isinstance(detail, dict):
@@ -97,14 +112,23 @@ def main():
             if result.get("traceback"):
                 print(f"     Traceback:\n{result['traceback']}")
 
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 70)
     passed = sum(1 for r in results if r.get("success"))
+    failed_urls = [r["url"] for r in results if not r.get("success")]
+
     print(f"최종 결과: {passed}/{len(results)} 성공")
 
+    if failed_urls:
+        print("\n실패한 상품:")
+        for u in failed_urls:
+            r = next(x for x in results if x["url"] == u)
+            print(f"  - {u}")
+            print(f"    오류: {r.get('error', '?')}")
+
     if passed == len(results):
-        print("✅ 실제 API 등록 테스트 완료!")
+        print("\n✅ 전체 등록 테스트 완료! 카테고리 자동매핑 + KC인증 모두 정상 처리")
     else:
-        print("❌ 일부 등록 실패 — 로그를 확인하세요.")
+        print(f"\n❌ {len(results) - passed}개 실패 — 로그를 확인하고 코드 수정 후 재테스트")
         sys.exit(1)
 
 

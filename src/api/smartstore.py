@@ -1,5 +1,6 @@
 """네이버 스마트스토어 커머스 API 클라이언트"""
 import base64
+import difflib
 import logging
 import time
 import bcrypt
@@ -84,19 +85,16 @@ class SmartstoreAPI:
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self._get_token()}"}
 
-    def find_leaf_category(self, keyword: str) -> tuple[str, str]:
-        """키워드로 Naver 카테고리를 검색하되, 반환된 카테고리명에 키워드가 실제로
-        포함되는 경우에만 유효 매칭으로 수락한다.
+    def find_leaf_category(self, keyword: str, whole_cat: str = "") -> tuple[str, str]:
+        """키워드로 Naver /v1/categories?keyword= API를 호출하고, 카테고리명에 키워드가
+        포함된 리프 카테고리들을 후보로 추린 뒤, 여러 개면 whole_cat(도매 카테고리 경로)과
+        wholeCategoryName의 문자열 유사도로 가장 적합한 카테고리를 선택한다.
 
-        Naver /v1/categories?keyword= API는 해당 키워드 상품이 분포된 모든 카테고리를
-        반환하므로, 검색어와 무관한 카테고리(예: "선풍기" 검색 → "풀오버")가 먼저
-        올 수 있다. 카테고리명 포함 여부 확인으로 오탐을 방지한다.
-
-        Returns: (category_id, category_name) — 신뢰할 수 있는 매칭 없으면 ("", "")
+        Returns: (category_id, wholeCategoryName) — 매칭 없으면 ("", "")
         """
         if not keyword or not keyword.strip():
             return "", ""
-        keyword = keyword.strip()
+        keyword  = keyword.strip()
         kw_lower = keyword.lower()
         try:
             resp = requests.get(
@@ -106,17 +104,54 @@ class SmartstoreAPI:
                 timeout=10,
             )
             if resp.ok:
-                for cat in resp.json():
-                    if not cat.get("last"):
+                data  = resp.json()
+                items = data if isinstance(data, list) else []
+
+                candidates: list[tuple[str, str]] = []
+                for cat in items:
+                    if not isinstance(cat, dict) or not cat.get("last"):
                         continue
                     name  = cat.get("name", "")
                     whole = cat.get("wholeCategoryName", "") or name
-                    # 카테고리명(name 또는 wholeCategoryName)에 키워드가 포함될 때만 수락
                     if kw_lower in name.lower() or kw_lower in whole.lower():
-                        return str(cat["id"]), whole or name
+                        candidates.append((str(cat["id"]), whole or name))
+
+                if not candidates:
+                    return "", ""
+                if len(candidates) == 1:
+                    return candidates[0]
+
+                # 결과가 여러 개면 도매 카테고리 경로와 유사도 비교 후 최선 선택
+                ref = (whole_cat or keyword).lower()
+                best = max(
+                    candidates,
+                    key=lambda p: difflib.SequenceMatcher(None, ref, p[1].lower()).ratio(),
+                )
+                return best
         except Exception as e:
             logger.warning("카테고리 조회 실패 (%s): %s", keyword, e)
         return "", ""
+
+    def is_kc_cert_required(self, category_id: str) -> bool:
+        """해당 카테고리에 KC인증이 필수인지 확인한다.
+
+        /v1/categories/{id} 응답의 exceptionalCategories 목록에
+        "KC_CERTIFICATION"이 포함되면 KC인증 필수 카테고리다.
+        """
+        if not category_id:
+            return False
+        try:
+            resp = requests.get(
+                f"{self.BASE_URL}/v1/categories/{category_id}",
+                headers=self._headers(),
+                timeout=10,
+            )
+            if resp.ok:
+                exceptional = resp.json().get("exceptionalCategories", [])
+                return "KC_CERTIFICATION" in exceptional
+        except Exception as e:
+            logger.warning("카테고리 KC인증 필수 여부 조회 실패 (%s): %s", category_id, e)
+        return False
 
     # 도메인별 Referer 매핑 (hotlink 방지 우회)
     _REFERER_MAP = {

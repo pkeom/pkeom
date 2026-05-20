@@ -5,6 +5,7 @@ import math
 import re
 import logging
 import time
+from pathlib import Path
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -12,6 +13,27 @@ from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+_CATEGORY_CACHE_PATH = Path(__file__).parents[2] / "data" / "category_mapping_cache.json"
+
+
+def _load_category_cache() -> dict:
+    try:
+        if _CATEGORY_CACHE_PATH.exists():
+            return json.loads(_CATEGORY_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _save_category_cache(cache: dict) -> None:
+    try:
+        _CATEGORY_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CATEGORY_CACHE_PATH.write_text(
+            json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception as e:
+        logger.warning("카테고리 캐시 저장 실패: %s", e)
 
 # ── 상수 ───────────────────────────────────────────────────────────
 
@@ -341,6 +363,16 @@ def _parse_options(select_opt) -> list[dict]:
 
 def _parse_category(cat_d) -> str:
     if isinstance(cat_d, dict):
+        # 신규 API 형식: {"parents": {"elem": [{"name":..}]}, "current": {"name":..}}
+        if "parents" in cat_d or "current" in cat_d:
+            parts = []
+            for p in cat_d.get("parents", {}).get("elem", []):
+                if isinstance(p, dict) and p.get("name"):
+                    parts.append(p["name"])
+            cur = cat_d.get("current", {})
+            if isinstance(cur, dict) and cur.get("name"):
+                parts.append(cur["name"])
+            return " > ".join(parts) if parts else ""
         return (cat_d.get("name") or cat_d.get("cateName") or
                 cat_d.get("categoryName") or "")
     if isinstance(cat_d, list) and cat_d:
@@ -467,19 +499,25 @@ def _scrape_domaekkuk(product_id: str) -> dict:
         result["min_qty"] = 1
 
     # ── 8. KC 인증 ────────────────────────────────────────────────
+    # lCertTitle 형식: "[제품유형] 인증유형" (예: "[전기용품] 안전인증")
+    #   [...]  → 제품유형 (Naver API에 불필요)
+    #   이후 텍스트 → 인증유형 (예: "안전인증", "안전확인")
+    # 인증기관명(certificationAgency)은 HTML에 없음 — 수집 불가
     cert_el = soup.select_one("div.lCert.lHasImg")
     if cert_el:
         cert_title = cert_el.select_one("div.lCertTitle")
         if cert_title:
-            m = re.search(r"\[(.+?)\]", cert_title.get_text())
+            m = re.search(r"\[.+?\]\s*(.*)", cert_title.get_text(strip=True), re.DOTALL)
             if m:
-                result["kc_cert_type"] = m.group(1).strip()
+                cert_type = m.group(1).strip()
+                if cert_type:
+                    result["kc_cert_type"] = cert_type
         cert_num = cert_el.select_one("div.lCertNum")
         if cert_num:
             raw_num = cert_num.get_text(strip=True)
             raw_num = re.split(r"자세히", raw_num)[0].strip()
-            m = re.search(r"[A-Z0-9]{2,3}-\d{3,6}", raw_num)
-            result["kc_cert_no"] = m.group(0) if m else raw_num
+            if raw_num:
+                result["kc_cert_no"] = raw_num
 
     # ── 9. 카테고리 (breadcrumb #lPath) ──────────────────────────
     cat_parts: list[str] = []
@@ -661,15 +699,17 @@ def _scrape_domaemae(product_id: str) -> dict:
     if cert_el:
         cert_title = cert_el.select_one("div.lCertTitle")
         if cert_title:
-            m = re.search(r"\[(.+?)\]", cert_title.get_text())
+            m = re.search(r"\[.+?\]\s*(.*)", cert_title.get_text(strip=True), re.DOTALL)
             if m:
-                result["kc_cert_type"] = m.group(1).strip()
+                cert_type = m.group(1).strip()
+                if cert_type:
+                    result["kc_cert_type"] = cert_type
         cert_num = cert_el.select_one("div.lCertNum")
         if cert_num:
             raw_num = cert_num.get_text(strip=True)
             raw_num = re.split(r"자세히", raw_num)[0].strip()
-            m = re.search(r"[A-Z0-9]{2,3}-\d{3,6}", raw_num)
-            result["kc_cert_no"] = m.group(0) if m else raw_num
+            if raw_num:
+                result["kc_cert_no"] = raw_num
 
     # ── 9. 카테고리 (동일 breadcrumb #lPath 구조) ─────────────────
     cat_parts: list[str] = []
@@ -770,15 +810,23 @@ def fetch_product_info(url: str, client) -> dict:
     model        = basis.get("model")  or basis.get("modelNo") or ""
     brand        = basis.get("brand")  or basis.get("brandName") or ""
     manufacturer = basis.get("manufacturer") or basis.get("maker") or ""
-    kc_cert_no   = (basis.get("kc_cert_no") or basis.get("kcCertNo")
-                    or basis.get("certNo") or "")
-    kc_cert_type = basis.get("kc_cert_type") or basis.get("kcCertType") or ""
+    kc_cert_no     = (basis.get("kc_cert_no") or basis.get("kcCertNo")
+                      or basis.get("certNo") or "")
+    kc_cert_type   = basis.get("kc_cert_type") or basis.get("kcCertType") or ""
+    kc_cert_agency = (basis.get("kc_cert_agency") or basis.get("kcCertAgency")
+                      or basis.get("certAgency") or basis.get("certOrgName") or "")
     min_qty      = int(basis.get("minQty") or basis.get("min_qty") or 1)
     cat_name     = _parse_category(raw.get("category", {}))
     options      = _parse_options(raw.get("selectOpt", {}))
-    main_image, sub_images, detail_html = _parse_images(
-        raw.get("img", raw.get("images", {}))
-    )
+    img_src = raw.get("img") or raw.get("images") or {}
+    if not img_src and raw.get("thumb"):
+        # 신규 API: thumb.original / thumb.large / thumb.small 순으로 대표이미지 설정
+        thumb = raw["thumb"]
+        img_src = {
+            "main": (thumb.get("original") or thumb.get("large")
+                     or thumb.get("small") or ""),
+        }
+    main_image, sub_images, detail_html = _parse_images(img_src)
     detail_images: list[str] = []
     category_code = ""
 
@@ -806,6 +854,8 @@ def fetch_product_info(url: str, client) -> dict:
             kc_cert_no = scraped.get("kc_cert_no", "")
         if not kc_cert_type:
             kc_cert_type = scraped.get("kc_cert_type", "")
+        if not kc_cert_agency:
+            kc_cert_agency = scraped.get("kc_cert_agency", "")
         if not origin:
             origin = scraped.get("origin", "")
         if min_qty <= 1:
@@ -831,8 +881,9 @@ def fetch_product_info(url: str, client) -> dict:
         "model":         model,
         "brand":         brand,
         "manufacturer":  manufacturer,
-        "kc_cert_no":    kc_cert_no,
-        "kc_cert_type":  kc_cert_type,
+        "kc_cert_no":     kc_cert_no,
+        "kc_cert_type":   kc_cert_type,
+        "kc_cert_agency": kc_cert_agency,
         "main_image":    main_image,
         "sub_images":    sub_images,
         "detail_images": detail_images,
@@ -880,9 +931,9 @@ def map_category(supplier_category: str, default_id: str = "") -> str:
 
 
 def resolve_category(info: dict, smartstore_api, category_id: str = "") -> tuple[str, str]:
-    """공급처 카테고리명으로만 네이버 카테고리 ID를 결정한다.
+    """공급처 카테고리명으로 네이버 카테고리 ID를 결정한다.
 
-    상품명 키워드 매칭은 오탐이 많아 완전 제거.
+    성공한 매핑은 data/category_mapping_cache.json에 캐싱해 재사용한다.
     매칭 실패 시 빈 문자열 반환 — 잘못된 카테고리 등록으로 인한 판매 금지 방지.
 
     Returns: (category_id, match_info)
@@ -895,15 +946,25 @@ def resolve_category(info: dict, smartstore_api, category_id: str = "") -> tuple
         logger.warning("공급처 카테고리 정보 없음 — 카테고리 미지정")
         return "", "카테고리 정보 없음"
 
+    # 캐시 확인
+    cache = _load_category_cache()
+    if cat_name in cache:
+        entry = cache[cat_name]
+        logger.info("카테고리 캐시 히트: %r → %s (%s)",
+                    cat_name[:30], entry["category_id"], entry["category_name"])
+        return entry["category_id"], entry["category_name"]
+
     # 공급처 카테고리를 레벨별로 분리 (세부 → 대분류 순으로 시도)
     parts = [p.strip() for p in re.split(r"[>|/\\]", cat_name) if len(p.strip()) >= 2]
     for part in reversed(parts):
-        found_id, found_name = smartstore_api.find_leaf_category(part)
+        found_id, found_name = smartstore_api.find_leaf_category(part, whole_cat=cat_name)
         if found_id:
             logger.info("카테고리 자동매칭: %r → %s (%s)", part, found_id, found_name)
+            cache[cat_name] = {"category_id": found_id, "category_name": found_name}
+            _save_category_cache(cache)
             return found_id, found_name
 
-    logger.warning("카테고리 자동매칭 실패 (cat=%r)", cat_name[:40])
+    logger.warning("카테고리 자동매핑 실패 - 직접 입력 필요 (cat=%r)", cat_name[:40])
     return "", "미매칭 (수동 설정 필요)"
 
 
@@ -1021,11 +1082,23 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if naver_search_info:
         payload["originProduct"]["detailAttribute"]["naverShoppingSearchInfo"] = naver_search_info
 
-    # KC인증(productCertificationInfos): 인증기관명을 수집하지 않으므로 payload에서 완전 제외.
-    # 어떤 조건에서도 productCertificationInfos 키를 추가하지 않는다.
-    if info.get("kc_cert_no") or info.get("kc_cert_type"):
-        logger.debug("KC인증 정보 제외 (kc_no=%r, kc_type=%r)",
-                     info.get("kc_cert_no"), info.get("kc_cert_type"))
+    # KC인증: 인증번호 + 인증유형 + 인증기관명 3개 모두 있을 때만 payload 포함
+    kc_no     = (info.get("kc_cert_no") or "").strip()
+    kc_type   = (info.get("kc_cert_type") or "").strip()
+    kc_agency = (info.get("kc_cert_agency") or "").strip()
+    if kc_no and kc_type and kc_agency:
+        origin_product["detailAttribute"]["productCertificationInfos"] = [
+            {
+                "kindType":            kc_type,   # Naver API 필드명
+                "certificationNumber": kc_no,
+                "name":                kc_agency, # Naver API 필드명 (certificationAgency → name)
+            }
+        ]
+        logger.debug("KC인증 payload 포함: no=%r, type=%r, agency=%r",
+                     kc_no, kc_type, kc_agency)
+    else:
+        logger.debug("KC인증 payload 제외 (no=%r, type=%r, agency=%r)",
+                     kc_no, kc_type, kc_agency)
 
     if info.get("options"):
         groups = info["options"][:3]
@@ -1069,6 +1142,34 @@ def register_product(url: str, selling_price: int, smartstore_api,
         selling_price = (info["supply_price"] or 0) + 3000
 
     category_id, category_match = resolve_category(info, smartstore_api, category_id)
+
+    # KC인증 필수 카테고리 사전 확인
+    if category_id:
+        try:
+            kc_required = smartstore_api.is_kc_cert_required(category_id)
+            if kc_required:
+                kc_no     = (info.get("kc_cert_no") or "").strip()
+                kc_type   = (info.get("kc_cert_type") or "").strip()
+                kc_agency = (info.get("kc_cert_agency") or "").strip()
+                if not (kc_no and kc_type and kc_agency):
+                    logger.warning(
+                        "KC인증 정보 누락 - 등록 불가 "
+                        "(category=%s, no=%r, type=%r, agency=%r)",
+                        category_id, kc_no, kc_type, kc_agency,
+                    )
+                    return {
+                        "success": False,
+                        "error": "KC인증 정보 누락 - 등록 불가",
+                        "detail": (
+                            f"카테고리 [{category_match}]({category_id})는 KC인증 필수 카테고리입니다. "
+                            f"인증번호·인증유형·인증기관명 3개 모두 필요합니다."
+                        ),
+                        "info": info,
+                        "category_id": category_id,
+                        "category_match": category_match,
+                    }
+        except Exception as e:
+            logger.warning("KC인증 필수 여부 확인 실패 (계속 진행): %s", e)
 
     # ── 모든 이미지를 Naver CDN에 업로드 (외부 URL 직접 사용 불가) ──
     supplier   = info.get("supplier", "domaekkuk")
