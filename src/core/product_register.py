@@ -1054,10 +1054,11 @@ def _get_notice_type(naver_category: str) -> str:
 
 def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
     """상품정보제공고시 productInfoProvidedNotice 객체를 반환한다."""
+    _SEP = "상세정보 별도표기"
     phone = (seller_phone or "").strip() or _PHONE_FALLBACK
-    title = (info.get("title") or "상품 설명 참조")[:50]
-    model = info.get("model") or "상품 상세 참조"
-    maker = info.get("manufacturer") or "상품 상세 참조"
+    title = (info.get("title") or _SEP)[:50]
+    model = info.get("model") or _SEP
+    maker = info.get("manufacturer") or _SEP
     common = {
         "itemName":             title,
         "modelName":            model,
@@ -1072,14 +1073,14 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
             "productInfoProvidedNoticeType": "HOME_APPLIANCES",
             "homeAppliances": {
                 **common,
-                "certificationType":          "상품 상세 참조",
-                "size":                       info.get("size") or "상품 상세 참조",
+                "certificationType":          _SEP,
+                "size":                       info.get("size") or _SEP,
                 "releaseDate":                release_date,
-                "warrantyPolicy":             "상품 상세 참조",
-                "additionalCost":             "상품 상세 참조",
+                "warrantyPolicy":             _SEP,
+                "additionalCost":             _SEP,
                 "qualityAssuranceStandard":   "품질보증기준에 준함",
                 "compensationProcedure":      "소비자분쟁해결기준에 준함",
-                "defectiveGoodsRefundPolicy": "상품 상세 참조",
+                "defectiveGoodsRefundPolicy": _SEP,
             },
         }
     if notice_type == "BAG":
@@ -1087,15 +1088,15 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
             "productInfoProvidedNoticeType": "BAG",
             "bag": {
                 **common,
-                "material":                   info.get("material") or "상품 상세 참조",
-                "size":                       info.get("size") or "상품 상세 참조",
-                "color":                      info.get("color") or "상품 상세 참조",
-                "type":                       "상품 상세 참조",
-                "caution":                    "상품 상세 참조",
-                "warrantyPolicy":             "상품 상세 참조",
+                "material":                   info.get("material") or _SEP,
+                "size":                       info.get("size") or _SEP,
+                "color":                      info.get("color") or _SEP,
+                "type":                       _SEP,
+                "caution":                    _SEP,
+                "warrantyPolicy":             _SEP,
                 "qualityAssuranceStandard":   "품질보증기준에 준함",
                 "compensationProcedure":      "소비자분쟁해결기준에 준함",
-                "defectiveGoodsRefundPolicy": "상품 상세 참조",
+                "defectiveGoodsRefundPolicy": _SEP,
             },
         }
     if notice_type == "FURNITURE":
@@ -1103,17 +1104,17 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
             "productInfoProvidedNoticeType": "FURNITURE",
             "furniture": {
                 **common,
-                "material":                   info.get("material") or "상품 상세 참조",
-                "color":                      info.get("color") or "상품 상세 참조",
-                "size":                       info.get("size") or "상품 상세 참조",
-                "installedCharge":            "상품 상세 참조",
-                "components":                 "상품 상세 참조",
-                "certificationType":          "상품 상세 참조",
-                "producer":                   "상품 상세 참조",
-                "warrantyPolicy":             "상품 상세 참조",
+                "material":                   info.get("material") or _SEP,
+                "color":                      info.get("color") or _SEP,
+                "size":                       info.get("size") or _SEP,
+                "installedCharge":            _SEP,
+                "components":                 _SEP,
+                "certificationType":          _SEP,
+                "producer":                   _SEP,
+                "warrantyPolicy":             _SEP,
                 "qualityAssuranceStandard":   "품질보증기준에 준함",
                 "compensationProcedure":      "소비자분쟁해결기준에 준함",
-                "defectiveGoodsRefundPolicy": "상품 상세 참조",
+                "defectiveGoodsRefundPolicy": _SEP,
             },
         }
     if notice_type == "WEAR":
@@ -1121,15 +1122,15 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
             "productInfoProvidedNoticeType": "WEAR",
             "wear": {
                 **common,
-                "material":                   info.get("material") or "상품 상세 참조",
-                "color":                      info.get("color") or "상품 상세 참조",
-                "size":                       info.get("size") or "상품 상세 참조",
-                "laundryMethod":              "상품 상세 참조",
-                "caution":                    "상품 상세 참조",
-                "warrantyPolicy":             "상품 상세 참조",
+                "material":                   info.get("material") or _SEP,
+                "color":                      info.get("color") or _SEP,
+                "size":                       info.get("size") or _SEP,
+                "laundryMethod":              _SEP,
+                "caution":                    _SEP,
+                "warrantyPolicy":             _SEP,
                 "qualityAssuranceStandard":   "품질보증기준에 준함",
                 "compensationProcedure":      "소비자분쟁해결기준에 준함",
-                "defectiveGoodsRefundPolicy": "상품 상세 참조",
+                "defectiveGoodsRefundPolicy": _SEP,
             },
         }
     # ETC (default — 가전/디지털 포함 미매핑 카테고리)
@@ -1137,11 +1138,11 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
         "productInfoProvidedNoticeType": "ETC",
         "etc": {
             **common,
-            "returnCostReason":         "상품 상세 참조",
-            "noRefundReason":           "상품 상세 참조",
-            "qualityAssuranceStandard": "상품 상세 참조",
-            "compensationProcedure":    "상품 상세 참조",
-            "troubleShootingContents":  "상품 상세 참조",
+            "returnCostReason":         _SEP,
+            "noRefundReason":           _SEP,
+            "qualityAssuranceStandard": _SEP,
+            "compensationProcedure":    _SEP,
+            "troubleShootingContents":  _SEP,
         },
     }
 
@@ -1152,31 +1153,65 @@ _ORIGIN_COUNTRY_MAP = {
     "대만": "대만산", "홍콩": "홍콩산", "캄보디아": "캄보디아산",
     "방글라데시": "방글라데시산", "이탈리아": "이탈리아산", "독일": "독일산",
     "프랑스": "프랑스산", "스페인": "스페인산", "영국": "영국산",
-    "포르투갈": "포르투갈산", "터키": "터키산",
+    "포르투갈": "포르투갈산", "터키": "터키산", "미얀마": "미얀마산",
+    "필리핀": "필리핀산", "말레이시아": "말레이시아산", "싱가포르": "싱가포르산",
+    "호주": "호주산", "뉴질랜드": "뉴질랜드산",
 }
 _DOMESTIC_KEYWORDS = ["국내", "대한민국", "한국산", "국산"]
 
+# 대륙 → 대표 국가 키워드 (2단계 대륙 텍스트만 있고 3단계 국가가 없을 때 폴백)
+_CONTINENT_KEYWORDS = ["아시아", "유럽", "북아메리카", "남아메리카", "아프리카", "오세아니아", "중동"]
+
+
+def _parse_origin_parts(text: str) -> tuple[str, str, str]:
+    """'수입산/아시아/중국' 형태의 원산지 텍스트를 3단계로 분리.
+
+    Returns: (1단계: 국산/수입산, 2단계: 대륙, 3단계: 국가)
+    """
+    parts = [p.strip() for p in re.split(r"[/\\|]", text)]
+    return (
+        parts[0] if len(parts) > 0 else "",
+        parts[1] if len(parts) > 1 else "",
+        parts[2] if len(parts) > 2 else "",
+    )
+
 
 def _build_origin_area(origin_text: str) -> dict:
-    """도매꾹/도매매 원산지 텍스트 → Naver originAreaInfo 변환.
+    """도매꾹/도매매 원산지 텍스트 → Naver originAreaInfo 변환 (3단계 파싱).
 
-    코드 "02" (수입산) 은 수입국 선택 필드가 비공개 API 구조라 사용 불가.
-    코드 "04" (기타 직접입력) 으로 국가 텍스트를 저장, "03" 은 원산지표시면제.
+    '수입산/아시아/중국' 형태를 파싱해 국가명을 content에 담는다.
+    Naver API 코드 "02" (수입산)는 수입국 드롭다운 필드가 비공개라 사용 불가.
+    코드 "04" (기타 직접입력)으로 파싱된 국가 정보를 저장한다.
+    국내산은 "국내산", 원산지 미확인은 코드 "03" (원산지표시면제).
     """
     text = (origin_text or "").strip()
     if not text:
         return {"originAreaCode": "03", "content": "", "directProductionYn": "N"}
 
+    level1, level2, level3 = _parse_origin_parts(text)
+
+    # ── 국내산 체크 ───────────────────────────────────────────────
     for kw in _DOMESTIC_KEYWORDS:
-        if kw in text:
+        if kw in level1 or kw in text:
             return {"originAreaCode": "04", "content": "국내산", "directProductionYn": "N"}
 
-    for country, label in _ORIGIN_COUNTRY_MAP.items():
-        if country in text:
-            return {"originAreaCode": "04", "content": label, "directProductionYn": "N"}
+    # ── 국가명 파악 (3단계 → 2단계 → 전체 텍스트 순서로 탐색) ────
+    country_label = ""
+    for search in [level3, level2, level1, text]:
+        for keyword, label in _ORIGIN_COUNTRY_MAP.items():
+            if keyword in search:
+                country_label = label
+                break
+        if country_label:
+            break
 
-    if "수입" in text or "아시아" in text or "유럽" in text:
-        return {"originAreaCode": "04", "content": text[:50], "directProductionYn": "N"}
+    # ── 수입산 또는 국가 확인된 경우 → 코드 "04" + 파싱 정보 ────
+    is_import = "수입" in level1 or any(kw in text for kw in _CONTINENT_KEYWORDS)
+
+    if is_import or country_label:
+        # content: 국가명(3단계) 우선, 없으면 원문 텍스트
+        content = country_label or level3 or level2 or text[:50]
+        return {"originAreaCode": "04", "content": content, "directProductionYn": "N"}
 
     return {"originAreaCode": "03", "content": "", "directProductionYn": "N"}
 
