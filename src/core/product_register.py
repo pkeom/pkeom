@@ -1271,6 +1271,11 @@ def build_smartstore_payload(info: dict, selling_price: int,
                 "deliveryFeeType":    "PAID",
                 "baseFee":            3000,
                 "deliveryFeePayType": "PREPAID",
+                "deliveryFeeByArea": {
+                    "deliveryAreaType": "AREA_3",
+                    "area2extraFee":    5000,
+                    "area3extraFee":    7000,
+                },
             },
             "claimDeliveryInfo": {
                 "returnDeliveryFee":   3000,
