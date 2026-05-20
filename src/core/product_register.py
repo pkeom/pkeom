@@ -399,6 +399,50 @@ def _parse_images(img_d: dict) -> tuple[str, list[str], str]:
     return main, subs, detail_html
 
 
+# ── safetykorea.kr KC 인증 상세 수집 ──────────────────────────────
+
+def _fetch_kc_cert_detail(cert_url: str) -> tuple[str, str]:
+    """safetykorea.kr 인증 팝업에서 인증기관명과 인증구분을 파싱.
+
+    Returns: (kc_cert_agency, kc_cert_type_detail)
+    kc_cert_type_detail: 인증구분 값 중 '>' 뒤 마지막 항목 (예: "안전확인대상 전기용품")
+    """
+    try:
+        session = _make_session(referer="https://www.safetykorea.kr/")
+        resp = _retry_get(session, cert_url)
+        if not resp.ok:
+            logger.warning("safetykorea.kr 요청 실패: HTTP %s (%s)", resp.status_code, cert_url)
+            return "", ""
+
+        soup = BeautifulSoup(resp.text, "lxml")
+        agency = ""
+        cert_type_detail = ""
+
+        for cell in soup.find_all(["th", "td"]):
+            label = cell.get_text(strip=True)
+            if label == "인증기관" and not agency:
+                nxt = cell.find_next_sibling("td") or cell.find_next("td")
+                if nxt:
+                    agency = nxt.get_text(strip=True)
+            elif label == "인증구분" and not cert_type_detail:
+                nxt = cell.find_next_sibling("td") or cell.find_next("td")
+                if nxt:
+                    raw = nxt.get_text(strip=True)
+                    # "법률명>인증유형" 형식 → 마지막 항목만 사용
+                    cert_type_detail = raw.split(">")[-1].strip() if ">" in raw else raw
+
+        if agency:
+            logger.info("KC 인증 상세 수집: agency=%r, type=%r", agency, cert_type_detail)
+        else:
+            logger.warning("KC 인증기관 파싱 실패 — 페이지 구조 변경 가능성: %s", cert_url)
+
+        return agency, cert_type_detail
+
+    except Exception as e:
+        logger.warning("KC 인증 상세 수집 실패 (%s): %s", cert_url, e)
+        return "", ""
+
+
 # ── 도매꾹 ─────────────────────────────────────────────────────────
 
 def _domaekkuk_api(product_id: str, api_key: str) -> dict:
@@ -500,9 +544,7 @@ def _scrape_domaekkuk(product_id: str) -> dict:
 
     # ── 8. KC 인증 ────────────────────────────────────────────────
     # lCertTitle 형식: "[제품유형] 인증유형" (예: "[전기용품] 안전인증")
-    #   [...]  → 제품유형 (Naver API에 불필요)
-    #   이후 텍스트 → 인증유형 (예: "안전인증", "안전확인")
-    # 인증기관명(certificationAgency)은 HTML에 없음 — 수집 불가
+    # 인증기관명은 "자세히보기" 링크(safetykorea.kr)에서 수집
     cert_el = soup.select_one("div.lCert.lHasImg")
     if cert_el:
         cert_title = cert_el.select_one("div.lCertTitle")
@@ -518,6 +560,16 @@ def _scrape_domaekkuk(product_id: str) -> dict:
             raw_num = re.split(r"자세히", raw_num)[0].strip()
             if raw_num:
                 result["kc_cert_no"] = raw_num
+            # safetykorea.kr "자세히보기" 링크에서 인증기관명·인증구분 수집
+            cert_link = cert_num.select_one("a[href]")
+            if cert_link:
+                detail_url = cert_link.get("href", "").strip()
+                if detail_url and "safetykorea.kr" in detail_url:
+                    agency, type_detail = _fetch_kc_cert_detail(detail_url)
+                    if agency:
+                        result["kc_cert_agency"] = agency
+                    if type_detail:
+                        result["kc_cert_type"] = type_detail
 
     # ── 9. 카테고리 (breadcrumb #lPath) ──────────────────────────
     cat_parts: list[str] = []
@@ -695,6 +747,7 @@ def _scrape_domaemae(product_id: str) -> dict:
     result["min_qty"] = min_qty
 
     # ── 8. KC 인증 (동일 구조) ────────────────────────────────────
+    # 인증기관명은 "자세히보기" 링크(safetykorea.kr)에서 수집
     cert_el = soup.select_one("div.lCert.lHasImg")
     if cert_el:
         cert_title = cert_el.select_one("div.lCertTitle")
@@ -710,6 +763,16 @@ def _scrape_domaemae(product_id: str) -> dict:
             raw_num = re.split(r"자세히", raw_num)[0].strip()
             if raw_num:
                 result["kc_cert_no"] = raw_num
+            # safetykorea.kr "자세히보기" 링크에서 인증기관명·인증구분 수집
+            cert_link = cert_num.select_one("a[href]")
+            if cert_link:
+                detail_url = cert_link.get("href", "").strip()
+                if detail_url and "safetykorea.kr" in detail_url:
+                    agency, type_detail = _fetch_kc_cert_detail(detail_url)
+                    if agency:
+                        result["kc_cert_agency"] = agency
+                    if type_detail:
+                        result["kc_cert_type"] = type_detail
 
     # ── 9. 카테고리 (동일 breadcrumb #lPath 구조) ─────────────────
     cat_parts: list[str] = []
