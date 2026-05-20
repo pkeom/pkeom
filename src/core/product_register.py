@@ -1032,6 +1032,102 @@ def resolve_category(info: dict, smartstore_api, category_id: str = "") -> tuple
     return "", "미매칭 (수동 설정 필요)"
 
 
+# ── 상품정보제공고시 헬퍼 ──────────────────────────────────────────
+
+_PHONE_FALLBACK = "02-0000-0000"
+
+
+def _get_notice_type(naver_category: str) -> str:
+    """Naver 카테고리명으로 상품정보제공고시 타입을 결정한다.
+    HOME_APPLIANCES 등 미지원 타입은 ETC로 폴백.
+    """
+    cat = naver_category
+    if any(k in cat for k in ["가방", "지갑", "백팩", "클러치", "숄더백", "토트백", "크로스백",
+                               "파우치", "크로스", "힙색", "웨이스트백"]):
+        return "BAG"
+    if any(k in cat for k in ["가구", "소파", "침대", "책상", "의자", "선반", "서랍장", "수납장",
+                               "책장", "행거", "붙박이", "옷장"]):
+        return "FURNITURE"
+    return "ETC"
+
+
+def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
+    """상품정보제공고시 productInfoProvidedNotice 객체를 반환한다."""
+    phone = (seller_phone or "").strip() or _PHONE_FALLBACK
+    title = (info.get("title") or "상품 설명 참조")[:50]
+    model = info.get("model") or "상품 상세 참조"
+    maker = info.get("manufacturer") or "상품 상세 참조"
+    common = {
+        "itemName":             title,
+        "modelName":            model,
+        "manufacturer":         maker,
+        "afterServiceDirector": phone,
+    }
+
+    if notice_type == "BAG":
+        return {
+            "productInfoProvidedNoticeType": "BAG",
+            "bag": {
+                **common,
+                "material":                   info.get("material") or "상품 상세 참조",
+                "size":                       info.get("size") or "상품 상세 참조",
+                "color":                      info.get("color") or "상품 상세 참조",
+                "type":                       "상품 상세 참조",
+                "caution":                    "상품 상세 참조",
+                "warrantyPolicy":             "상품 상세 참조",
+                "qualityAssuranceStandard":   "품질보증기준에 준함",
+                "compensationProcedure":      "소비자분쟁해결기준에 준함",
+                "defectiveGoodsRefundPolicy": "상품 상세 참조",
+            },
+        }
+    if notice_type == "FURNITURE":
+        return {
+            "productInfoProvidedNoticeType": "FURNITURE",
+            "furniture": {
+                **common,
+                "material":                   info.get("material") or "상품 상세 참조",
+                "color":                      info.get("color") or "상품 상세 참조",
+                "size":                       info.get("size") or "상품 상세 참조",
+                "installedCharge":            "상품 상세 참조",
+                "components":                 "상품 상세 참조",
+                "certificationType":          "상품 상세 참조",
+                "producer":                   "상품 상세 참조",
+                "warrantyPolicy":             "상품 상세 참조",
+                "qualityAssuranceStandard":   "품질보증기준에 준함",
+                "compensationProcedure":      "소비자분쟁해결기준에 준함",
+                "defectiveGoodsRefundPolicy": "상품 상세 참조",
+            },
+        }
+    if notice_type == "WEAR":
+        return {
+            "productInfoProvidedNoticeType": "WEAR",
+            "wear": {
+                **common,
+                "material":                   info.get("material") or "상품 상세 참조",
+                "color":                      info.get("color") or "상품 상세 참조",
+                "size":                       info.get("size") or "상품 상세 참조",
+                "laundryMethod":              "상품 상세 참조",
+                "caution":                    "상품 상세 참조",
+                "warrantyPolicy":             "상품 상세 참조",
+                "qualityAssuranceStandard":   "품질보증기준에 준함",
+                "compensationProcedure":      "소비자분쟁해결기준에 준함",
+                "defectiveGoodsRefundPolicy": "상품 상세 참조",
+            },
+        }
+    # ETC (default — 가전/디지털 포함 미매핑 카테고리)
+    return {
+        "productInfoProvidedNoticeType": "ETC",
+        "etc": {
+            **common,
+            "returnCostReason":         "상품 상세 참조",
+            "noRefundReason":           "상품 상세 참조",
+            "qualityAssuranceStandard": "상품 상세 참조",
+            "compensationProcedure":    "상품 상세 참조",
+            "troubleShootingContents":  "상품 상세 참조",
+        },
+    }
+
+
 # ── 스마트스토어 payload 구성 ──────────────────────────────────────
 
 def build_smartstore_payload(info: dict, selling_price: int,
@@ -1097,7 +1193,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
         },
         "detailAttribute": {
             "afterServiceInfo": {
-                "afterServiceTelephoneNumber": seller_phone or "00-0000-0000",
+                "afterServiceTelephoneNumber": (seller_phone or "").strip() or _PHONE_FALLBACK,
                 "afterServiceGuideContent":    "구매 후 문의사항은 판매자에게 연락해주세요.",
             },
             "originAreaInfo": {
@@ -1107,20 +1203,11 @@ def build_smartstore_payload(info: dict, selling_price: int,
             },
             "taxType":         "TAX",
             "minorPurchasable": True,
-            "productInfoProvidedNotice": {
-                "productInfoProvidedNoticeType": "ETC",
-                "etc": {
-                    "itemName":                 info.get("title", "상품 설명 참조")[:50],
-                    "modelName":                info.get("model") or "상품 설명 참조",
-                    "manufacturer":             info.get("manufacturer") or "상품 설명 참조",
-                    "afterServiceDirector":     seller_phone or "상품 설명 참조",
-                    "returnCostReason":         "상품 설명 참조",
-                    "noRefundReason":           "상품 설명 참조",
-                    "qualityAssuranceStandard": "상품 설명 참조",
-                    "compensationProcedure":    "상품 설명 참조",
-                    "troubleShootingContents":  "상품 설명 참조",
-                },
-            },
+            "productInfoProvidedNotice": _build_notice(
+                _get_notice_type(info.get("naver_category_name") or info.get("category_name") or ""),
+                info,
+                seller_phone,
+            ),
         },
     }
 
@@ -1213,6 +1300,8 @@ def register_product(url: str, selling_price: int, smartstore_api,
         selling_price = (info["supply_price"] or 0) + 3000
 
     category_id, category_match = resolve_category(info, smartstore_api, category_id)
+    # notice type 결정을 위해 Naver 카테고리명 저장
+    info["naver_category_name"] = category_match
 
     # KC인증 필수 카테고리 사전 확인 + certificationInfoId 조회
     if category_id:
