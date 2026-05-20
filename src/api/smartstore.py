@@ -132,14 +132,14 @@ class SmartstoreAPI:
             logger.warning("카테고리 조회 실패 (%s): %s", keyword, e)
         return "", ""
 
-    def is_kc_cert_required(self, category_id: str) -> bool:
-        """해당 카테고리에 KC인증이 필수인지 확인한다.
+    def get_kc_cert_status(self, category_id: str, cert_type_hint: str = "") -> tuple[bool, int]:
+        """KC인증 필수 여부 + 최적 certificationInfoId 반환.
 
-        /v1/categories/{id} 응답의 exceptionalCategories 목록에
-        "KC_CERTIFICATION"이 포함되면 KC인증 필수 카테고리다.
+        cert_type_hint: safetykorea.kr 인증구분 텍스트 (예: "안전확인대상 전기용품")
+        Returns: (is_kc_required, certificationInfoId)  — ID 0은 미확인
         """
         if not category_id:
-            return False
+            return False, 0
         try:
             resp = requests.get(
                 f"{self.BASE_URL}/v1/categories/{category_id}",
@@ -147,11 +147,39 @@ class SmartstoreAPI:
                 timeout=10,
             )
             if resp.ok:
-                exceptional = resp.json().get("exceptionalCategories", [])
-                return "KC_CERTIFICATION" in exceptional
+                data = resp.json()
+                is_required = "KC_CERTIFICATION" in data.get("exceptionalCategories", [])
+
+                # KC_CERTIFICATION kindType을 지원하는 항목만 추림
+                kc_infos = [
+                    ci for ci in data.get("certificationInfos", [])
+                    if ci.get("certificationMarkType") == "KC"
+                       and "KC_CERTIFICATION" in ci.get("kindTypes", [])
+                ]
+
+                cert_info_id = 0
+                if kc_infos:
+                    if cert_type_hint:
+                        _KW = ["전기용품", "생활용품", "어린이제품", "방송통신기자재",
+                               "안전인증", "안전확인", "공급자적합성확인"]
+                        def _score(ci):
+                            n = ci.get("name", "")
+                            return sum(1 for kw in _KW
+                                       if kw in cert_type_hint and kw in n)
+                        cert_info_id = max(kc_infos, key=_score)["id"]
+                    else:
+                        cert_info_id = kc_infos[0]["id"]
+
+                logger.info("KC인증 정보 조회: required=%s, certInfoId=%s (hint=%r)",
+                            is_required, cert_info_id, cert_type_hint[:30] if cert_type_hint else "")
+                return is_required, cert_info_id
         except Exception as e:
-            logger.warning("카테고리 KC인증 필수 여부 조회 실패 (%s): %s", category_id, e)
-        return False
+            logger.warning("카테고리 KC인증 정보 조회 실패 (%s): %s", category_id, e)
+        return False, 0
+
+    def is_kc_cert_required(self, category_id: str) -> bool:
+        required, _ = self.get_kc_cert_status(category_id)
+        return required
 
     # 도메인별 Referer 매핑 (hotlink 방지 우회)
     _REFERER_MAP = {

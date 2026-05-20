@@ -993,7 +993,9 @@ function regShowPreview(info, sellingPrice) {
     ['재고',         fmtN(info.stock || 0) + '개'],
     ['원산지',       info.origin || '-'],
     ['모델명',       info.model  || '-'],
-    ['KC인증번호',   info.kc_cert_no || '(없음)'],
+    ['KC인증번호',   info.kc_cert_no   || '(없음)'],
+    ['KC인증유형',   info.kc_cert_type  || '-'],
+    ['KC인증기관',   info.kc_cert_agency || '-'],
     ['카테고리',     info.category_name || '-'],
     ['대표이미지',   info.main_image
         ? `<a href="${info.main_image}" target="_blank" style="color:var(--blue)">확인</a>`

@@ -404,8 +404,9 @@ def _parse_images(img_d: dict) -> tuple[str, list[str], str]:
 def _fetch_kc_cert_detail(cert_url: str) -> tuple[str, str]:
     """safetykorea.kr 인증 팝업에서 인증기관명과 인증구분을 파싱.
 
-    Returns: (kc_cert_agency, kc_cert_type_detail)
-    kc_cert_type_detail: 인증구분 값 중 '>' 뒤 마지막 항목 (예: "안전확인대상 전기용품")
+    Returns: (kc_cert_agency, cert_type_leaf)
+    cert_type_leaf: 인증구분 '>' 뒤 마지막 항목 원문 (예: "안전확인대상 전기용품")
+                    → certificationInfoId 조회 힌트로 사용
     """
     try:
         session = _make_session(referer="https://www.safetykorea.kr/")
@@ -428,11 +429,11 @@ def _fetch_kc_cert_detail(cert_url: str) -> tuple[str, str]:
                 nxt = cell.find_next_sibling("td") or cell.find_next("td")
                 if nxt:
                     raw = nxt.get_text(strip=True)
-                    # "법률명>인증유형" 형식 → 마지막 항목만 사용
+                    # "법률명>인증유형" → 마지막 항목 (certificationInfoId 조회 힌트)
                     cert_type_detail = raw.split(">")[-1].strip() if ">" in raw else raw
 
         if agency:
-            logger.info("KC 인증 상세 수집: agency=%r, type=%r", agency, cert_type_detail)
+            logger.info("KC 인증 상세 수집: agency=%r, cert_type=%r", agency, cert_type_detail)
         else:
             logger.warning("KC 인증기관 파싱 실패 — 페이지 구조 변경 가능성: %s", cert_url)
 
@@ -1145,23 +1146,30 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if naver_search_info:
         payload["originProduct"]["detailAttribute"]["naverShoppingSearchInfo"] = naver_search_info
 
-    # KC인증: 인증번호 + 인증유형 + 인증기관명 3개 모두 있을 때만 payload 포함
-    kc_no     = (info.get("kc_cert_no") or "").strip()
-    kc_type   = (info.get("kc_cert_type") or "").strip()
-    kc_agency = (info.get("kc_cert_agency") or "").strip()
-    if kc_no and kc_type and kc_agency:
-        origin_product["detailAttribute"]["productCertificationInfos"] = [
-            {
-                "kindType":            kc_type,   # Naver API 필드명
-                "certificationNumber": kc_no,
-                "name":                kc_agency, # Naver API 필드명 (certificationAgency → name)
-            }
-        ]
-        logger.debug("KC인증 payload 포함: no=%r, type=%r, agency=%r",
-                     kc_no, kc_type, kc_agency)
+    # KC인증: certificationInfoId + certificationKindType + 인증번호
+    # certificationInfoId는 register_product에서 get_kc_cert_status로 조회해 info에 저장
+    # certificationKindType (kindType 아님!) + certificationTargetExcludeContent 필수
+    kc_no      = (info.get("kc_cert_no") or "").strip()
+    kc_agency  = (info.get("kc_cert_agency") or "").strip()
+    kc_info_id = int(info.get("kc_cert_info_id") or 0)
+    if kc_no and kc_info_id:
+        cert_entry: dict = {
+            "certificationInfoId":   kc_info_id,
+            "certificationKindType": "KC_CERTIFICATION",
+            "certificationNumber":   kc_no,
+        }
+        if kc_agency:
+            cert_entry["name"] = kc_agency
+        origin_product["detailAttribute"]["productCertificationInfos"] = [cert_entry]
+        # KC인증 상품임을 명시 (kcCertifiedProductExclusionYn="N" → KC인증 제외 아님)
+        # Boolean이 아닌 Enum 문자열: "Y"=제외, "N"=제외 아님(KC인증 적용)
+        origin_product["detailAttribute"]["certificationTargetExcludeContent"] = {
+            "kcCertifiedProductExclusionYn": "N"
+        }
+        logger.info("KC인증 payload 포함: certInfoId=%s, certificationKindType=KC_CERTIFICATION, no=%r, agency=%r",
+                    kc_info_id, kc_no, kc_agency)
     else:
-        logger.debug("KC인증 payload 제외 (no=%r, type=%r, agency=%r)",
-                     kc_no, kc_type, kc_agency)
+        logger.info("KC인증 payload 제외 (no=%r, certInfoId=%s)", kc_no, kc_info_id)
 
     if info.get("options"):
         groups = info["options"][:3]
@@ -1206,31 +1214,35 @@ def register_product(url: str, selling_price: int, smartstore_api,
 
     category_id, category_match = resolve_category(info, smartstore_api, category_id)
 
-    # KC인증 필수 카테고리 사전 확인
+    # KC인증 필수 카테고리 사전 확인 + certificationInfoId 조회
     if category_id:
         try:
-            kc_required = smartstore_api.is_kc_cert_required(category_id)
+            kc_cert_type_hint = (info.get("kc_cert_type") or "").strip()
+            kc_required, kc_cert_info_id = smartstore_api.get_kc_cert_status(
+                category_id, kc_cert_type_hint
+            )
             if kc_required:
                 kc_no     = (info.get("kc_cert_no") or "").strip()
-                kc_type   = (info.get("kc_cert_type") or "").strip()
                 kc_agency = (info.get("kc_cert_agency") or "").strip()
-                if not (kc_no and kc_type and kc_agency):
+                if not (kc_no and kc_agency and kc_cert_info_id):
                     logger.warning(
                         "KC인증 정보 누락 - 등록 불가 "
-                        "(category=%s, no=%r, type=%r, agency=%r)",
-                        category_id, kc_no, kc_type, kc_agency,
+                        "(category=%s, no=%r, agency=%r, certInfoId=%s)",
+                        category_id, kc_no, kc_agency, kc_cert_info_id,
                     )
                     return {
                         "success": False,
                         "error": "KC인증 정보 누락 - 등록 불가",
                         "detail": (
                             f"카테고리 [{category_match}]({category_id})는 KC인증 필수 카테고리입니다. "
-                            f"인증번호·인증유형·인증기관명 3개 모두 필요합니다."
+                            f"인증번호·인증기관명·인증정보ID 확인이 필요합니다."
                         ),
                         "info": info,
                         "category_id": category_id,
                         "category_match": category_match,
                     }
+                # payload 구성에 사용할 certificationInfoId 저장
+                info["kc_cert_info_id"] = kc_cert_info_id
         except Exception as e:
             logger.warning("KC인증 필수 여부 확인 실패 (계속 진행): %s", e)
 
