@@ -1348,14 +1348,15 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if info.get("options"):
         groups = info["options"][:3]
         combos = list(itertools.product(*[g["values"] for g in groups]))
+        # 신규 등록 시 id 없이 전송 (Naver가 자동 할당)
         opt_combos = [
-            {"id": idx + 1} |
             {f"optionName{i+1}": v for i, v in enumerate(combo)} |
             {"stockQuantity": 999, "price": 0, "usable": True}
-            for idx, combo in enumerate(combos)
+            for combo in combos
         ]
-        payload["originProduct"]["optionInfo"] = {
-            "optionCombinationSortType": "NO_SORT",
+        # optionInfo는 detailAttribute 안에 위치해야 함 (GET 응답 구조와 동일)
+        payload["originProduct"]["detailAttribute"]["optionInfo"] = {
+            "optionCombinationSortType": "CREATE",
             "optionCombinationGroupNames": {
                 f"optionGroupName{i+1}": g["name"] for i, g in enumerate(groups)
             },
