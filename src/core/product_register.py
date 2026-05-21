@@ -1365,8 +1365,8 @@ def build_smartstore_payload(info: dict, selling_price: int,
             "optionCombinations": opt_combos,
             "useStockManagement": True,
         }
-        # 옵션 관리 시 상품 레벨 재고는 0으로 설정 (옵션별 재고로 관리)
-        payload["originProduct"]["stockQuantity"] = 0
+        # 옵션 사용 시 상품 레벨 재고는 조합 수량 합산값으로 설정
+        payload["originProduct"]["stockQuantity"] = len(opt_combos) * 999
         logger.info(
             "옵션 payload 구성: groups=%s, combinations=%d개",
             [g["name"] for g in groups], len(opt_combos),
