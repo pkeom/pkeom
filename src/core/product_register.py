@@ -1354,14 +1354,23 @@ def build_smartstore_payload(info: dict, selling_price: int,
             for combo in combos
         ]
         payload["originProduct"]["optionInfo"] = {
+            "optionCombinationSortType": "NO_SORT",
+            "optionCombinationGroupNames": {
+                f"optionGroupName{i+1}": g["name"] for i, g in enumerate(groups)
+            },
             "options": [
                 {"groupName": g["name"], "selections": g["values"]}
                 for g in groups
             ],
-            "optionCombinations":       opt_combos,
-            "optionCombinationSortType": "NO_SORT",
-            "useStockManagement":        True,
+            "optionCombinations": opt_combos,
+            "useStockManagement": True,
         }
+        # 옵션 관리 시 상품 레벨 재고는 0으로 설정 (옵션별 재고로 관리)
+        payload["originProduct"]["stockQuantity"] = 0
+        logger.info(
+            "옵션 payload 구성: groups=%s, combinations=%d개",
+            [g["name"] for g in groups], len(opt_combos),
+        )
 
     if tags:
         payload["originProduct"]["tag"] = [{"text": t} for t in tags]
@@ -1514,7 +1523,17 @@ def register_product(url: str, selling_price: int, smartstore_api,
         return any(kw in body_str for kw in _KC_KEYWORDS)
 
     try:
+        import json as _json_log
+        opt_info_log = payload.get("originProduct", {}).get("optionInfo")
+        logger.info(
+            "스마트스토어 등록 요청 — optionInfo 포함: %s, combinations: %d개",
+            opt_info_log is not None,
+            len((opt_info_log or {}).get("optionCombinations", [])),
+        )
+        logger.debug("전송 payload (optionInfo): %s",
+                     _json_log.dumps(opt_info_log, ensure_ascii=False) if opt_info_log else "없음")
         resp = _post_product(payload)
+        logger.info("스마트스토어 API 응답: HTTP %s", resp.status_code)
         if not resp.ok:
             try:
                 err_body = resp.json()
@@ -1556,6 +1575,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
                     "selling_price": selling_price,
                 }
         result     = resp.json()
+        logger.info("스마트스토어 API 성공 응답: %s", _json_log.dumps(result, ensure_ascii=False)[:500])
         ss_prod_id = str(
             result.get("originProductNo") or
             result.get("id") or
