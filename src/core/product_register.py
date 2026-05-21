@@ -1347,18 +1347,20 @@ def build_smartstore_payload(info: dict, selling_price: int,
 
     if info.get("options"):
         groups = info["options"][:3]
-        grp_names = {f"optionGroupName{i+1}": g["name"] for i, g in enumerate(groups)}
-        combos    = list(itertools.product(*[g["values"] for g in groups]))
+        combos = list(itertools.product(*[g["values"] for g in groups]))
         opt_combos = [
-            {"id": idx + 1} |
             {f"optionName{i+1}": v for i, v in enumerate(combo)} |
             {"stockQuantity": 999, "price": 0, "usable": True}
-            for idx, combo in enumerate(combos)
+            for combo in combos
         ]
         payload["originProduct"]["optionInfo"] = {
-            "optionCombinationGroupNames": grp_names,
-            "optionCombinations":          opt_combos,
-            "useStockManagement":          True,
+            "options": [
+                {"groupName": g["name"], "selections": g["values"]}
+                for g in groups
+            ],
+            "optionCombinations":       opt_combos,
+            "optionCombinationSortType": "NO_SORT",
+            "useStockManagement":        True,
         }
 
     if tags:
