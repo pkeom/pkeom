@@ -1284,8 +1284,8 @@ def build_smartstore_payload(info: dict, selling_price: int,
         },
         "detailAttribute": {
             "afterServiceInfo": {
-                "afterServiceTelephoneNumber": "고객센터로 문의(톡톡)",
-                "afterServiceGuideContent":    "A/S 미제공, 상품 불량 시 교환/환불로 처리",
+                "afterServiceTelephoneNumber": (seller_phone or "").strip() or _PHONE_FALLBACK,
+                "afterServiceGuideContent":    "A/S 미제공, 상품 불량 시 교환/환불로 처리. 문의는 네이버 톡톡으로 연락주세요.",
             },
             "originAreaInfo": origin_area_info,
             "taxType":         "TAX",
