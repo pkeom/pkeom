@@ -1063,7 +1063,7 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
         "itemName":             title,
         "modelName":            model,
         "manufacturer":         maker,
-        "afterServiceDirector": phone,
+        "afterServiceDirector": "톡톡문의로 문의부탁드립니다",
     }
 
     if notice_type == "HOME_APPLIANCES":
