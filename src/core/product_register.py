@@ -1284,8 +1284,8 @@ def build_smartstore_payload(info: dict, selling_price: int,
         },
         "detailAttribute": {
             "afterServiceInfo": {
-                "afterServiceTelephoneNumber": (seller_phone or "").strip() or _PHONE_FALLBACK,
-                "afterServiceGuideContent":    "구매 후 문의사항은 판매자에게 연락해주세요.",
+                "afterServiceTelephoneNumber": "고객센터로 문의(톡톡)",
+                "afterServiceGuideContent":    "A/S 미제공, 상품 불량 시 교환/환불로 처리",
             },
             "originAreaInfo": origin_area_info,
             "taxType":         "TAX",
