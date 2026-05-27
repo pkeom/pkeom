@@ -367,19 +367,20 @@ def api_video_generate():
 
     def _worker():
         try:
-            out = generate_video(
+            out, capcut_dir = generate_video(
                 bg_image_path  = str(bg_path),
                 script_text    = script,
                 audio_path     = str(audio_path),
                 output_dir     = "data/video_output",
                 output_filename = f"draft_{job_id}.mp4",
             )
-            opened = open_in_capcut(out)
+            opened = open_in_capcut(capcut_dir)
             _video_jobs[job_id] = {
-                "status":   "done",
-                "path":     out,
-                "filename": f"draft_{job_id}.mp4",
-                "opened":   opened,
+                "status":        "done",
+                "path":          out,
+                "filename":      f"draft_{job_id}.mp4",
+                "opened":        opened,
+                "capcut_project": capcut_dir,
             }
         except Exception as e:
             import traceback
