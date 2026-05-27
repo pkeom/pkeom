@@ -182,6 +182,10 @@ def generate_video(
             "ffmpeg-python 패키지가 필요합니다: pip install ffmpeg-python"
         )
 
+    # PATH 등록을 먼저 — ffmpeg.probe()가 ffprobe를 PATH에서 찾으므로
+    # _find_ffmpeg() 호출이 ffmpeg.probe() 보다 반드시 앞에 있어야 함
+    ffmpeg_bin = _find_ffmpeg()
+
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     output_path = out_dir / output_filename
@@ -212,8 +216,6 @@ def generate_video(
         "scale=1080:1920:force_original_aspect_ratio=increase,"
         f"crop=1080:1920,setsar=1,subtitles='{ass_ffmpeg}'"
     )
-
-    ffmpeg_bin = _find_ffmpeg()
     cmd = [
         ffmpeg_bin, "-y",
         "-loop", "1", "-framerate", "30",
