@@ -7,10 +7,12 @@
 import json
 import logging
 import sys
+import threading
+import uuid
 from datetime import datetime, date
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -39,6 +41,7 @@ _ss_api  = None
 _dk_api  = None
 _dm_cli  = None
 _budget  = None
+_video_jobs: dict = {}
 
 
 def _init():
@@ -336,6 +339,70 @@ def api_ss_product(pid):
         return jsonify(_ss_api.get_product(pid))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── 영상 제작 ─────────────────────────────────────────────────────
+
+@app.route("/api/video/generate", methods=["POST"])
+def api_video_generate():
+    from src.core.video_maker import generate_video, open_in_capcut
+
+    bg_image = request.files.get("bg_image")
+    audio    = request.files.get("audio")
+    script   = request.form.get("script", "").strip()
+
+    if not bg_image or not audio or not script:
+        return jsonify({"error": "배경 이미지, 대본, 음악 파일이 모두 필요합니다"}), 400
+
+    job_id     = str(uuid.uuid4())[:8]
+    upload_dir = Path("data/video_uploads") / job_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    bg_path    = upload_dir / (bg_image.filename or "bg.jpg")
+    audio_path = upload_dir / (audio.filename or "audio.mp3")
+    bg_image.save(str(bg_path))
+    audio.save(str(audio_path))
+
+    _video_jobs[job_id] = {"status": "processing", "message": "Whisper AI 음악 분석 중…"}
+
+    def _worker():
+        try:
+            out = generate_video(
+                bg_image_path  = str(bg_path),
+                script_text    = script,
+                audio_path     = str(audio_path),
+                output_dir     = "data/video_output",
+                output_filename = f"draft_{job_id}.mp4",
+            )
+            opened = open_in_capcut(out)
+            _video_jobs[job_id] = {
+                "status":   "done",
+                "path":     out,
+                "filename": f"draft_{job_id}.mp4",
+                "opened":   opened,
+            }
+        except Exception as e:
+            import traceback
+            logger.error("영상 생성 실패: %s\n%s", e, traceback.format_exc())
+            _video_jobs[job_id] = {"status": "error", "message": str(e)}
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/video/status/<job_id>")
+def api_video_status(job_id):
+    return jsonify(_video_jobs.get(job_id, {"status": "not_found"}))
+
+
+@app.route("/api/video/download/<filename>")
+def api_video_download(filename):
+    return send_from_directory(
+        str(Path("data/video_output").resolve()),
+        filename,
+        as_attachment=True,
+        mimetype="video/mp4",
+    )
 
 
 # ── 진입점 ────────────────────────────────────────────────────────

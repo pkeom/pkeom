@@ -286,6 +286,48 @@ tbody tr:hover td { background: #FAFBFC; }
   vertical-align: middle; margin-right: 6px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Video tab ── */
+.vid-drop {
+  width: 100%; aspect-ratio: 9/16; max-height: 260px;
+  border: 2px dashed var(--border); border-radius: var(--r-sm);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  cursor: pointer; overflow: hidden; background: var(--bg);
+  text-align: center; color: var(--text3); font-size: 13px;
+  transition: border-color 0.15s; position: relative;
+}
+.vid-drop:hover { border-color: var(--blue); color: var(--blue); }
+.vid-drop img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+}
+.vid-drop-label { pointer-events: none; }
+.vid-progress {
+  background: var(--blue-bg); border-radius: var(--r-sm);
+  padding: 20px; text-align: center;
+}
+.vid-progress-bar {
+  height: 4px; background: var(--border); border-radius: 2px;
+  margin: 12px 0 8px; overflow: hidden;
+}
+.vid-progress-fill {
+  height: 100%; background: var(--blue); border-radius: 2px;
+  width: 0%; transition: width 0.5s;
+  animation: vid-indeterminate 1.4s ease infinite;
+}
+@keyframes vid-indeterminate {
+  0%   { transform: translateX(-100%) scaleX(0.5); }
+  50%  { transform: translateX(0%)    scaleX(0.8); }
+  100% { transform: translateX(200%)  scaleX(0.5); }
+}
+.vid-result-ok {
+  background: var(--green-bg); border-radius: var(--r-sm);
+  padding: 20px; line-height: 1.8;
+}
+.vid-result-err {
+  background: var(--red-bg); border-radius: var(--r-sm);
+  padding: 16px; color: var(--red); font-size: 13px; line-height: 1.6;
+}
 </style>
 </head>
 <body>
@@ -301,6 +343,7 @@ tbody tr:hover td { background: #FAFBFC; }
     <button class="nav-tab" data-tab="register">상품 등록</button>
     <button class="nav-tab" data-tab="prices">가격 변동<span class="nav-dot" id="price-dot"></span></button>
     <button class="nav-tab" data-tab="returns">반품 목록<span class="nav-dot" id="return-dot"></span></button>
+    <button class="nav-tab" data-tab="video">영상 제작</button>
   </div>
   <div class="nav-right">
     <div class="sys-dot" id="sysDot"></div>
@@ -630,6 +673,70 @@ tbody tr:hover td { background: #FAFBFC; }
   </div>
 </div>
 
+<!-- ── 8. Video ────────────────────────────────────────────────── -->
+<div id="panel-video" class="panel">
+  <div class="reg-split">
+
+    <!-- 좌: 입력 폼 -->
+    <div>
+      <div class="sh"><div class="sh-title">영상 초안 자동 생성</div></div>
+      <div class="card">
+
+        <!-- 배경 이미지 -->
+        <div class="fg">
+          <label class="fl">배경 이미지 (JPG/PNG · 9:16 권장)</label>
+          <div class="vid-drop" id="bg-drop" onclick="$('bg-file').click()">
+            <div class="vid-drop-label" id="bg-placeholder">
+              <div style="font-size:28px;margin-bottom:6px">🖼️</div>
+              <div>클릭하여 이미지 선택</div>
+              <div class="hint" style="margin-top:4px">1080×1920 권장</div>
+            </div>
+            <img id="bg-preview" style="display:none">
+          </div>
+          <input type="file" id="bg-file" accept="image/jpeg,image/png" style="display:none" onchange="onBgFile(this)">
+        </div>
+
+        <!-- 대본 -->
+        <div class="fg">
+          <label class="fl">대본 / 가사 (줄바꿈으로 장면 구분)</label>
+          <textarea class="fi" id="vid-script" rows="9"
+            placeholder="가사를 한 줄씩 입력하세요&#10;노래 타이밍에 맞춰 자막으로 자동 배치됩니다&#10;&#10;예)&#10;오늘도 빛나는 하루&#10;너와 함께라면&#10;모든 게 괜찮아"></textarea>
+        </div>
+
+        <!-- 음악 파일 -->
+        <div class="fg">
+          <label class="fl">배경 음악 (MP3)</label>
+          <div class="flex-row">
+            <div class="fi" id="audio-label"
+              style="flex:1;cursor:pointer;color:var(--text3);user-select:none"
+              onclick="$('audio-file').click()">MP3 파일 선택…</div>
+            <button class="btn btn-ghost btn-sm" onclick="$('audio-file').click()">찾아보기</button>
+          </div>
+          <input type="file" id="audio-file" accept=".mp3,audio/mpeg" style="display:none" onchange="onAudioFile(this)">
+        </div>
+
+        <button class="btn btn-blue btn-full" id="vid-gen-btn" onclick="generateVideo()">
+          🎬 영상 초안 생성
+        </button>
+        <div id="vid-status" style="margin-top:10px;font-size:12px;color:var(--text2);min-height:18px"></div>
+      </div>
+    </div>
+
+    <!-- 우: 결과 -->
+    <div>
+      <div class="sh"><div class="sh-title">생성 결과</div></div>
+      <div class="card" style="min-height:200px">
+        <div class="empty" id="vid-empty">
+          <div class="empty-ico">🎬</div>
+          파일을 업로드하고<br>생성 버튼을 클릭하세요
+        </div>
+        <div id="vid-result"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 </main>
 
 <div class="toast" id="toast"></div>
@@ -720,6 +827,7 @@ function loadTab() {
     register:  () => {},
     prices:    loadPrices,
     returns:   loadReturns,
+    video:     () => {},
   }[curTab] || (() => {}))();
 }
 
@@ -1114,6 +1222,131 @@ async function loadReturns() {
         <td>${fmtDate(r.detected_at)}</td>
       </tr>`).join('')
     : empty('반품 신청 없음');
+}
+
+// ── 8. Video ──────────────────────────────────────────────────
+let _vidJobId  = null;
+let _vidPollId = null;
+
+function onBgFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  $('bg-preview').src = url;
+  $('bg-preview').style.display = 'block';
+  $('bg-placeholder').style.display = 'none';
+}
+
+function onAudioFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  $('audio-label').textContent = file.name;
+  $('audio-label').style.color = 'var(--text)';
+}
+
+function vidSetStatus(msg, loading = false) {
+  $('vid-status').innerHTML = loading
+    ? `<span class="spin"></span>${msg}`
+    : msg;
+}
+
+function vidShowProgress(msg) {
+  $('vid-empty').style.display = 'none';
+  $('vid-result').innerHTML = `
+    <div class="vid-progress">
+      <div style="font-weight:700;margin-bottom:4px">⏳ 영상 생성 중</div>
+      <div style="font-size:12px;color:var(--text2)">${msg || 'Whisper AI로 음악 분석 중…'}</div>
+      <div class="vid-progress-bar"><div class="vid-progress-fill"></div></div>
+      <div style="font-size:11px;color:var(--text3)">오디오 길이에 따라 1~5분 소요됩니다</div>
+    </div>`;
+}
+
+function vidShowResult(d) {
+  const openMsg = d.opened === 'capcut'
+    ? '✅ CapCut이 자동으로 실행되었습니다'
+    : d.opened === 'default'
+      ? '✅ 기본 플레이어로 파일을 열었습니다 (CapCut을 찾지 못했습니다)'
+      : '⚠️ CapCut 자동 실행 실패 — 아래 버튼으로 파일을 열어주세요';
+
+  $('vid-empty').style.display = 'none';
+  $('vid-result').innerHTML = `
+    <div class="vid-result-ok">
+      <div style="font-size:16px;font-weight:800;margin-bottom:8px">🎬 영상 초안 완성!</div>
+      <div style="font-size:12px;color:#00875A;margin-bottom:14px">${openMsg}</div>
+      <a class="btn btn-blue btn-full"
+        href="/api/video/download/${d.filename}"
+        download="${d.filename}"
+        style="text-decoration:none;margin-bottom:8px">
+        ⬇️ MP4 다운로드
+      </a>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">
+        저장 경로: ${d.path}
+      </div>
+    </div>`;
+}
+
+function vidShowError(msg) {
+  $('vid-empty').style.display = 'none';
+  $('vid-result').innerHTML = `
+    <div class="vid-result-err">
+      <strong>❌ 영상 생성 실패</strong><br>
+      <span style="word-break:break-all">${msg}</span>
+    </div>`;
+}
+
+async function pollVideoStatus() {
+  if (!_vidJobId) return;
+  try {
+    const d = await api(`/api/video/status/${_vidJobId}`);
+    if (d.status === 'done') {
+      clearInterval(_vidPollId); _vidPollId = null;
+      vidSetStatus('영상 생성 완료!');
+      vidShowResult(d);
+      $('vid-gen-btn').disabled = false;
+    } else if (d.status === 'error') {
+      clearInterval(_vidPollId); _vidPollId = null;
+      vidSetStatus('오류 발생');
+      vidShowError(d.message || '알 수 없는 오류');
+      $('vid-gen-btn').disabled = false;
+    }
+    // 'processing' 상태면 계속 폴링
+  } catch (_) { /* 네트워크 일시 오류는 무시 */ }
+}
+
+async function generateVideo() {
+  const bgFile    = $('bg-file').files[0];
+  const audioFile = $('audio-file').files[0];
+  const script    = $('vid-script').value.trim();
+
+  if (!bgFile)    { toast('배경 이미지를 선택하세요');    return; }
+  if (!audioFile) { toast('MP3 파일을 선택하세요');       return; }
+  if (!script)    { toast('대본 / 가사를 입력하세요');    return; }
+
+  $('vid-gen-btn').disabled = true;
+  vidSetStatus('업로드 중…', true);
+
+  const fd = new FormData();
+  fd.append('bg_image', bgFile);
+  fd.append('audio',    audioFile);
+  fd.append('script',   script);
+
+  try {
+    const r = await fetch('/api/video/generate', {method: 'POST', body: fd});
+    const d = await r.json();
+    if (d.error) {
+      vidSetStatus('오류: ' + d.error);
+      $('vid-gen-btn').disabled = false;
+      return;
+    }
+    _vidJobId = d.job_id;
+    vidSetStatus('Whisper AI로 음악 분석 중… (1~5분 소요)', true);
+    vidShowProgress();
+    if (_vidPollId) clearInterval(_vidPollId);
+    _vidPollId = setInterval(pollVideoStatus, 3000);
+  } catch (e) {
+    vidSetStatus('네트워크 오류: ' + e.message);
+    $('vid-gen-btn').disabled = false;
+  }
 }
 
 // ── 자동 갱신 (10초) ──────────────────────────────────────────
