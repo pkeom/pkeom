@@ -1,8 +1,42 @@
 """영상 초안 자동 생성 — ffmpeg + Whisper 기반 (9:16 세로형)"""
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
+
+
+def _find_ffmpeg() -> str:
+    """PATH 또는 Windows 공통 설치 경로에서 ffmpeg 실행 파일을 찾아 반환"""
+    # PATH에 있으면 그대로 사용
+    if shutil.which("ffmpeg"):
+        return "ffmpeg"
+
+    username = os.getenv("USERNAME", os.getenv("USER", ""))
+    candidates = [
+        # HitPaw / 앱 내장 ffmpeg (libass 포함 버전)
+        r"C:\Program Files (x86)\HitPaw\HitPaw VoicePea\ffmpeg.exe",
+        # Wondershare UniConverter
+        r"C:\Program Files\Wondershare\Wondershare UniConverter for Windows\ffmpeg.exe",
+        # AirDroid
+        r"C:\Program Files (x86)\AirDroid\IncludeAdb\ffmpeg.exe",
+        # 직접 설치 경로
+        r"C:\ffmpeg\bin\ffmpeg.exe",
+        r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+        r"C:\Tools\ffmpeg\bin\ffmpeg.exe",
+        rf"C:\Users\{username}\ffmpeg\bin\ffmpeg.exe",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+
+    raise RuntimeError(
+        "ffmpeg 바이너리를 찾을 수 없습니다.\n"
+        "아래 중 하나를 실행하세요:\n"
+        "  winget install --id Gyan.FFmpeg -e\n"
+        "  또는 https://www.gyan.dev/ffmpeg/builds/ 에서 다운로드 후\n"
+        "  C:\\ffmpeg\\bin\\ 에 압축 해제하세요."
+    )
 
 
 def _find_font() -> str:
@@ -175,8 +209,9 @@ def generate_video(
         f"crop=1080:1920,setsar=1,subtitles='{ass_ffmpeg}'"
     )
 
+    ffmpeg_bin = _find_ffmpeg()
     cmd = [
-        "ffmpeg", "-y",
+        ffmpeg_bin, "-y",
         "-loop", "1", "-framerate", "30",
         "-i", str(bg_image_path),
         "-i", str(audio_path),
