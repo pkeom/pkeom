@@ -7,20 +7,20 @@ from pathlib import Path
 
 
 def _find_ffmpeg() -> str:
-    """PATH 또는 Windows 공통 설치 경로에서 ffmpeg 실행 파일을 찾아 반환"""
-    # PATH에 있으면 그대로 사용
+    """
+    ffmpeg 실행 파일 경로를 반환하고, PATH에 없는 경우 해당 디렉토리를
+    os.environ['PATH']에 추가한다.
+    ffmpeg-python 라이브러리가 내부적으로 ffprobe를 PATH에서 찾으므로
+    반드시 PATH 등록이 필요하다.
+    """
     if shutil.which("ffmpeg"):
         return "ffmpeg"
 
     username = os.getenv("USERNAME", os.getenv("USER", ""))
     candidates = [
-        # HitPaw / 앱 내장 ffmpeg (libass 포함 버전)
         r"C:\Program Files (x86)\HitPaw\HitPaw VoicePea\ffmpeg.exe",
-        # Wondershare UniConverter
         r"C:\Program Files\Wondershare\Wondershare UniConverter for Windows\ffmpeg.exe",
-        # AirDroid
         r"C:\Program Files (x86)\AirDroid\IncludeAdb\ffmpeg.exe",
-        # 직접 설치 경로
         r"C:\ffmpeg\bin\ffmpeg.exe",
         r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
         r"C:\Tools\ffmpeg\bin\ffmpeg.exe",
@@ -28,6 +28,10 @@ def _find_ffmpeg() -> str:
     ]
     for path in candidates:
         if os.path.exists(path):
+            # ffmpeg-python(ffprobe 포함)이 PATH에서 찾을 수 있도록 등록
+            bin_dir = str(Path(path).parent)
+            if bin_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
             return path
 
     raise RuntimeError(
