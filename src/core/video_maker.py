@@ -184,114 +184,73 @@ def map_script_to_timings(
     return result
 
 
-# ── CapCut 프로젝트 저장 헬퍼 ─────────────────────────────────────────
+# ── CapCut 프로젝트 저장 ─────────────────────────────────────────────
 
-def _capcut_text_material(text_id: str, content: str) -> dict:
+def _cc_uid() -> str:
+    """CapCut 스타일 UUID 생성 (대문자 하이픈 형식)"""
+    return str(uuid.uuid4()).upper()
+
+
+def _cc_text_content(text: str) -> str:
+    """CapCut text material의 content 필드용 JSON 문자열 생성"""
+    return json.dumps({
+        "text": text,
+        "styles": [{
+            "fill": {"content": {"render_type": "solid", "solid": {"color": [1, 1, 1]}}},
+            "font": {"path": "", "id": ""},
+            "size": 15,
+            "range": [0, len(text)],
+        }],
+    }, ensure_ascii=False)
+
+
+def _cc_seg_base(seg_id: str, mat_id: str, start_us: int, dur_us: int) -> dict:
+    """세그먼트 공통 구조"""
     return {
-        "add_type": 0,
-        "alignment": 1,
-        "background_alpha": 1.0,
-        "background_color": "",
-        "background_height": 0.14,
-        "background_horizontal_offset": 0.0,
-        "background_round_radius": 0.0,
-        "background_style": 0,
-        "background_vertical_offset": 0.0,
-        "background_width": 0.82,
-        "base_content": "",
-        "bold_width": 0.0,
-        "border_alpha": 1.0,
-        "border_color": "",
-        "border_width": 0.08,
-        "check_flag": 7,
-        "combo_info": {"text_templates": []},
-        "content": content,
-        "fixed_height": -1.0,
-        "fixed_width": -1.0,
-        "font_size": 9.0,
-        "global_alpha": 1.0,
-        "group_id": "",
-        "has_shadow": True,
-        "id": text_id,
-        "initial_scale": 1.0,
-        "inner_padding": -1.0,
-        "is_rich_text": False,
-        "italic_degree": 0,
-        "layer_weight": 1,
-        "letter_spacing": 0.0,
-        "line_feed": 1,
-        "line_max_width": 0.82,
-        "line_spacing": 0.02,
-        "name": "",
-        "original_size": [],
-        "shadow_alpha": 0.9,
-        "shadow_angle": -45.0,
-        "shadow_color": "",
-        "shadow_distance": 0.0,
-        "shadow_point": {"x": 0.6364, "y": -0.6364},
-        "shadow_smoothing": 1.0,
-        "style_name": "",
-        "sub_type": 0,
-        "text_alpha": 1.0,
-        "text_color": "#FFFFFF",
-        "text_size": 30,
-        "type": "text",
-        "underline": False,
-        "words": {"end_time": [], "start_time": [], "text": []},
-    }
-
-
-def _capcut_segment(
-    seg_id: str,
-    material_id: str,
-    start_us: int,
-    duration_us: int,
-    seg_type: str = "video",
-) -> dict:
-    return {
-        "cartoon": False,
-        "clip": {
-            "alpha": 1.0,
-            "flip": {"horizontal": False, "vertical": False},
-            "rotation": 0.0,
-            "scale": {"x": 1.0, "y": 1.0},
-            "transform": {"x": 0.0, "y": 0.0},
-        },
-        "common_keyframes": [],
-        "enable_adjust": seg_type == "video",
-        "enable_color_curves": True,
-        "enable_color_match_adjust": False,
-        "enable_color_wheels": True,
-        "enable_lut": True,
-        "enable_smart_color_adjust": False,
-        "extra_material_refs": [],
-        "group_id": "",
-        "hdr_settings": None,
         "id": seg_id,
-        "intensifies_audio": False,
-        "is_placeholder": False,
-        "is_tone_modify": False,
-        "key_frames": [],
-        "last_nonzero_volume": 1.0,
-        "material_id": material_id,
+        "source_timerange": {"start": 0, "duration": dur_us},
+        "target_timerange": {"start": start_us, "duration": dur_us},
+        "render_timerange": {"start": 0, "duration": 0},
+        "desc": "", "state": 0, "speed": 1.0,
+        "is_loop": False, "is_tone_modify": False,
+        "reverse": False, "intensifies_audio": False,
+        "cartoon": False, "volume": 1.0, "last_nonzero_volume": 1.0,
+        "clip": {
+            "scale": {"x": 1.0, "y": 1.0},
+            "rotation": 0.0,
+            "transform": {"x": 0.0, "y": 0.0},
+            "flip": {"vertical": False, "horizontal": False},
+            "alpha": 1.0,
+        },
+        "uniform_scale": {"on": True, "value": 1.0},
+        "material_id": mat_id,
+        "extra_material_refs": [],
         "render_index": 0,
+        "keyframe_refs": [],
+        "enable_lut": False, "enable_adjust": False,
+        "enable_hsl": False, "enable_hsl_curves": True,
+        "enable_color_curves": True, "enable_color_wheels": True,
+        "enable_smart_color_adjust": False,
+        "enable_color_match_adjust": False,
+        "enable_color_correct_adjust": False,
+        "enable_adjust_mask": False,
+        "enable_color_adjust_pro": False,
+        "enable_video_mask": False,
+        "visible": True, "group_id": "",
+        "track_render_index": 0, "track_attribute": 0,
+        "hdr_settings": None, "is_placeholder": False,
+        "template_id": "", "template_scene": "default",
+        "common_keyframes": [], "caption_info": None,
         "responsive_layout": {
-            "enable": False,
-            "horizontal_pos_layout": 0,
-            "size_layout": 0,
-            "target_follow": "",
+            "enable": False, "target_follow": "",
+            "size_layout": 0, "horizontal_pos_layout": 0,
             "vertical_pos_layout": 0,
         },
-        "reverse": False,
-        "source_timerange": {"duration": duration_us, "start": 0},
-        "target_timerange": {"duration": duration_us, "start": start_us},
-        "template_id": "",
-        "template_scene": "default",
-        "track_attribute": 0,
-        "track_render_index": 0,
-        "uniform_scale": None,
-        "visible": True,
-        "volume": 1.0,
+        "raw_segment_id": "", "lyric_keyframes": None,
+        "digital_human_template_group_id": "",
+        "color_correct_alg_result": "",
+        "source": "segmentsourcenormal",
+        "enable_mask_stroke": False, "enable_mask_shadow": False,
     }
 
 
@@ -301,11 +260,11 @@ def save_capcut_project(
     subtitle_entries: list[tuple[float, float, str]],
     project_name: str = "스마트스토어 영상",
 ) -> str:
-    """CapCut 편집 가능한 프로젝트로 저장.
+    """CapCut 편집 가능한 프로젝트 저장.
 
-    - 영상 클립 트랙, 오디오 트랙, 자막 트랙을 각각 분리 저장
-    - 저장 경로: C:\\Users\\{username}\\AppData\\Local\\CapCut\\User Data\\Projects
-    - draft_info.json / draft_content.json / draft_meta_info.json 생성
+    - 저장 경로: com.lveditor.draft/{project_name}/
+    - root_meta_info.json 업데이트 → CapCut 프로젝트 목록에 즉시 표시
+    - 영상 클립 / 오디오 / 자막 트랙 각각 분리
     반환값: 프로젝트 폴더 절대 경로
     """
     try:
@@ -314,264 +273,537 @@ def save_capcut_project(
         raise RuntimeError("ffmpeg-python 패키지가 필요합니다: pip install ffmpeg-python")
 
     username = os.getenv("USERNAME", os.getenv("USER", ""))
-    projects_root = Path(rf"C:\Users\{username}\AppData\Local\CapCut\User Data\Projects")
-    projects_root.mkdir(parents=True, exist_ok=True)
+    lveditor_root = Path(
+        rf"C:\Users\{username}\AppData\Local\CapCut\User Data\Projects\com.lveditor.draft"
+    )
+    lveditor_root.mkdir(parents=True, exist_ok=True)
 
-    project_id = uuid.uuid4().hex.upper()
-    project_dir = projects_root / project_id
+    # 중복 이름 방지
+    project_dir = lveditor_root / project_name
+    idx = 1
+    while project_dir.exists():
+        project_dir = lveditor_root / f"{project_name} ({idx})"
+        idx += 1
+    final_name = project_dir.name
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    resources_dir = project_dir / "resources"
-    resources_dir.mkdir(exist_ok=True)
+    # 하위 폴더 생성 (CapCut이 기대하는 구조)
+    for sub in ["Resources", "adjust_mask", "common_attachment",
+                "matting", "qr_upload", "smart_crop", "subdraft", "Timelines"]:
+        (project_dir / sub).mkdir(exist_ok=True)
 
-    # 미디어 파일을 프로젝트 resources 폴더로 복사
-    video_res_id = uuid.uuid4().hex
-    audio_res_id = uuid.uuid4().hex
-    video_dest = resources_dir / f"video_{video_res_id}.mp4"
-    audio_dest = resources_dir / f"audio_{audio_res_id}.mp3"
+    # 미디어 파일 Resources 폴더로 복사
+    video_dest = project_dir / "Resources" / Path(video_path).name
+    audio_dest = project_dir / "Resources" / Path(audio_path).name
     shutil.copy2(video_path, video_dest)
     shutil.copy2(audio_path, audio_dest)
+
+    # 경로 포맷: CapCut은 forward slash 사용
+    video_fwd = str(video_dest).replace("\\", "/")
+    audio_fwd = str(audio_dest).replace("\\", "/")
+    proj_fwd  = str(project_dir).replace("\\", "/")
+    root_fwd  = str(lveditor_root).replace("\\", "/")
 
     # 영상 길이 (마이크로초)
     probe = ffmpeg.probe(str(video_path))
     duration_sec = float(probe["format"]["duration"])
-    duration_us = int(duration_sec * 1_000_000)
+    duration_us  = int(duration_sec * 1_000_000)
 
-    now_ms = int(time.time() * 1000)
+    # CapCut 타임스탬프: microseconds since Unix epoch
+    now_us  = int(time.time() * 1_000_000)
+    now_sec = int(time.time())
 
-    # material / track / segment ID 생성
-    video_mat_id = uuid.uuid4().hex
-    audio_mat_id = uuid.uuid4().hex
-    video_track_id = uuid.uuid4().hex
-    audio_track_id = uuid.uuid4().hex
-    video_seg_id = uuid.uuid4().hex
-    audio_seg_id = uuid.uuid4().hex
+    # ── IDs ──────────────────────────────────────────────────────────
+    project_id    = _cc_uid()
+    content_id    = _cc_uid()
+    video_mat_id  = _cc_uid()
+    audio_mat_id  = _cc_uid()
+    video_trk_id  = _cc_uid()
+    audio_trk_id  = _cc_uid()
+    video_seg_id  = _cc_uid()
+    audio_seg_id  = _cc_uid()
+    # 비디오 세그먼트 extra refs (CapCut 내부 처리용)
+    speed_id  = _cc_uid()
+    canvas_id = _cc_uid()
+    ph_id     = _cc_uid()   # placeholder_info
+    scm_id    = _cc_uid()   # sound_channel_mapping
+    mc_id     = _cc_uid()   # material_color
+    loud_id   = _cc_uid()   # loudness
+    vsep_id   = _cc_uid()   # vocal_separation
 
-    # 자막 materials & 자막별 단독 트랙
+    # ── 자막 materials & tracks ──────────────────────────────────────
     text_materials: list[dict] = []
-    text_tracks: list[dict] = []
+    mat_animations: list[dict] = []
+    text_tracks:    list[dict] = []
+
     for start, end, text in subtitle_entries:
-        t_mat_id = uuid.uuid4().hex
-        t_seg_id = uuid.uuid4().hex
-        t_track_id = uuid.uuid4().hex
-        start_us = int(start * 1_000_000)
-        dur_us = max(1, int((end - start) * 1_000_000))
-        text_materials.append(_capcut_text_material(t_mat_id, text))
-        text_tracks.append({
-            "attribute": 0,
-            "flag": 0,
-            "id": t_track_id,
-            "is_default_name": True,
-            "name": "",
-            "segments": [_capcut_segment(t_seg_id, t_mat_id, start_us, dur_us, "text")],
-            "type": "text",
+        t_mat_id  = _cc_uid()
+        t_seg_id  = _cc_uid()
+        t_trk_id  = _cc_uid()
+        t_anim_id = _cc_uid()
+        s_us  = int(start * 1_000_000)
+        d_us  = max(1, int((end - start) * 1_000_000))
+
+        text_materials.append({
+            "id": t_mat_id, "type": "text", "name": "",
+            "recognize_task_id": "", "recognize_text": "",
+            "recognize_model": "", "punc_model": "",
+            "content": _cc_text_content(text),
+            "base_content": "",
+            "words": {"start_time": [], "end_time": [], "text": []},
+            "current_words": {"start_time": [], "end_time": [], "text": []},
+            "global_alpha": 1.0,
+            "combo_info": {"text_templates": []},
+            "caption_template_info": {
+                "resource_id": "", "third_resource_id": "",
+                "resource_name": "", "category_id": "", "category_name": "",
+                "effect_id": "", "request_id": "", "path": "",
+                "is_new": False, "source_platform": 0,
+            },
+            "layer_weight": 1, "letter_spacing": 0.0,
+            "line_spacing": 0.02, "has_shadow": True,
+            "shadow_color": "", "shadow_alpha": 0.9,
+            "shadow_smoothing": 0.45, "shadow_distance": 5.0,
+            "shadow_point": {"x": 0.6363961030678928, "y": -0.6363961030678928},
+            "shadow_angle": -45.0,
+            "shadow_thickness_projection_enable": False,
+            "shadow_thickness_projection_angle": 0.0,
+            "shadow_thickness_projection_distance": 0.0,
+            "border_alpha": 1.0, "border_color": "",
+            "border_width": 0.08, "border_mode": 0,
+            "style_name": "", "text_color": "#FFFFFF",
+            "text_alpha": 1.0, "font_name": "",
+            "font_title": "none", "font_size": 15.0,
+            "font_path": "", "font_id": "",
+            "font_resource_id": "", "initial_scale": 1.0,
+            "font_url": "", "typesetting": 0, "alignment": 1,
+            "line_feed": 1, "use_effect_default_color": True,
+            "is_rich_text": False, "shape_clip_x": False,
+            "shape_clip_y": False, "ktv_color": "",
+            "text_to_audio_ids": [], "bold_width": 0.0,
+            "italic_degree": 0, "underline": False,
+            "underline_width": 0.05, "underline_offset": 0.22,
+            "sub_type": 0, "check_flag": 7, "text_size": 30,
+            "font_category_name": "", "font_source_platform": 0,
+            "font_category_id": "", "add_type": 0,
+            "operation_type": 0, "recognize_type": 0,
+            "fonts": [], "background_color": "",
+            "background_alpha": 1.0, "background_style": 0,
+            "background_round_radius": 0.0,
+            "background_width": 0.14, "background_height": 0.14,
+            "background_vertical_offset": 0.0,
+            "background_horizontal_offset": 0.0,
+            "background_fill": "",
+            "single_char_bg_enable": False,
+            "single_char_bg_color": "", "single_char_bg_alpha": 1.0,
+            "single_char_bg_round_radius": 0.3,
+            "single_char_bg_width": 0.0, "single_char_bg_height": 0.0,
+            "single_char_bg_vertical_offset": 0.0,
+            "single_char_bg_horizontal_offset": 0.0,
+            "font_team_id": "", "tts_auto_update": False,
+            "text_preset_resource_id": "", "group_id": "",
+            "preset_id": "", "preset_name": "",
+            "preset_category": "", "preset_category_id": "",
+            "preset_index": 0, "preset_has_set_alignment": False,
+            "force_apply_line_max_width": False, "language": "",
+            "relevance_segment": [], "original_size": [],
+            "fixed_width": -1.0, "fixed_height": -1.0,
+            "line_max_width": 0.82, "oneline_cutoff": False,
+            "cutoff_postfix": "",
+            "subtitle_template_original_fontsize": 0.0,
+            "subtitle_keywords": None, "inner_padding": -1.0,
+            "multi_language_current": "none",
+            "source_from": "", "is_lyric_effect": False,
+            "lyric_group_id": "",
+            "lyrics_template": {
+                "resource_id": "", "resource_name": "",
+                "panel": "", "effect_id": "", "path": "",
+                "category_id": "", "category_name": "",
+                "request_id": "",
+            },
+            "is_batch_replace": False, "is_words_linear": False,
+            "ssml_content": "", "subtitle_keywords_config": None,
+            "sub_template_id": -1, "translate_original_text": "",
         })
 
-    # 비디오 material
+        mat_animations.append({
+            "id": t_anim_id,
+            "type": "sticker_animation",
+            "animations": [],
+            "multi_language_current": "none",
+        })
+
+        tseg = _cc_seg_base(t_seg_id, t_mat_id, s_us, d_us)
+        tseg["source_timerange"] = None          # 텍스트 세그먼트는 source null
+        tseg["render_index"]     = 14000
+        tseg["enable_video_mask"] = True
+        tseg["extra_material_refs"] = [t_anim_id]
+
+        text_tracks.append({
+            "id": t_trk_id, "type": "text",
+            "segments": [tseg],
+            "flag": 0, "attribute": 0,
+            "name": "", "is_default_name": True,
+        })
+
+    # ── 비디오 material ───────────────────────────────────────────────
     video_material = {
-        "aigc_type": "none",
-        "audio_fade": None,
+        "id": video_mat_id, "unique_id": "",
+        "type": "photo",               # MP4도 "photo" 타입으로 로드됨
+        "duration": duration_us,
+        "path": video_fwd, "media_path": "",
+        "local_id": "", "has_audio": True,
+        "reverse_path": "", "intensifies_path": "",
+        "reverse_intensifies_path": "", "intensifies_audio_path": "",
         "cartoon_path": "",
-        "category_id": "",
-        "category_name": "",
-        "check_flag": 63,
+        "width": 1080, "height": 1920,
+        "category_id": "", "category_name": "local",
+        "material_id": "", "material_name": Path(video_path).name,
+        "material_url": "",
         "crop": {
-            "lower_left_x": 0.0, "lower_left_y": 1.0,
-            "lower_right_x": 1.0, "lower_right_y": 1.0,
             "upper_left_x": 0.0, "upper_left_y": 0.0,
             "upper_right_x": 1.0, "upper_right_y": 0.0,
+            "lower_left_x": 0.0, "lower_left_y": 1.0,
+            "lower_right_x": 1.0, "lower_right_y": 1.0,
         },
-        "duration": duration_us,
-        "extra_type_option": 0,
-        "formula_id": "",
-        "freeze": None,
-        "has_audio": False,
-        "height": 1920,
-        "id": video_mat_id,
-        "local_material_id": "",
-        "material_name": Path(video_path).name,
-        "media_path": str(video_dest),
-        "path": str(video_dest),
+        "crop_ratio": "free", "audio_fade": None,
+        "crop_scale": 1.0, "extra_type_option": 0,
+        "stable": {"stable_level": 0, "matrix_path": "",
+                   "time_range": {"start": 0, "duration": 0}},
+        "matting": {
+            "flag": 0, "path": "", "interactiveTime": [],
+            "has_use_quick_brush": False, "strokes": [],
+            "has_use_quick_eraser": False, "expansion": 0,
+            "feather": 0, "reverse": False,
+            "custom_matting_id": "", "enable_matting_stroke": False,
+        },
+        "source": 0, "source_platform": 0, "formula_id": "",
+        "check_flag": 62978047,
+        "video_algorithm": {
+            "algorithms": [], "time_range": None, "path": "",
+            "gameplay_configs": [], "ai_in_painting_config": [],
+            "complement_frame_config": None, "motion_blur_config": None,
+            "deflicker": None, "noise_reduction": None,
+            "quality_enhance": None, "super_resolution": None,
+            "ai_background_configs": [], "smart_complement_frame": None,
+            "aigc_generate": None, "aigc_generate_list": [],
+            "mouth_shape_driver": None, "ai_expression_driven": None,
+            "ai_motion_driven": None, "image_interpretation": None,
+            "story_video_modify_video_config": {
+                "task_id": "", "is_overwrite_last_video": False,
+                "tracker_task_id": "",
+            },
+            "skip_algorithm_index": [],
+        },
+        "is_unified_beauty_mode": False, "object_locked": None,
+        "smart_motion": None, "multi_camera_info": None, "freeze": None,
         "picture_from": "none",
-        "source": 0,
-        "source_platform": 0,
-        "type": "photo",
-        "width": 1080,
+        "picture_set_category_id": "", "picture_set_category_name": "",
+        "team_id": "", "local_material_id": "", "origin_material_id": "",
+        "request_id": "", "has_sound_separated": False,
+        "is_text_edit_overdub": False, "is_ai_generate_content": False,
+        "aigc_type": "none", "is_copyright": False,
+        "aigc_history_id": "", "aigc_item_id": "",
+        "local_material_from": "", "smart_match_info": None,
+        "beauty_face_preset_infos": [], "beauty_body_preset_id": "",
+        "beauty_face_auto_preset": {"preset_id": "", "name": "", "rate_map": "", "scene": ""},
+        "beauty_face_auto_preset_infos": [],
+        "beauty_body_auto_preset": None,
+        "live_photo_timestamp": -1, "live_photo_cover_path": "",
+        "content_feature_info": None, "corner_pin": None,
+        "surface_trackings": [],
+        "video_mask_stroke": {
+            "resource_id": "", "path": "", "type": "", "color": "",
+            "size": 0.0, "alpha": 0.0, "distance": 0.0,
+            "texture": 0.0, "horizontal_shift": 0.0, "vertical_shift": 0.0,
+        },
+        "video_mask_shadow": {
+            "resource_id": "", "path": "", "color": "",
+            "alpha": 0.0, "blur": 0.0, "distance": 0.0, "angle": 0.0,
+        },
     }
 
-    # 오디오 material
+    # ── 오디오 material ───────────────────────────────────────────────
     audio_material = {
-        "app_id": "",
-        "category_id": "",
-        "category_name": "",
-        "check_flag": 63,
-        "duration": duration_us,
-        "effect_id": "",
-        "id": audio_mat_id,
-        "local_material_id": "",
-        "music_id": "",
+        "id": audio_mat_id, "type": "extract_music",
         "name": Path(audio_path).name,
-        "path": str(audio_dest),
-        "type": "extract_music",
-        "wave_points": [],
+        "path": audio_fwd, "duration": duration_us,
+        "check_flag": 1, "wave_points": [],
+        "app_id": "", "category_id": "", "category_name": "",
+        "effect_id": "", "formula_id": "",
+        "local_material_id": "", "music_id": "",
+        "request_id": "", "resource_id": "",
+        "search_id": "", "source_platform": 0,
+        "team_id": "", "text_id": "",
+        "tone_folder_path": "", "query": "",
+        "extra_content": "", "intensifies_audio_id": "",
     }
+
+    # ── extra materials ───────────────────────────────────────────────
+    speed_mat  = {"id": speed_id,  "type": "speed",  "mode": 0, "speed": 1.0, "curve_speed": None}
+    canvas_mat = {"id": canvas_id, "type": "canvas_color", "color": "", "blur": 0.0,
+                  "image": "", "album_image": "", "image_id": "", "image_name": "",
+                  "source_platform": 0, "team_id": ""}
+    ph_mat     = {"id": ph_id, "type": "placeholder_info", "meta_type": "none",
+                  "res_path": "", "res_text": "", "error_path": "", "error_text": ""}
+    scm_mat    = {"id": scm_id, "type": "none",
+                  "audio_channel_mapping": 0, "is_config_open": False}
+    mc_mat     = {"id": mc_id, "is_color_clip": False, "is_gradient": False,
+                  "solid_color": "", "gradient_colors": [], "gradient_percents": [],
+                  "gradient_angle": 90.0, "width": 0.0, "height": 0.0}
+    loud_mat   = {"id": loud_id, "enable": False, "time_range": None,
+                  "file_id": "", "target_loudness": 0.0, "loudness_param": None}
+    vsep_mat   = {"id": vsep_id, "type": "vocal_separation", "choice": 0,
+                  "removed_sounds": [], "time_range": None,
+                  "production_path": "", "final_algorithm": "", "enter_from": ""}
+
+    # ── 트랙 구성 ─────────────────────────────────────────────────────
+    vseg = _cc_seg_base(video_seg_id, video_mat_id, 0, duration_us)
+    vseg.update({
+        "enable_lut": True, "enable_adjust": True,
+        "enable_video_mask": True,
+        "hdr_settings": {"mode": 1, "intensity": 1.0, "nits": 1000},
+        "extra_material_refs": [speed_id, canvas_id, ph_id, scm_id, mc_id, loud_id, vsep_id],
+    })
+
+    aseg = _cc_seg_base(audio_seg_id, audio_mat_id, 0, duration_us)
 
     tracks = [
-        {
-            "attribute": 0,
-            "flag": 0,
-            "id": video_track_id,
-            "is_default_name": True,
-            "name": "",
-            "segments": [_capcut_segment(video_seg_id, video_mat_id, 0, duration_us, "video")],
-            "type": "video",
-        },
-        {
-            "attribute": 0,
-            "flag": 0,
-            "id": audio_track_id,
-            "is_default_name": True,
-            "name": "",
-            "segments": [_capcut_segment(audio_seg_id, audio_mat_id, 0, duration_us, "audio")],
-            "type": "audio",
-        },
+        {"id": video_trk_id, "type": "video", "flag": 0, "attribute": 0,
+         "name": "", "is_default_name": True, "segments": [vseg]},
+        {"id": audio_trk_id, "type": "audio", "flag": 0, "attribute": 0,
+         "name": "", "is_default_name": True, "segments": [aseg]},
         *text_tracks,
     ]
 
-    # draft_content.json
+    # ── draft_content.json ────────────────────────────────────────────
     content = {
-        "canvas_config": {"height": 1920, "ratio": "9:16", "width": 1080},
-        "color_space": 0,
+        "id": content_id, "version": 360000,
+        "new_version": "171.0.0", "name": "",
+        "duration": duration_us, "create_time": 0, "update_time": 0,
+        "fps": 30.0, "is_drop_frame_timecode": False, "color_space": 0,
         "config": {
-            "adjust_max_index": 1,
-            "attachment_info": [],
-            "combination_max_index": 1,
-            "export_range": None,
-            "extract_audio_last_index": 1,
-            "lyrics_recognition_id": "",
-            "lyrics_sync": False,
-            "original_sound_last_index": 1,
-            "record_audio_last_index": 1,
-            "sticker_max_index": 1,
-            "subtitle_recognition_id": "",
-            "subtitle_sync": False,
             "video_mute": False,
+            "record_audio_last_index": 1, "extract_audio_last_index": 1,
+            "original_sound_last_index": 1,
+            "subtitle_recognition_id": "", "subtitle_taskinfo": [],
+            "lyrics_recognition_id": "", "lyrics_taskinfo": [],
+            "subtitle_sync": True, "lyrics_sync": True,
+            "voice_change_sync": False, "sticker_max_index": 1,
+            "adjust_max_index": 1, "material_save_mode": 0,
+            "export_range": None, "maintrack_adsorb": True,
+            "combination_max_index": 1, "attachment_info": [],
+            "zoom_info_params": None, "system_font_list": [],
+            "multi_language_mode": "none", "multi_language_main": "none",
+            "multi_language_current": "none", "multi_language_list": [],
+            "subtitle_keywords_config": None, "use_float_render": False,
         },
-        "cover": None,
-        "create_time": now_ms // 1000,
-        "duration": duration_us,
-        "fps": 30.0,
-        "id": uuid.uuid4().hex,
-        "keyframe_graph_list": [],
-        "keyframes": {
-            "adjusts": [], "audios": [], "effects": [], "filters": [],
-            "handwrites": [], "stickers": [], "texts": [], "videos": [],
-        },
-        "materials": {
-            "audios": [audio_material],
-            "beats": [], "canvases": [], "chromas": [], "color_curves": [],
-            "digital_humans": [], "drafts": [], "effects": [], "flowers": [],
-            "green_screens": [], "handwrites": [], "hsl": [],
-            "log_color_wheels": [], "loudnesses": [], "manual_deformations": [],
-            "masks": [], "material_animations": [], "music_moodboard": [],
-            "placeholders": [], "plugin_effects": [], "primary_color_wheels": [],
-            "realtime_denoises": [], "shapes": [], "smart_crops": [],
-            "smart_relights": [], "sound_channel_mappings": [], "speeds": [],
-            "stickers": [], "tail_leaders": [],
-            "texts": text_materials,
-            "transitions": [], "video_effects": [], "video_trackings": [],
-            "videos": [video_material],
-            "vocal_beautifys": [], "vocal_separations": [],
-        },
-        "mutable_config": None,
-        "new_version": "102.0.0",
-        "platform": {
-            "app_id": "3704",
-            "app_source": "lv",
-            "app_version": "4.0.0",
-            "device_id": "",
-            "hard_disk_id": "",
-            "mac_address": "",
-            "os": "windows",
-            "os_version": "10.0.22631",
-        },
-        "relationships": [],
-        "render_index_track_mode_on": False,
-        "retouch_cover": None,
-        "source": "default",
-        "static_cover_image_path": "",
-        "time_marks": None,
+        "canvas_config": {"ratio": "9:16", "width": 1080, "height": 1920, "background": None},
         "tracks": tracks,
-        "update_time": now_ms // 1000,
-        "version": 360000,
+        "group_container": None,
+        "materials": {
+            "flowers": [],
+            "videos": [video_material],
+            "tail_leaders": [],
+            "audios": [audio_material],
+            "images": [],
+            "texts": text_materials,
+            "effects": [], "stickers": [], "canvases": [canvas_mat],
+            "transitions": [], "audio_effects": [], "audio_fades": [],
+            "beats": [], "material_animations": mat_animations,
+            "placeholders": [], "placeholder_infos": [ph_mat],
+            "speeds": [speed_mat],
+            "common_mask": [], "chromas": [], "text_templates": [],
+            "realtime_denoises": [], "audio_pannings": [],
+            "audio_pitch_shifts": [], "video_trackings": [],
+            "hsl": [], "drafts": [], "color_curves": [], "hsl_curves": [],
+            "primary_color_wheels": [], "log_color_wheels": [],
+            "video_effects": [], "audio_balances": [],
+            "handwrites": [], "manual_deformations": [],
+            "manual_beautys": [], "plugin_effects": [],
+            "sound_channel_mappings": [scm_mat],
+            "green_screens": [], "shapes": [],
+            "material_colors": [mc_mat],
+            "digital_humans": [], "digital_human_model_dressing": [],
+            "smart_crops": [], "ai_translates": [],
+            "audio_track_indexes": [],
+            "loudnesses": [loud_mat],
+            "vocal_beautifys": [], "vocal_separations": [vsep_mat],
+            "smart_relights": [], "time_marks": [],
+            "multi_language_refs": [], "video_shadows": [],
+            "video_strokes": [], "video_radius": [],
+        },
+        "keyframes": {
+            "videos": [], "audios": [], "texts": [],
+            "stickers": [], "filters": [], "adjusts": [],
+            "handwrites": [], "effects": [],
+        },
+        "keyframe_graph_list": [],
+        "platform": {
+            "os": "windows", "os_version": "10.0.26200",
+            "app_id": 359289, "app_version": "8.7.0",
+            "app_source": "cc", "device_id": "", "hard_disk_id": "",
+            "mac_address": "",
+        },
+        "last_modified_platform": {
+            "os": "windows", "os_version": "10.0.26200",
+            "app_id": 359289, "app_version": "8.7.0",
+            "app_source": "cc", "device_id": "", "hard_disk_id": "",
+            "mac_address": "",
+        },
+        "mutable_config": None, "cover": None, "retouch_cover": None,
+        "extra_info": None, "relationships": [],
+        "render_index_track_mode_on": True,
+        "free_render_index_mode_on": False,
+        "static_cover_image_path": "", "source": "default",
+        "time_marks": None, "path": "", "lyrics_effects": [],
+        "uneven_animation_template_info": {
+            "composition": "", "content": "", "order": "",
+            "sub_template_info_list": [],
+        },
+        "draft_type": "video",
+        "smart_ads_info": {"page_from": "", "routine": "", "draft_url": ""},
+        "function_assistant_info": {
+            "smart_rec_applied": False, "fixed_rec_applied": False,
+            "auto_adjust": False, "auto_adjust_segid_list": [],
+            "color_correction": False, "color_correction_segid_list": [],
+            "enhance_quality": False, "smooth_slow_motion": False,
+            "deflicker_segid_list": [], "video_noise_segid_list": [],
+            "enhance_quality_segid_list": [], "smart_segid_list": [],
+            "retouch": False, "retouch_segid_list": [],
+            "enhande_voice": False, "enhance_voice_segid_list": [],
+            "audio_noise_segid_list": [], "auto_caption": False,
+            "auto_caption_segid_list": [], "auto_caption_template_id": "",
+            "caption_opt": False, "caption_opt_segid_list": [],
+            "eye_correction": False, "eye_correction_segid_list": [],
+            "normalize_loudness": False, "normalize_loudness_segid_list": [],
+            "normalize_loudness_audio_denoise_segid_list": [],
+            "auto_adjust_fixed": False, "auto_adjust_fixed_value": 50.0,
+            "color_correction_fixed": False, "color_correction_fixed_value": 50.0,
+            "normalize_loudness_fixed": False, "enhande_voice_fixed": False,
+            "retouch_fixed": False, "enhance_quality_fixed": False,
+            "smooth_slow_motion_fixed": False,
+            "fps": {"num": 0, "den": 1},
+        },
     }
 
-    # draft_info.json
-    draft_info = {
-        "draft_cloud_last_action_download": False,
-        "draft_fold_path": str(project_dir),
-        "draft_id": project_id,
-        "draft_is_ai_packaging_used": False,
-        "draft_is_ai_shorts_used": False,
-        "draft_is_article_video_draft": False,
-        "draft_is_from_deeplink": "",
-        "draft_is_invisible": False,
-        "draft_name": project_name,
-        "draft_removable_storage_device": "",
-        "draft_root_path": str(project_dir),
-        "draft_segment_extra_info": [],
-        "draft_timeline_metedata": "",
-        "tm_draft_create": now_ms,
-        "tm_draft_modified": now_ms,
-        "tm_duration": duration_us,
-    }
-
-    # draft_meta_info.json
+    # ── draft_meta_info.json ──────────────────────────────────────────
     draft_meta_info = {
-        "draft_cloud_purchase_info": "",
-        "draft_cloud_template_id": "",
-        "draft_cloud_tutorial_info": "",
-        "draft_cloud_videocut_purchase_info": "",
-        "draft_cover": str(project_dir / "cover.jpg"),
+        "cloud_draft_cover": False, "cloud_draft_sync": False,
+        "cloud_package_completed_time": "",
+        "draft_cloud_capcut_purchase_info": "",
+        "draft_cloud_last_action_download": False,
+        "draft_cloud_package_type": "",
+        "draft_cloud_purchase_info": "", "draft_cloud_template_id": "",
+        "draft_cloud_tutorial_info": "", "draft_cloud_videocut_purchase_info": "",
+        "draft_cover": "draft_cover.jpg",
         "draft_deeplink_url": "",
         "draft_enterprise_info": {
-            "chorus_info": "",
-            "draft_enterprise_extra": "",
-            "enterprise_extra": "",
-            "team_id": "",
-            "team_name": "",
-            "team_preview_url": "",
+            "draft_enterprise_extra": "", "draft_enterprise_id": "",
+            "draft_enterprise_name": "", "enterprise_material": [],
         },
-        "draft_fold_path": str(project_dir),
+        "draft_fold_path": proj_fwd,
         "draft_id": project_id,
-        "draft_is_ai_packaging_used": False,
-        "draft_is_ai_shorts_used": False,
+        "draft_is_ae_produce": False, "draft_is_ai_packaging_used": False,
+        "draft_is_ai_shorts": False, "draft_is_ai_translate": False,
         "draft_is_article_video_draft": False,
-        "draft_is_from_deeplink": "",
-        "draft_is_invisible": False,
+        "draft_is_cloud_temp_draft": False,
+        "draft_is_from_deeplink": "false",
+        "draft_is_invisible": False, "draft_is_pippit_draft": False,
+        "draft_is_web_article_video": False,
         "draft_materials": [
-            {"type": 0, "value": [str(video_dest)]},
-            {"type": 11, "value": [str(audio_dest)]},
+            {"type": 0, "value": []}, {"type": 1, "value": []},
+            {"type": 2, "value": []}, {"type": 3, "value": []},
+            {"type": 6, "value": []}, {"type": 7, "value": []},
+            {"type": 8, "value": []},
         ],
-        "draft_name": project_name,
-        "draft_new_version": "102.0.0",
+        "draft_materials_copied_info": [],
+        "draft_name": final_name,
+        "draft_need_rename_folder": False, "draft_new_version": "",
         "draft_removable_storage_device": "",
-        "draft_root_path": str(project_dir),
+        "draft_root_path": root_fwd,
         "draft_segment_extra_info": [],
-        "draft_timeline_metedata": "",
-        "tm_draft_create": now_ms,
-        "tm_draft_modified": now_ms,
-        "tm_duration": duration_us,
+        "draft_timeline_materials_size_": 0,
+        "draft_type": "", "draft_web_article_video_enter_from": "",
+        "tm_draft_cloud_completed": "",
+        "tm_draft_cloud_entry_id": -1, "tm_draft_cloud_modified": 0,
+        "tm_draft_cloud_parent_entry_id": -1,
+        "tm_draft_cloud_space_id": -1, "tm_draft_cloud_user_id": -1,
+        "tm_draft_create": now_us, "tm_draft_modified": now_us,
+        "tm_draft_removed": 0, "tm_duration": duration_us,
     }
 
-    (project_dir / "draft_info.json").write_text(
-        json.dumps(draft_info, ensure_ascii=False, indent=2), encoding="utf-8"
+    # ── 보조 파일 ─────────────────────────────────────────────────────
+    (project_dir / "draft_biz_config.json").write_bytes(b"")
+    (project_dir / "draft_agency_config.json").write_text(
+        '{"is_auto_agency_enabled":false,"is_auto_agency_popup":false,'
+        '"is_single_agency_mode":false,"marterials":null,"use_converter":false,'
+        '"video_resolution":720}',
+        encoding="utf-8",
     )
+    (project_dir / "draft_settings").write_text(
+        f"[General]\ndraft_create_time={now_sec}\n"
+        f"draft_last_edit_time={now_sec}\n"
+        "real_edit_seconds=0\nreal_edit_keys=0\n"
+        "cloud_last_modify_platform=windows\n",
+        encoding="utf-8",
+    )
+    (project_dir / "timeline_layout.json").write_text(
+        json.dumps({
+            "dockItems": [{"dockIndex": 0, "ratio": 1,
+                           "timelineIds": [content_id],
+                           "timelineNames": ["타임라인 01"]}],
+            "layoutOrientation": 1,
+        }),
+        encoding="utf-8",
+    )
+
+    # ── 파일 쓰기 ─────────────────────────────────────────────────────
     (project_dir / "draft_content.json").write_text(
-        json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(content, ensure_ascii=False), encoding="utf-8"
     )
     (project_dir / "draft_meta_info.json").write_text(
-        json.dumps(draft_meta_info, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(draft_meta_info, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # ── root_meta_info.json 업데이트 ─────────────────────────────────
+    # CapCut이 이 파일의 all_draft_store 배열을 읽어 프로젝트 목록 표시
+    root_meta_path = lveditor_root / "root_meta_info.json"
+    try:
+        root_meta = json.loads(root_meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        root_meta = {"all_draft_store": [], "draft_ids": 0,
+                     "root_path": root_fwd}
+
+    new_entry = {
+        "cloud_draft_cover": False, "cloud_draft_sync": False,
+        "draft_cloud_last_action_download": False,
+        "draft_cloud_purchase_info": "", "draft_cloud_template_id": "",
+        "draft_cloud_tutorial_info": "", "draft_cloud_videocut_purchase_info": "",
+        "draft_cover": proj_fwd + "/draft_cover.jpg",
+        "draft_fold_path": proj_fwd,
+        "draft_id": project_id,
+        "draft_is_ai_shorts": False, "draft_is_cloud_temp_draft": False,
+        "draft_is_invisible": False, "draft_is_web_article_video": False,
+        "draft_json_file": proj_fwd + "/draft_content.json",
+        "draft_name": final_name, "draft_new_version": "",
+        "draft_root_path": root_fwd,
+        "draft_timeline_materials_size": 0,
+        "draft_type": "", "draft_web_article_video_enter_from": "",
+        "streaming_edit_draft_ready": True,
+        "tm_draft_cloud_completed": "",
+        "tm_draft_cloud_entry_id": -1, "tm_draft_cloud_modified": 0,
+        "tm_draft_cloud_parent_entry_id": -1,
+        "tm_draft_cloud_space_id": -1, "tm_draft_cloud_user_id": -1,
+        "tm_draft_create": now_us, "tm_draft_modified": now_us,
+        "tm_draft_removed": 0, "tm_duration": duration_us,
+    }
+    root_meta["all_draft_store"].insert(0, new_entry)
+    root_meta["draft_ids"] = len(root_meta["all_draft_store"])
+    root_meta["root_path"] = root_fwd
+
+    root_meta_path.write_text(
+        json.dumps(root_meta, ensure_ascii=False), encoding="utf-8"
     )
 
     return str(project_dir)
