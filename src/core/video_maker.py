@@ -259,6 +259,67 @@ def map_script_to_timings(
     return _apply_offset_correction(result, audio_duration)
 
 
+def map_script_words_to_timings(
+    script_lines: list[str],
+    segments: list[dict],
+    audio_duration: float,
+) -> list[tuple[float, float, str]]:
+    """대본 단어를 Whisper 타이밍에 순서대로 매핑한다.
+
+    Whisper가 인식한 텍스트(가사)는 완전히 무시하고 타이밍만 사용.
+    표시할 텍스트는 script_lines에서 추출한 단어만 사용한다.
+    """
+    # 대본 전체 단어 목록
+    script_words: list[str] = []
+    for line in script_lines:
+        script_words.extend(w for w in line.split() if w)
+    if not script_words:
+        return []
+
+    # Whisper word-level 타이밍만 추출 (텍스트는 버림)
+    whisper_times: list[tuple[float, float]] = []
+    for seg in segments:
+        for w in seg.get("words", []):
+            ws = float(w.get("start", seg["start"]))
+            we = float(w.get("end",   seg["end"]))
+            if we <= ws:
+                we = ws + 0.3
+            whisper_times.append((ws, we))
+
+    # word timestamps 없으면 segment 단위 타이밍으로 대체
+    if not whisper_times:
+        for seg in segments:
+            s, e = float(seg["start"]), float(seg["end"])
+            if e > s:
+                whisper_times.append((s, e))
+
+    # segment도 없으면 전체 시간 균등 분할
+    if not whisper_times:
+        n = len(script_words)
+        slot = audio_duration / n
+        entries = [(i * slot, (i + 1) * slot, w) for i, w in enumerate(script_words)]
+        for i in range(len(entries) - 1):
+            s, _, w = entries[i]
+            entries[i] = (s, entries[i + 1][0], w)
+        return entries
+
+    # 비율 매핑: 대본 단어 i → Whisper 타이밍 j
+    n_s = len(script_words)
+    n_w = len(whisper_times)
+    entries: list[tuple[float, float, str]] = []
+    for i, word in enumerate(script_words):
+        j = min(int(i * n_w / n_s), n_w - 1)
+        ws, we = whisper_times[j]
+        entries.append((ws, we, word))
+
+    # 각 단어 end = 다음 단어 start (연속 표시, 갭/겹침 없음)
+    for i in range(len(entries) - 1):
+        s, _, w = entries[i]
+        entries[i] = (s, entries[i + 1][0], w)
+
+    return _apply_offset_correction(entries, audio_duration)
+
+
 # ── CapCut 프로젝트 저장 ─────────────────────────────────────────────
 
 def _cc_uid() -> str:
@@ -923,11 +984,8 @@ def generate_video(
     # Whisper 전사 (word_timestamps=True로 정밀 타이밍)
     segments = transcribe_audio(str(audio_path))
 
-    # 단어별 타이밍 (CapCut 텍스트 트랙용)
-    # word_timestamps 있으면 단어별, 없으면 줄→단어 분할
-    word_entries = words_to_timings(segments, audio_duration)
-    line_entries = map_script_to_timings(script_lines, segments, audio_duration)
-    capcut_entries = word_entries if word_entries else _split_line_entries_to_words(line_entries)
+    # 대본 단어를 Whisper 타이밍에 매핑 (텍스트: 대본, 타이밍: Whisper)
+    capcut_entries = map_script_words_to_timings(script_lines, segments, audio_duration)
 
     # ffmpeg filter — 자막 burn-in 없이 배경 이미지만 인코딩
     vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
