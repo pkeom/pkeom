@@ -113,22 +113,37 @@ def map_script_words_to_timings(
         for seg in segments:
             whisper_starts.append(float(seg["start"]))
 
-    # segment도 없으면 전체 시간 균등 분할
+    # Whisper 타임스탬프가 전혀 없으면 균등 분할
     if not whisper_starts:
         slot = audio_duration / n_s
         starts = [i * slot for i in range(n_s)]
-    else:
-        # 선형 보간으로 n_s 개 고유 start 생성
-        # 단어 수와 Whisper 타임스탬프 수가 달라도 중복 없이 매핑
+
+    elif len(whisper_starts) >= n_s:
+        # 타임스탬프 충분 → 비율로 직접 선택 (보간 없음, 실제 타이밍 변이 보존)
         n_w = len(whisper_starts)
+        starts = [whisper_starts[int(i * n_w / n_s)] for i in range(n_s)]
+
+    else:
+        # 타임스탬프 부족 (n_w=1 포함) → 슬롯 분배
+        # 인접 타임스탬프 구간(슬롯)에 스크립트 단어를 균등 배분
+        # 슬롯 길이가 다르면 해당 슬롯 내 단어들의 duration도 달라짐
+        n_w = len(whisper_starts)
+        slot_ends = whisper_starts[1:] + [audio_duration]
+        slot_of = [min(int(i * n_w / n_s), n_w - 1) for i in range(n_s)]
+
+        slot_count: dict[int, int] = {}
+        for j in slot_of:
+            slot_count[j] = slot_count.get(j, 0) + 1
+
+        slot_pos: dict[int, int] = {}
         starts = []
         for i in range(n_s):
-            t = i / (n_s - 1) if n_s > 1 else 0.0
-            idx = t * (n_w - 1)
-            lo = int(idx)
-            hi = min(lo + 1, n_w - 1)
-            frac = idx - lo
-            starts.append(whisper_starts[lo] * (1 - frac) + whisper_starts[hi] * frac)
+            j = slot_of[i]
+            pos = slot_pos.get(j, 0)
+            slot_pos[j] = pos + 1
+            s_slot = whisper_starts[j]
+            e_slot = slot_ends[j]
+            starts.append(s_slot + pos * (e_slot - s_slot) / slot_count[j])
 
     # 각 단어: start[i] ~ start[i+1], 마지막 단어: start[-1] ~ 노래 끝
     entries: list[tuple[float, float, str]] = []
