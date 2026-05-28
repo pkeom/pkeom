@@ -237,6 +237,11 @@ def _text_match_starts(
                 score = difflib.SequenceMatcher(
                     None, norm_phrase, window_text
                 ).ratio()
+                # 구절보다 현저히 짧은 window에 패널티
+                # (예: "비올때" vs "때" → 0.5가 "비었대" vs "비올때" 0.333을 이기는 오작동 방지)
+                length_ratio = len(window_text) / max(1, len(norm_phrase))
+                if length_ratio < 0.6:
+                    score *= length_ratio
                 if score > best_score:
                     best_score = score
                     best_start = words[pos][0]
