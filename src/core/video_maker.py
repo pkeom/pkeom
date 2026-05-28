@@ -100,46 +100,44 @@ def map_script_words_to_timings(
     if not script_words:
         return []
 
-    # Whisper word-level 타이밍만 추출 (텍스트는 버림)
-    whisper_times: list[tuple[float, float]] = []
+    n_s = len(script_words)
+
+    # Whisper word-level start 시간만 추출 (텍스트는 버림)
+    whisper_starts: list[float] = []
     for seg in segments:
         for w in seg.get("words", []):
-            ws = float(w.get("start", seg["start"]))
-            we = float(w.get("end",   seg["end"]))
-            if we <= ws:
-                we = ws + 0.3
-            whisper_times.append((ws, we))
+            whisper_starts.append(float(w.get("start", seg["start"])))
 
-    # word timestamps 없으면 segment 단위 타이밍으로 대체
-    if not whisper_times:
+    # word timestamps 없으면 segment 단위 start로 대체
+    if not whisper_starts:
         for seg in segments:
-            s, e = float(seg["start"]), float(seg["end"])
-            if e > s:
-                whisper_times.append((s, e))
+            whisper_starts.append(float(seg["start"]))
 
     # segment도 없으면 전체 시간 균등 분할
-    if not whisper_times:
-        n = len(script_words)
-        slot = audio_duration / n
-        entries = [(i * slot, (i + 1) * slot, w) for i, w in enumerate(script_words)]
-        for i in range(len(entries) - 1):
-            s, _, w = entries[i]
-            entries[i] = (s, entries[i + 1][0], w)
-        return entries
+    if not whisper_starts:
+        slot = audio_duration / n_s
+        starts = [i * slot for i in range(n_s)]
+    else:
+        # 선형 보간으로 n_s 개 고유 start 생성
+        # 단어 수와 Whisper 타임스탬프 수가 달라도 중복 없이 매핑
+        n_w = len(whisper_starts)
+        starts = []
+        for i in range(n_s):
+            t = i / (n_s - 1) if n_s > 1 else 0.0
+            idx = t * (n_w - 1)
+            lo = int(idx)
+            hi = min(lo + 1, n_w - 1)
+            frac = idx - lo
+            starts.append(whisper_starts[lo] * (1 - frac) + whisper_starts[hi] * frac)
 
-    # 비율 매핑: 대본 단어 i → Whisper 타이밍 j
-    n_s = len(script_words)
-    n_w = len(whisper_times)
+    # 각 단어: start[i] ~ start[i+1], 마지막 단어: start[-1] ~ 노래 끝
     entries: list[tuple[float, float, str]] = []
     for i, word in enumerate(script_words):
-        j = min(int(i * n_w / n_s), n_w - 1)
-        ws, we = whisper_times[j]
-        entries.append((ws, we, word))
-
-    # 각 단어 end = 다음 단어 start (연속 표시, 갭/겹침 없음)
-    for i in range(len(entries) - 1):
-        s, _, w = entries[i]
-        entries[i] = (s, entries[i + 1][0], w)
+        s = starts[i]
+        e = starts[i + 1] if i + 1 < n_s else audio_duration
+        if e <= s:
+            e = s + 0.1
+        entries.append((s, e, word))
 
     return _apply_offset_correction(entries, audio_duration)
 
