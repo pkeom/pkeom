@@ -258,9 +258,12 @@ def save_capcut_project(
     shutil.copy2(video_path, video_dest)
     shutil.copy2(audio_path, audio_dest)
 
-    # 경로 포맷: CapCut은 forward slash 사용
-    video_fwd = str(video_dest).replace("\\", "/")
-    audio_fwd = str(audio_dest).replace("\\", "/")
+    # project_id 먼저 생성 — 경로 placeholder에 사용
+    project_id    = _cc_uid()
+
+    # 경로 포맷: CapCut placeholder 형식 사용 (절대 경로 시 .recycle_bin으로 이동됨)
+    video_fwd = f"##_draftpath_placeholder_{project_id}_##/Resources/{Path(video_path).name}"
+    audio_fwd = f"##_draftpath_placeholder_{project_id}_##/Resources/{Path(audio_path).name}"
     proj_fwd  = str(project_dir).replace("\\", "/")
     root_fwd  = str(lveditor_root).replace("\\", "/")
 
@@ -274,7 +277,6 @@ def save_capcut_project(
     now_sec = int(time.time())
 
     # ── IDs ──────────────────────────────────────────────────────────
-    project_id    = _cc_uid()
     content_id    = _cc_uid()
     video_mat_id  = _cc_uid()
     audio_mat_id  = _cc_uid()
@@ -541,7 +543,7 @@ def save_capcut_project(
         "id": content_id, "version": 360000,
         "new_version": "171.0.0", "name": "",
         "duration": duration_us, "create_time": 0, "update_time": 0,
-        "fps": 30.0, "is_drop_frame_timecode": False, "color_space": 0,
+        "fps": 30.0, "is_drop_frame_timecode": False, "color_space": -1,
         "config": {
             "video_mute": False,
             "record_audio_last_index": 1, "extract_audio_last_index": 1,
@@ -602,14 +604,18 @@ def save_capcut_project(
         "platform": {
             "os": "windows", "os_version": "10.0.26200",
             "app_id": 359289, "app_version": "8.7.0",
-            "app_source": "cc", "device_id": "", "hard_disk_id": "",
-            "mac_address": "",
+            "app_source": "cc",
+            "device_id": "4965670a7390ba59e25329604cff041a",
+            "hard_disk_id": "84e76ec0bed721bfff2591b4d4866f15",
+            "mac_address": "5bcf6954982058d14083924a8a56bc06,e464c2c5c062a2872eef9b484c39d8e8",
         },
         "last_modified_platform": {
             "os": "windows", "os_version": "10.0.26200",
             "app_id": 359289, "app_version": "8.7.0",
-            "app_source": "cc", "device_id": "", "hard_disk_id": "",
-            "mac_address": "",
+            "app_source": "cc",
+            "device_id": "4965670a7390ba59e25329604cff041a",
+            "hard_disk_id": "84e76ec0bed721bfff2591b4d4866f15",
+            "mac_address": "5bcf6954982058d14083924a8a56bc06,e464c2c5c062a2872eef9b484c39d8e8",
         },
         "mutable_config": None, "cover": None, "retouch_cover": None,
         "extra_info": None, "relationships": [],
