@@ -56,7 +56,13 @@ def transcribe_audio(audio_path: str) -> list[dict]:
             "openai-whisper 패키지가 필요합니다: pip install openai-whisper"
         )
     model = whisper.load_model("base")
-    result = model.transcribe(str(audio_path), word_timestamps=True, verbose=True)
+    result = model.transcribe(
+        str(audio_path),
+        word_timestamps=True,
+        language="ko",
+        condition_on_previous_text=False,
+        verbose=True,
+    )
     return result.get("segments", [])
 
 
@@ -113,10 +119,15 @@ def map_script_words_to_timings(
         for seg in segments:
             whisper_starts.append(float(seg["start"]))
 
-    # Whisper 타임스탬프가 전혀 없으면 균등 분할
+    # Whisper 타임스탬프가 전혀 없으면 글자 수 비례 분배
+    # (배경음악 전용 등 무음 오디오에서 Whisper가 0 segments 반환할 때)
     if not whisper_starts:
-        slot = audio_duration / n_s
-        starts = [i * slot for i in range(n_s)]
+        total_chars = sum(len(w) for w in script_words) or 1
+        t = 0.0
+        starts = []
+        for w in script_words:
+            starts.append(t)
+            t += audio_duration * len(w) / total_chars
 
     elif len(whisper_starts) >= n_s:
         # 타임스탬프 충분 → 비율로 직접 선택 (보간 없음, 실제 타이밍 변이 보존)
