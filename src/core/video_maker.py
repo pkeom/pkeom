@@ -258,12 +258,15 @@ def save_capcut_project(
     shutil.copy2(video_path, video_dest)
     shutil.copy2(audio_path, audio_dest)
 
-    # project_id 먼저 생성 — 경로 placeholder에 사용
-    project_id    = _cc_uid()
+    # 파일 복사 결과 확인
+    if not video_dest.exists():
+        raise RuntimeError(f"영상 파일 복사 실패: {video_dest}")
+    if not audio_dest.exists():
+        raise RuntimeError(f"오디오 파일 복사 실패: {audio_dest}")
 
-    # 경로 포맷: CapCut placeholder 형식 사용 (절대 경로 시 .recycle_bin으로 이동됨)
-    video_fwd = f"##_draftpath_placeholder_{project_id}_##/Resources/{Path(video_path).name}"
-    audio_fwd = f"##_draftpath_placeholder_{project_id}_##/Resources/{Path(audio_path).name}"
+    # 경로 포맷: 절대 경로, Windows 구분자(\) 사용
+    video_fwd = str(video_dest).replace("/", "\\")
+    audio_fwd = str(audio_dest).replace("/", "\\")
     proj_fwd  = str(project_dir).replace("\\", "/")
     root_fwd  = str(lveditor_root).replace("\\", "/")
 
@@ -277,6 +280,7 @@ def save_capcut_project(
     now_sec = int(time.time())
 
     # ── IDs ──────────────────────────────────────────────────────────
+    project_id    = _cc_uid()
     content_id    = _cc_uid()
     video_mat_id  = _cc_uid()
     audio_mat_id  = _cc_uid()
