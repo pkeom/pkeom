@@ -923,35 +923,16 @@ def generate_video(
     # Whisper 전사 (word_timestamps=True로 정밀 타이밍)
     segments = transcribe_audio(str(audio_path))
 
-    # 단어별 타이밍 (ASS burn-in용) — words_to_timings가 빈 배열이면 줄 단위로 fallback
+    # 단어별 타이밍 (CapCut 텍스트 트랙용)
+    # word_timestamps 있으면 단어별, 없으면 줄→단어 분할
     word_entries = words_to_timings(segments, audio_duration)
-    # 줄 단위 타이밍 (CapCut 텍스트 트랙용)
     line_entries = map_script_to_timings(script_lines, segments, audio_duration)
+    capcut_entries = word_entries if word_entries else _split_line_entries_to_words(line_entries)
 
-    # ASS 자막: 단어별 타이밍 우선, word_timestamps 없으면 줄→단어 분할
-    ass_entries = word_entries if word_entries else _split_line_entries_to_words(line_entries)
-
-    # ASS 자막 파일 생성
-    font_path = _find_font()
-    stem = Path(font_path).stem if font_path and os.path.exists(font_path) else ""
-    font_name = _FNAME_TO_FONTNAME.get(stem, "Malgun Gothic")
-
-    ass_path = out_dir / output_filename.replace(".mp4", ".ass")
-    # BOM 없는 UTF-8 — libass가 BOM을 파싱 오류로 처리하는 경우 방지
-    ass_path.write_text(_build_ass(ass_entries, font_name), encoding="utf-8")
-
-    # ffmpeg filter
-    # ASS 경로: 드라이브 콜론 이스케이프 + Windows 폰트 디렉터리 지정(폰트 미인식 방지)
-    ass_ffmpeg   = str(ass_path).replace("\\", "/").replace(":", "\\:")
-    fonts_ffmpeg = "C\\:/Windows/Fonts"
-    vf = (
-        "scale=1080:1920:force_original_aspect_ratio=increase,"
-        f"crop=1080:1920,setsar=1,"
-        f"subtitles='{ass_ffmpeg}':fontsdir='{fonts_ffmpeg}'"
-    )
+    # ffmpeg filter — 자막 burn-in 없이 배경 이미지만 인코딩
+    vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
     cmd = [
         ffmpeg_bin, "-y",
-        # 정적 이미지를 30fps 비디오로 루프 — -r을 -i 앞에 두어 입력 프레임레이트 지정
         "-loop", "1", "-r", "30",
         "-i", str(bg_image_path),
         "-i", str(audio_path),
@@ -994,7 +975,7 @@ def generate_video(
     capcut_dir = save_capcut_project(
         video_path=video_path,
         audio_path=audio_path,
-        subtitle_entries=line_entries,
+        subtitle_entries=capcut_entries,
         project_name=project_name,
     )
 
