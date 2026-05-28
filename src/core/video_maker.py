@@ -1,7 +1,9 @@
 """영상 초안 자동 생성 — ffmpeg + Demucs + WhisperX 기반 (9:16 세로형)"""
 
+import difflib
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -186,6 +188,103 @@ def _apply_offset_correction(
 
 
 
+def _text_match_starts(
+    phrases: list[str],
+    segments: list[dict],
+    audio_duration: float,
+) -> list[float] | None:
+    """텍스트 유사도 기반 구절→Whisper 타임스탬프 매핑.
+
+    각 구절을 Whisper 단어 시퀀스에서 SequenceMatcher로 가장 유사한 위치에 매핑.
+    - 정방향 greedy: phrase[i] 매핑 위치 이후에서만 phrase[i+1] 탐색
+    - window 크기 1~8 범위 슬라이딩으로 최대 유사도 위치 선택
+    - 평균 매칭 점수가 0.2 미만이면 None 반환 (fallback 유도)
+    """
+    words: list[tuple[float, str]] = []
+    for seg in segments:
+        for w in seg.get("words", []):
+            norm = re.sub(r"[\s\W]+", "", w.get("word", ""), flags=re.UNICODE).lower()
+            if norm:
+                words.append((float(w.get("start", seg["start"])), norm))
+
+    if not words:
+        return None
+
+    n_words = len(words)
+    n_phrases = len(phrases)
+    search_from = 0
+    starts: list[float] = []
+    scores: list[float] = []
+
+    for ph_idx, phrase in enumerate(phrases):
+        norm_phrase = re.sub(r"[\s\W]+", "", phrase, flags=re.UNICODE).lower()
+        if not norm_phrase:
+            starts.append(words[min(search_from, n_words - 1)][0])
+            scores.append(0.0)
+            continue
+
+        best_score = -1.0
+        best_start = words[min(search_from, n_words - 1)][0]
+        best_pos = search_from
+
+        # 남은 구절 수에 따라 탐색 상한 조정 (뒤쪽 구절에 자리를 남김)
+        remaining_after = n_phrases - ph_idx - 1
+        search_limit = max(search_from + 1, n_words - remaining_after)
+
+        for pos in range(search_from, min(search_limit, n_words)):
+            for win in range(1, min(9, n_words - pos + 1)):
+                window_text = "".join(w[1] for w in words[pos: pos + win])
+                score = difflib.SequenceMatcher(
+                    None, norm_phrase, window_text
+                ).ratio()
+                if score > best_score:
+                    best_score = score
+                    best_start = words[pos][0]
+                    best_pos = pos
+
+        starts.append(best_start)
+        scores.append(best_score)
+        search_from = best_pos + 1
+
+        if search_from >= n_words:
+            # 남은 구절은 마지막 단어 이후 균등 배분
+            remaining = n_phrases - len(starts)
+            if remaining > 0:
+                last_t = starts[-1]
+                step = max(0.3, (audio_duration - last_t) / (remaining + 1))
+                for k in range(1, remaining + 1):
+                    starts.append(min(last_t + step * k, audio_duration - 0.1))
+                    scores.append(0.0)
+            break
+
+    if len(starts) != n_phrases:
+        return None
+
+    avg_score = sum(scores) / len(scores) if scores else 0.0
+    if avg_score < 0.2:
+        return None
+
+    return starts
+
+
+def _enforce_monotone(
+    starts: list[float],
+    audio_duration: float,
+    min_gap: float = 0.05,
+) -> list[float]:
+    """시작 시간이 단조 증가하고 오디오 범위 내에 있도록 보정."""
+    if not starts:
+        return starts
+    n = len(starts)
+    result = [max(0.0, starts[0])]
+    for i in range(1, n):
+        prev = result[-1]
+        t = max(starts[i], prev + min_gap)
+        t = min(t, audio_duration - min_gap * (n - i))
+        result.append(t)
+    return result
+
+
 def map_phrases_to_timings(
     phrases: list[str],
     segments: list[dict],
@@ -193,28 +292,39 @@ def map_phrases_to_timings(
 ) -> list[tuple[float, float, str]]:
     """쉼표 구분 구절 목록을 Whisper 타이밍에 순서대로 매핑.
 
-    Whisper 텍스트는 완전히 무시하고 타이밍(start)만 사용.
-    표시 텍스트는 항상 입력된 phrases 값 그대로 사용.
-    각 구절 duration = 다음 구절 start - 현재 구절 start (마지막 = 노래 끝까지).
+    우선순위:
+    1) 텍스트 유사도 매핑 (_text_match_starts) — Demucs 원본 타임라인 보존
+    2) 비율/슬롯 분배 fallback → offset 보정 적용
     """
     if not phrases:
         return []
 
     n_s = len(phrases)
 
-    # Whisper word-level start 시간만 추출 (텍스트는 버림)
+    # 1) 텍스트 유사도 매핑 (segments 있을 때)
+    if segments:
+        matched = _text_match_starts(phrases, segments, audio_duration)
+        if matched is not None and len(matched) == n_s:
+            starts = _enforce_monotone(matched, audio_duration)
+            entries: list[tuple[float, float, str]] = []
+            for i, phrase in enumerate(phrases):
+                s = starts[i]
+                e = starts[i + 1] if i + 1 < n_s else audio_duration
+                if e <= s:
+                    e = s + 0.1
+                entries.append((s, e, phrase))
+            return entries  # Demucs가 원본 타임라인 보존 → offset 보정 불필요
+
+    # 2) fallback: 기존 ratio/slot/char-proportional 로직
     whisper_starts: list[float] = []
     for seg in segments:
         for w in seg.get("words", []):
             whisper_starts.append(float(w.get("start", seg["start"])))
 
-    # word timestamps 없으면 segment 단위 start로 대체
     if not whisper_starts:
         for seg in segments:
             whisper_starts.append(float(seg["start"]))
 
-    # Whisper 타임스탬프가 전혀 없으면 구절 글자 수 비례 분배
-    # (배경음악 전용 등 무음 오디오에서 Whisper가 0 segments 반환할 때)
     if not whisper_starts:
         total_chars = sum(len(p) for p in phrases) or 1
         t = 0.0
@@ -224,14 +334,10 @@ def map_phrases_to_timings(
             t += audio_duration * len(p) / total_chars
 
     elif len(whisper_starts) >= n_s:
-        # 타임스탬프 충분 → 비율로 직접 선택 (보간 없음, 실제 타이밍 변이 보존)
         n_w = len(whisper_starts)
         starts = [whisper_starts[int(i * n_w / n_s)] for i in range(n_s)]
 
     else:
-        # 타임스탬프 부족 (n_w=1 포함) → 슬롯 분배
-        # 인접 타임스탬프 구간(슬롯)에 스크립트 단어를 균등 배분
-        # 슬롯 길이가 다르면 해당 슬롯 내 단어들의 duration도 달라짐
         n_w = len(whisper_starts)
         slot_ends = whisper_starts[1:] + [audio_duration]
         slot_of = [min(int(i * n_w / n_s), n_w - 1) for i in range(n_s)]
@@ -250,16 +356,15 @@ def map_phrases_to_timings(
             e_slot = slot_ends[j]
             starts.append(s_slot + pos * (e_slot - s_slot) / slot_count[j])
 
-    # 각 구절: start[i] ~ start[i+1], 마지막 구절: start[-1] ~ 노래 끝
-    entries: list[tuple[float, float, str]] = []
+    entries2: list[tuple[float, float, str]] = []
     for i, phrase in enumerate(phrases):
         s = starts[i]
         e = starts[i + 1] if i + 1 < n_s else audio_duration
         if e <= s:
             e = s + 0.1
-        entries.append((s, e, phrase))
+        entries2.append((s, e, phrase))
 
-    return _apply_offset_correction(entries, audio_duration)
+    return _apply_offset_correction(entries2, audio_duration)
 
 
 # ── CapCut 프로젝트 저장 ─────────────────────────────────────────────
