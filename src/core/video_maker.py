@@ -1,4 +1,4 @@
-"""영상 초안 자동 생성 — ffmpeg + Whisper 기반 (9:16 세로형)"""
+"""영상 초안 자동 생성 — ffmpeg + Demucs + WhisperX 기반 (9:16 세로형)"""
 
 import json
 import os
@@ -46,24 +46,121 @@ def _find_ffmpeg() -> str:
 
 
 
-def transcribe_audio(audio_path: str) -> list[dict]:
-    """Whisper로 오디오 전사. word_timestamps=True로 단어별 정밀 타이밍 획득.
-    [{start, end, text, words}, ...] 반환"""
+def _separate_vocals(audio_path: str) -> str:
+    """Demucs htdemucs 모델로 보컬 스템 분리.
+
+    배경음악과 보컬을 분리해 WhisperX가 보컬만 전사하도록 한다.
+    반환: 임시 보컬 WAV 파일 경로 (호출자가 삭제 책임)
+    """
     try:
-        import whisper  # type: ignore
+        import torch
+        import numpy as np
+        import soundfile as sf
+        from demucs.pretrained import get_model
+        from demucs.apply import apply_model
+    except ImportError as e:
+        raise RuntimeError(
+            f"demucs/soundfile 패키지가 필요합니다: pip install demucs soundfile\n원인: {e}"
+        )
+
+    model = get_model("htdemucs")
+    model.eval()
+
+    # torchaudio 2.11+ 는 MP3/WAV 모두 torchcodec 필요 → soundfile + ffmpeg로 대체
+    # 1) ffmpeg로 PCM WAV 변환
+    ffmpeg_bin = _find_ffmpeg()
+    wav_input = str(Path(audio_path).with_suffix("")) + f"_input_{uuid.uuid4().hex[:8]}.wav"
+    subprocess.run(
+        [ffmpeg_bin, "-y", "-i", str(audio_path),
+         "-ar", str(model.samplerate), "-ac", "2", "-f", "wav", wav_input],
+        check=True, capture_output=True,
+    )
+    # 2) soundfile로 로드 → torch tensor (2, samples)
+    try:
+        data, sr = sf.read(wav_input, dtype="float32")  # (samples, channels)
+    finally:
+        try:
+            os.unlink(wav_input)
+        except Exception:
+            pass
+    wav = torch.from_numpy(data.T)  # (channels, samples)
+    if wav.shape[0] == 1:
+        wav = wav.repeat(2, 1)  # mono → stereo
+
+    # 정규화
+    ref = wav.mean(0)
+    wav_norm = (wav - ref.mean()) / ref.std()
+
+    with torch.no_grad():
+        sources = apply_model(model, wav_norm.unsqueeze(0), device="cpu", progress=False)
+
+    # 보컬 스템 추출 (htdemucs stems: drums/bass/other/vocals)
+    stems = list(model.sources)
+    if "vocals" not in stems:
+        raise RuntimeError(f"htdemucs 모델에 vocals 스템 없음: {stems}")
+
+    vocals_idx = stems.index("vocals")
+    vocals = sources[0, vocals_idx] * ref.std() + ref.mean()
+
+    # 임시 파일 저장 (soundfile 사용, torchaudio.save는 torchcodec 필요)
+    vocals_tmp = str(Path(audio_path).with_suffix("")) + f"_vocals_{uuid.uuid4().hex[:8]}.wav"
+    vocals_np = vocals.cpu().numpy().T  # (samples, channels)
+    sf.write(vocals_tmp, vocals_np, model.samplerate)
+    return vocals_tmp
+
+
+def transcribe_audio(audio_path: str) -> list[dict]:
+    """Demucs 보컬 분리 + faster-whisper 정밀 전사.
+
+    1) Demucs htdemucs 로 배경음악 제거 → 보컬 WAV 추출
+       (보컬이 없는 순수 배경음악이면 WhisperX와 동일하게 segments=[] 반환)
+    2) faster-whisper base 모델로 전사 (CTranslate2 최적화, word_timestamps=True)
+
+    반환: [{start, end, text, words:[{word, start, end}...]}, ...]
+    Note: WhisperX는 Python 3.14 미지원 — faster-whisper(WhisperX 핵심 엔진)로 대체
+    """
+    try:
+        from faster_whisper import WhisperModel  # type: ignore
     except ImportError:
         raise RuntimeError(
-            "openai-whisper 패키지가 필요합니다: pip install openai-whisper"
+            "faster-whisper 패키지가 필요합니다: pip install faster-whisper"
         )
-    model = whisper.load_model("base")
-    result = model.transcribe(
-        str(audio_path),
-        word_timestamps=True,
-        language="ko",
-        condition_on_previous_text=False,
-        verbose=True,
-    )
-    return result.get("segments", [])
+
+    vocals_path: str | None = None
+    try:
+        # 1단계: Demucs 보컬 분리
+        vocals_path = _separate_vocals(str(audio_path))
+
+        # 2단계: faster-whisper 전사 (word_timestamps=True)
+        model = WhisperModel("base", device="cpu", compute_type="float32")
+        segments_gen, _ = model.transcribe(
+            vocals_path,
+            language="ko",
+            word_timestamps=True,
+            condition_on_previous_text=False,
+        )
+
+        # generator → list 변환 (faster-whisper는 lazy generator 반환)
+        segments: list[dict] = []
+        for seg in segments_gen:
+            words = []
+            for w in (seg.words or []):
+                words.append({"word": w.word, "start": w.start, "end": w.end})
+            segments.append({
+                "start": seg.start,
+                "end": seg.end,
+                "text": seg.text,
+                "words": words,
+            })
+
+        return segments
+
+    finally:
+        if vocals_path and os.path.exists(vocals_path):
+            try:
+                os.unlink(vocals_path)
+            except Exception:
+                pass
 
 
 def _apply_offset_correction(
