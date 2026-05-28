@@ -45,70 +45,6 @@ def _find_ffmpeg() -> str:
     )
 
 
-def _find_font() -> str:
-    """Windows / Linux에서 적절한 한글 폰트 파일 경로 반환"""
-    candidates = [
-        r"C:\Windows\Fonts\malgunbd.ttf",
-        r"C:\Windows\Fonts\malgun.ttf",
-        r"C:\Windows\Fonts\NanumGothicBold.ttf",
-        r"C:\Windows\Fonts\arialbd.ttf",
-        r"C:\Windows\Fonts\arial.ttf",
-        "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    ]
-    for f in candidates:
-        if os.path.exists(f):
-            return f
-    return ""
-
-
-_FNAME_TO_FONTNAME = {
-    "malgunbd": "Malgun Gothic Bold",
-    "malgun": "Malgun Gothic",
-    "NanumGothicBold": "NanumGothicBold",
-    "arialbd": "Arial Bold",
-    "arial": "Arial",
-    "LiberationSans-Bold": "Liberation Sans",
-}
-
-
-def _fmt_ass_time(seconds: float) -> str:
-    """초 → ASS 시간 형식 H:MM:SS.cs"""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = seconds % 60
-    cs = int((s % 1) * 100)
-    return f"{h}:{m:02d}:{int(s):02d}.{cs:02d}"
-
-
-def _build_ass(entries: list[tuple[float, float, str]], font_name: str) -> str:
-    """ASS 자막 파일 내용 생성 (화면 중앙 배치, 단어별 표시)"""
-    header = (
-        "[Script Info]\n"
-        "ScriptType: v4.00+\n"
-        "PlayResX: 1080\n"
-        "PlayResY: 1920\n"
-        "WrapStyle: 0\n"
-        "ScaledBorderAndShadow: yes\n\n"
-        "[V4+ Styles]\n"
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
-        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
-        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
-        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,{font_name},52,&H00FFFFFF,&H000000FF,"
-        "&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,3,2,5,80,80,60,0\n\n"
-        "[Events]\n"
-        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
-    )
-    lines = [header]
-    for start, end, text in entries:
-        safe = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
-        lines.append(
-            f"Dialogue: 0,{_fmt_ass_time(start)},{_fmt_ass_time(end)},"
-            f"Default,,0,0,0,,{safe}"
-        )
-    return "\n".join(lines)
-
 
 def transcribe_audio(audio_path: str) -> list[dict]:
     """Whisper로 오디오 전사. word_timestamps=True로 단어별 정밀 타이밍 획득.
@@ -145,118 +81,6 @@ def _apply_offset_correction(
         corrected.append((new_start, new_end, text))
     return corrected
 
-
-def words_to_timings(
-    segments: list[dict],
-    audio_duration: float,
-) -> list[tuple[float, float, str]]:
-    """Whisper word_timestamps 결과에서 단어별 자막 타이밍을 추출한다.
-
-    word_timestamps=True 로 전사하면 각 segment 안에 'words' 배열이 생기고,
-    각 원소는 {'word': str, 'start': float, 'end': float} 형태를 갖는다.
-    이 함수는 그 단어들을 그대로 (start, end, word) 튜플로 펼쳐 반환한다.
-    겹침이 있으면 이전 단어의 end를 다음 단어의 start로 맞춘다.
-    """
-    entries: list[tuple[float, float, str]] = []
-    for seg in segments:
-        for w in seg.get("words", []):
-            word  = str(w.get("word", "")).strip()
-            if not word:
-                continue
-            ws = float(w.get("start", seg["start"]))
-            we = float(w.get("end",   seg["end"]))
-            if we <= ws:
-                we = ws + 0.3
-            entries.append((ws, we, word))
-
-    if not entries:
-        return []
-
-    # 각 단어의 end를 다음 단어의 start로 맞춤: 갭 없이 한 단어씩 이어서 표시
-    for i in range(len(entries) - 1):
-        s, _, w = entries[i]
-        ns = entries[i + 1][0]
-        entries[i] = (s, ns, w)
-
-    return _apply_offset_correction(entries, audio_duration)
-
-
-def _split_line_entries_to_words(
-    line_entries: list[tuple[float, float, str]],
-) -> list[tuple[float, float, str]]:
-    """줄 단위 타이밍을 개별 단어로 균등 분할.
-    words_to_timings()가 빈 배열일 때(word_timestamps 없음) fallback으로 사용."""
-    result: list[tuple[float, float, str]] = []
-    for start, end, text in line_entries:
-        words = text.split()
-        if not words:
-            continue
-        n = len(words)
-        slot = (end - start) / n
-        for i, word in enumerate(words):
-            result.append((start + i * slot, start + (i + 1) * slot, word))
-    # 각 단어 end를 다음 단어 start로 정렬 (갭/겹침 제거)
-    for i in range(len(result) - 1):
-        s, _, w = result[i]
-        result[i] = (s, result[i + 1][0], w)
-    return result
-
-
-def map_script_to_timings(
-    script_lines: list[str],
-    segments: list[dict],
-    audio_duration: float,
-) -> list[tuple[float, float, str]]:
-    """대본 줄을 Whisper 세그먼트 타이밍에 매핑 (CapCut 텍스트 트랙용 줄 단위 fallback).
-
-    여러 줄이 같은 세그먼트에 할당될 때 세그먼트 시간을 균등 분배하여
-    줄이 순서대로 표시되도록 한다.
-    """
-    if not script_lines:
-        return []
-
-    if not segments:
-        n = len(script_lines)
-        chunk = audio_duration / n
-        return [
-            (i * chunk, min((i + 1) * chunk, audio_duration), line.strip())
-            for i, line in enumerate(script_lines)
-        ]
-
-    n_lines = len(script_lines)
-    n_segs  = len(segments)
-    seg_of  = [min(int(i * n_segs / n_lines), n_segs - 1) for i in range(n_lines)]
-
-    result: list[tuple[float, float, str]] = []
-    i = 0
-    while i < n_lines:
-        s_idx = seg_of[i]
-        seg   = segments[s_idx]
-        seg_s = float(seg["start"])
-        seg_e = float(seg["end"])
-
-        j = i + 1
-        while j < n_lines and seg_of[j] == s_idx:
-            j += 1
-        group = script_lines[i:j]
-        count = len(group)
-
-        if seg_e <= seg_s:
-            seg_e = seg_s + count * 2.0
-
-        slot = (seg_e - seg_s) / count
-        for k, line in enumerate(group):
-            result.append((seg_s + k * slot, seg_s + (k + 1) * slot, line.strip()))
-
-        i = j
-
-    for idx in range(1, len(result)):
-        ps, pe, pt = result[idx - 1]
-        cs, ce, ct = result[idx]
-        if pe > cs:
-            result[idx - 1] = (ps, cs, pt)
-
-    return _apply_offset_correction(result, audio_duration)
 
 
 def map_script_words_to_timings(
@@ -724,7 +548,7 @@ def save_capcut_project(
             "original_sound_last_index": 1,
             "subtitle_recognition_id": "", "subtitle_taskinfo": [],
             "lyrics_recognition_id": "", "lyrics_taskinfo": [],
-            "subtitle_sync": True, "lyrics_sync": True,
+            "subtitle_sync": False, "lyrics_sync": False,
             "voice_change_sync": False, "sticker_max_index": 1,
             "adjust_max_index": 1, "material_save_mode": 0,
             "export_range": None, "maintrack_adsorb": True,
@@ -986,6 +810,15 @@ def generate_video(
 
     # 대본 단어를 Whisper 타이밍에 매핑 (텍스트: 대본, 타이밍: Whisper)
     capcut_entries = map_script_words_to_timings(script_lines, segments, audio_duration)
+
+    # 자막 내용 검증: 반드시 대본 단어만 포함되어야 함
+    script_words_set = {w for ln in script_lines for w in ln.split() if w}
+    for _, _, text in capcut_entries:
+        if text not in script_words_set:
+            raise RuntimeError(
+                f"자막 텍스트 오염 감지: '{text}'는 대본에 없는 단어입니다. "
+                "Whisper 텍스트가 자막으로 유입되었습니다."
+            )
 
     # ffmpeg filter — 자막 burn-in 없이 배경 이미지만 인코딩
     vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
