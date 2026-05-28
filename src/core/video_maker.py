@@ -150,8 +150,11 @@ def map_script_to_timings(
     segments: list[dict],
     audio_duration: float,
 ) -> list[tuple[float, float, str]]:
-    """대본 줄을 Whisper 세그먼트의 정확한 start/end 시간에 매핑.
-    비례 보간 대신 각 세그먼트의 실제 타이밍을 사용하고 오프셋을 보정한다."""
+    """대본 줄을 Whisper 세그먼트 타이밍에 매핑.
+
+    여러 줄이 같은 세그먼트에 할당될 때 세그먼트 시간을 균등 분배하여
+    자막이 한 줄씩 순서대로 표시되도록 한다. 겹침도 방지한다.
+    """
     if not script_lines:
         return []
 
@@ -164,24 +167,46 @@ def map_script_to_timings(
         ]
 
     n_lines = len(script_lines)
-    n_segs = len(segments)
-    result = []
+    n_segs  = len(segments)
 
-    for i, line in enumerate(script_lines):
-        seg_idx = min(int(i * n_segs / n_lines), n_segs - 1)
-        seg = segments[seg_idx]
-        start = float(seg["start"])
-        end = float(seg["end"])
+    # 각 라인이 속할 세그먼트 인덱스 산출
+    seg_of = [min(int(i * n_segs / n_lines), n_segs - 1) for i in range(n_lines)]
 
-        if end <= start:
-            remaining = max(n_lines - i, 1)
-            end = start + max(1.0, (audio_duration - start) / remaining)
+    result: list[tuple[float, float, str]] = []
+    i = 0
+    while i < n_lines:
+        s_idx = seg_of[i]
+        seg   = segments[s_idx]
+        seg_s = float(seg["start"])
+        seg_e = float(seg["end"])
 
-        result.append((start, end, line.strip()))
+        # 같은 세그먼트에 할당된 연속 라인 묶기
+        j = i + 1
+        while j < n_lines and seg_of[j] == s_idx:
+            j += 1
+        group = script_lines[i:j]
+        count = len(group)
 
-    # 영상 시작 시간 기준 오프셋 보정
-    result = _apply_offset_correction(result, audio_duration)
-    return result
+        # 세그먼트 시간이 0 이하면 최소 간격 보정
+        if seg_e <= seg_s:
+            seg_e = seg_s + count * 2.0
+
+        # 그룹 내 라인에 시간 균등 분배 → 한 줄씩 순서대로
+        slot = (seg_e - seg_s) / count
+        for k, line in enumerate(group):
+            result.append((seg_s + k * slot, seg_s + (k + 1) * slot, line.strip()))
+
+        i = j
+
+    # 겹침 방지: 이전 항목 end > 다음 항목 start 이면 이전 end를 당겨 붙임
+    for idx in range(1, len(result)):
+        ps, pe, pt = result[idx - 1]
+        cs, ce, ct = result[idx]
+        if pe > cs:
+            result[idx - 1] = (ps, cs, pt)
+
+    # 영상 시작 기준 오프셋 보정
+    return _apply_offset_correction(result, audio_duration)
 
 
 # ── CapCut 프로젝트 저장 ─────────────────────────────────────────────
@@ -857,26 +882,36 @@ def generate_video(
     font_name = _FNAME_TO_FONTNAME.get(stem, "Malgun Gothic")
 
     ass_path = out_dir / output_filename.replace(".mp4", ".ass")
-    ass_path.write_text(_build_ass(entries, font_name), encoding="utf-8-sig")
+    # BOM 없는 UTF-8 — libass가 BOM을 파싱 오류로 처리하는 경우 방지
+    ass_path.write_text(_build_ass(entries, font_name), encoding="utf-8")
 
-    # ffmpeg filter — ASS 경로의 드라이브 콜론을 이스케이프
-    ass_ffmpeg = str(ass_path).replace("\\", "/").replace(":", "\\:")
+    # ffmpeg filter
+    # ASS 경로: 드라이브 콜론 이스케이프 + Windows 폰트 디렉터리 지정(폰트 미인식 방지)
+    ass_ffmpeg   = str(ass_path).replace("\\", "/").replace(":", "\\:")
+    fonts_ffmpeg = "C\\:/Windows/Fonts"
     vf = (
         "scale=1080:1920:force_original_aspect_ratio=increase,"
-        f"crop=1080:1920,setsar=1,subtitles='{ass_ffmpeg}'"
+        f"crop=1080:1920,setsar=1,"
+        f"subtitles='{ass_ffmpeg}':fontsdir='{fonts_ffmpeg}'"
     )
     cmd = [
         ffmpeg_bin, "-y",
-        "-loop", "1", "-framerate", "30",
+        # 정적 이미지를 30fps 비디오로 루프 — -r을 -i 앞에 두어 입력 프레임레이트 지정
+        "-loop", "1", "-r", "30",
         "-i", str(bg_image_path),
         "-i", str(audio_path),
         "-vf", vf,
         "-map", "0:v", "-map", "1:a",
         "-t", str(audio_duration),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        # CapCut 호환 코덱 설정
+        "-c:v", "libx264",
+        "-profile:v", "high", "-level:v", "4.0",
+        "-preset", "fast", "-crf", "23",
+        "-r", "30",                   # 출력 프레임레이트
         "-c:a", "aac", "-b:a", "192k",
+        "-ar", "44100", "-ac", "2",   # 44.1 kHz 스테레오
         "-pix_fmt", "yuv420p",
-        "-shortest",
+        "-movflags", "+faststart",    # MP4 moov 앞으로 이동 — 스트리밍/앱 호환성
         str(output_path),
     ]
 
@@ -887,6 +922,14 @@ def generate_video(
     if proc.returncode != 0:
         raise RuntimeError(
             f"ffmpeg 실패 (종료코드 {proc.returncode}):\n{proc.stderr[-3000:]}"
+        )
+
+    # 파일 유효성 확인 — 10 KB 미만이면 인코딩 실패로 간주
+    out_size = output_path.stat().st_size
+    if out_size < 10_000:
+        raise RuntimeError(
+            f"영상 파일이 비정상적으로 작습니다 ({out_size} bytes). "
+            "ffmpeg 인코딩을 확인하세요."
         )
 
     video_path = str(output_path.resolve())
