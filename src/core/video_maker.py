@@ -145,15 +145,51 @@ def _apply_offset_correction(
     return corrected
 
 
+def words_to_timings(
+    segments: list[dict],
+    audio_duration: float,
+) -> list[tuple[float, float, str]]:
+    """Whisper word_timestamps 결과에서 단어별 자막 타이밍을 추출한다.
+
+    word_timestamps=True 로 전사하면 각 segment 안에 'words' 배열이 생기고,
+    각 원소는 {'word': str, 'start': float, 'end': float} 형태를 갖는다.
+    이 함수는 그 단어들을 그대로 (start, end, word) 튜플로 펼쳐 반환한다.
+    겹침이 있으면 이전 단어의 end를 다음 단어의 start로 맞춘다.
+    """
+    entries: list[tuple[float, float, str]] = []
+    for seg in segments:
+        for w in seg.get("words", []):
+            word  = str(w.get("word", "")).strip()
+            if not word:
+                continue
+            ws = float(w.get("start", seg["start"]))
+            we = float(w.get("end",   seg["end"]))
+            if we <= ws:
+                we = ws + 0.3
+            entries.append((ws, we, word))
+
+    if not entries:
+        return []
+
+    # 겹침 방지
+    for i in range(1, len(entries)):
+        ps, pe, pt = entries[i - 1]
+        cs, ce, ct = entries[i]
+        if pe > cs:
+            entries[i - 1] = (ps, cs, pt)
+
+    return _apply_offset_correction(entries, audio_duration)
+
+
 def map_script_to_timings(
     script_lines: list[str],
     segments: list[dict],
     audio_duration: float,
 ) -> list[tuple[float, float, str]]:
-    """대본 줄을 Whisper 세그먼트 타이밍에 매핑.
+    """대본 줄을 Whisper 세그먼트 타이밍에 매핑 (CapCut 텍스트 트랙용 줄 단위 fallback).
 
     여러 줄이 같은 세그먼트에 할당될 때 세그먼트 시간을 균등 분배하여
-    자막이 한 줄씩 순서대로 표시되도록 한다. 겹침도 방지한다.
+    줄이 순서대로 표시되도록 한다.
     """
     if not script_lines:
         return []
@@ -168,9 +204,7 @@ def map_script_to_timings(
 
     n_lines = len(script_lines)
     n_segs  = len(segments)
-
-    # 각 라인이 속할 세그먼트 인덱스 산출
-    seg_of = [min(int(i * n_segs / n_lines), n_segs - 1) for i in range(n_lines)]
+    seg_of  = [min(int(i * n_segs / n_lines), n_segs - 1) for i in range(n_lines)]
 
     result: list[tuple[float, float, str]] = []
     i = 0
@@ -180,32 +214,27 @@ def map_script_to_timings(
         seg_s = float(seg["start"])
         seg_e = float(seg["end"])
 
-        # 같은 세그먼트에 할당된 연속 라인 묶기
         j = i + 1
         while j < n_lines and seg_of[j] == s_idx:
             j += 1
         group = script_lines[i:j]
         count = len(group)
 
-        # 세그먼트 시간이 0 이하면 최소 간격 보정
         if seg_e <= seg_s:
             seg_e = seg_s + count * 2.0
 
-        # 그룹 내 라인에 시간 균등 분배 → 한 줄씩 순서대로
         slot = (seg_e - seg_s) / count
         for k, line in enumerate(group):
             result.append((seg_s + k * slot, seg_s + (k + 1) * slot, line.strip()))
 
         i = j
 
-    # 겹침 방지: 이전 항목 end > 다음 항목 start 이면 이전 end를 당겨 붙임
     for idx in range(1, len(result)):
         ps, pe, pt = result[idx - 1]
         cs, ce, ct = result[idx]
         if pe > cs:
             result[idx - 1] = (ps, cs, pt)
 
-    # 영상 시작 기준 오프셋 보정
     return _apply_offset_correction(result, audio_duration)
 
 
@@ -474,7 +503,7 @@ def save_capcut_project(
     # ── 비디오 material ───────────────────────────────────────────────
     video_material = {
         "id": video_mat_id, "unique_id": "",
-        "type": "photo",               # MP4도 "photo" 타입으로 로드됨
+        "type": "video",
         "duration": duration_us,
         "path": video_fwd, "media_path": "",
         "local_id": "", "has_audio": True,
@@ -873,8 +902,13 @@ def generate_video(
     # Whisper 전사 (word_timestamps=True로 정밀 타이밍)
     segments = transcribe_audio(str(audio_path))
 
-    # 대본 → 정확한 타이밍 매핑 (오프셋 보정 포함)
-    entries = map_script_to_timings(script_lines, segments, audio_duration)
+    # 단어별 타이밍 (ASS burn-in용) — words_to_timings가 빈 배열이면 줄 단위로 fallback
+    word_entries = words_to_timings(segments, audio_duration)
+    # 줄 단위 타이밍 (CapCut 텍스트 트랙용)
+    line_entries = map_script_to_timings(script_lines, segments, audio_duration)
+
+    # ASS 자막에 단어별 타이밍 사용 (없으면 줄 단위 fallback)
+    ass_entries = word_entries if word_entries else line_entries
 
     # ASS 자막 파일 생성
     font_path = _find_font()
@@ -883,7 +917,7 @@ def generate_video(
 
     ass_path = out_dir / output_filename.replace(".mp4", ".ass")
     # BOM 없는 UTF-8 — libass가 BOM을 파싱 오류로 처리하는 경우 방지
-    ass_path.write_text(_build_ass(entries, font_name), encoding="utf-8")
+    ass_path.write_text(_build_ass(ass_entries, font_name), encoding="utf-8")
 
     # ffmpeg filter
     # ASS 경로: 드라이브 콜론 이스케이프 + Windows 폰트 디렉터리 지정(폰트 미인식 방지)
@@ -939,7 +973,7 @@ def generate_video(
     capcut_dir = save_capcut_project(
         video_path=video_path,
         audio_path=audio_path,
-        subtitle_entries=entries,
+        subtitle_entries=line_entries,
         project_name=project_name,
     )
 
