@@ -696,11 +696,14 @@ tbody tr:hover td { background: #FAFBFC; }
           <input type="file" id="bg-file" accept="image/jpeg,image/png" style="display:none" onchange="onBgFile(this)">
         </div>
 
-        <!-- 대본 -->
+        <!-- 자막 구절 -->
         <div class="fg">
-          <label class="fl">대본 / 가사 (줄바꿈으로 장면 구분)</label>
-          <textarea class="fi" id="vid-script" rows="9"
-            placeholder="가사를 한 줄씩 입력하세요&#10;노래 타이밍에 맞춰 자막으로 자동 배치됩니다&#10;&#10;예)&#10;오늘도 빛나는 하루&#10;너와 함께라면&#10;모든 게 괜찮아"></textarea>
+          <label class="fl">자막 구절 <span style="color:var(--text3);font-weight:400">(쉼표로 구분)</span></label>
+          <input class="fi" id="vid-script" type="text"
+            placeholder="운전하는사람이면,끝까지봐,이제곧장마철인데,비올때">
+          <div style="margin-top:4px;font-size:11px;color:var(--text3)">
+            쉼표(,)로 구절을 구분하세요 — 각 구절이 순서대로 자막으로 표시됩니다
+          </div>
         </div>
 
         <!-- 음악 파일 -->
@@ -1320,7 +1323,7 @@ async function generateVideo() {
 
   if (!bgFile)    { toast('배경 이미지를 선택하세요');    return; }
   if (!audioFile) { toast('MP3 파일을 선택하세요');       return; }
-  if (!script)    { toast('대본 / 가사를 입력하세요');    return; }
+  if (!script)    { toast('자막 구절을 입력하세요 (쉼표 구분)');    return; }
 
   $('vid-gen-btn').disabled = true;
   vidSetStatus('업로드 중…', true);

@@ -89,24 +89,21 @@ def _apply_offset_correction(
 
 
 
-def map_script_words_to_timings(
-    script_lines: list[str],
+def map_phrases_to_timings(
+    phrases: list[str],
     segments: list[dict],
     audio_duration: float,
 ) -> list[tuple[float, float, str]]:
-    """대본 단어를 Whisper 타이밍에 순서대로 매핑한다.
+    """쉼표 구분 구절 목록을 Whisper 타이밍에 순서대로 매핑.
 
-    Whisper가 인식한 텍스트(가사)는 완전히 무시하고 타이밍만 사용.
-    표시할 텍스트는 script_lines에서 추출한 단어만 사용한다.
+    Whisper 텍스트는 완전히 무시하고 타이밍(start)만 사용.
+    표시 텍스트는 항상 입력된 phrases 값 그대로 사용.
+    각 구절 duration = 다음 구절 start - 현재 구절 start (마지막 = 노래 끝까지).
     """
-    # 대본 전체 단어 목록
-    script_words: list[str] = []
-    for line in script_lines:
-        script_words.extend(w for w in line.split() if w)
-    if not script_words:
+    if not phrases:
         return []
 
-    n_s = len(script_words)
+    n_s = len(phrases)
 
     # Whisper word-level start 시간만 추출 (텍스트는 버림)
     whisper_starts: list[float] = []
@@ -119,15 +116,15 @@ def map_script_words_to_timings(
         for seg in segments:
             whisper_starts.append(float(seg["start"]))
 
-    # Whisper 타임스탬프가 전혀 없으면 글자 수 비례 분배
+    # Whisper 타임스탬프가 전혀 없으면 구절 글자 수 비례 분배
     # (배경음악 전용 등 무음 오디오에서 Whisper가 0 segments 반환할 때)
     if not whisper_starts:
-        total_chars = sum(len(w) for w in script_words) or 1
+        total_chars = sum(len(p) for p in phrases) or 1
         t = 0.0
         starts = []
-        for w in script_words:
+        for p in phrases:
             starts.append(t)
-            t += audio_duration * len(w) / total_chars
+            t += audio_duration * len(p) / total_chars
 
     elif len(whisper_starts) >= n_s:
         # 타임스탬프 충분 → 비율로 직접 선택 (보간 없음, 실제 타이밍 변이 보존)
@@ -156,14 +153,14 @@ def map_script_words_to_timings(
             e_slot = slot_ends[j]
             starts.append(s_slot + pos * (e_slot - s_slot) / slot_count[j])
 
-    # 각 단어: start[i] ~ start[i+1], 마지막 단어: start[-1] ~ 노래 끝
+    # 각 구절: start[i] ~ start[i+1], 마지막 구절: start[-1] ~ 노래 끝
     entries: list[tuple[float, float, str]] = []
-    for i, word in enumerate(script_words):
+    for i, phrase in enumerate(phrases):
         s = starts[i]
         e = starts[i + 1] if i + 1 < n_s else audio_duration
         if e <= s:
             e = s + 0.1
-        entries.append((s, e, word))
+        entries.append((s, e, phrase))
 
     return _apply_offset_correction(entries, audio_duration)
 
@@ -816,7 +813,7 @@ def generate_video(
     반환값: (영상 절대 경로, CapCut 프로젝트 폴더 경로)
 
     - bg_image_path : JPG/PNG 배경 이미지
-    - script_text   : 줄바꿈으로 구분된 가사/대본
+    - script_text   : 쉼표(,)로 구분된 자막 구절 (예: "운전하는사람이면,끝까지봐,비올때")
     - audio_path    : MP3 파일
     """
     try:
@@ -833,24 +830,27 @@ def generate_video(
     out_dir.mkdir(parents=True, exist_ok=True)
     output_path = out_dir / output_filename
 
-    script_lines = [ln for ln in script_text.strip().splitlines() if ln.strip()]
+    # 쉼표 구분 구절 파싱
+    phrases = [p.strip() for p in script_text.split(",") if p.strip()]
+    if not phrases:
+        raise RuntimeError("자막 구절을 입력하세요. 예: 운전하는사람이면,끝까지봐,비올때")
 
     # 오디오 길이 확인
     probe = ffmpeg.probe(str(audio_path))
     audio_duration = float(probe["format"]["duration"])
 
-    # Whisper 전사 (word_timestamps=True로 정밀 타이밍)
+    # Whisper 전사 (타이밍 추출용, 텍스트는 사용하지 않음)
     segments = transcribe_audio(str(audio_path))
 
-    # 대본 단어를 Whisper 타이밍에 매핑 (텍스트: 대본, 타이밍: Whisper)
-    capcut_entries = map_script_words_to_timings(script_lines, segments, audio_duration)
+    # 구절을 Whisper 타이밍에 매핑
+    capcut_entries = map_phrases_to_timings(phrases, segments, audio_duration)
 
-    # 자막 내용 검증: 반드시 대본 단어만 포함되어야 함
-    script_words_set = {w for ln in script_lines for w in ln.split() if w}
+    # 자막 내용 검증: 반드시 입력한 구절만 포함되어야 함
+    phrases_set = set(phrases)
     for _, _, text in capcut_entries:
-        if text not in script_words_set:
+        if text not in phrases_set:
             raise RuntimeError(
-                f"자막 텍스트 오염 감지: '{text}'는 대본에 없는 단어입니다. "
+                f"자막 텍스트 오염 감지: '{text}'는 입력 구절에 없습니다. "
                 "Whisper 텍스트가 자막으로 유입되었습니다."
             )
 
