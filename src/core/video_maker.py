@@ -82,20 +82,21 @@ def _fmt_ass_time(seconds: float) -> str:
 
 
 def _build_ass(entries: list[tuple[float, float, str]], font_name: str) -> str:
-    """ASS 자막 파일 내용 생성 (중앙 배치, 크고 굵은 흰색)"""
+    """ASS 자막 파일 내용 생성 (화면 중앙 배치, 단어별 표시)"""
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
         "PlayResX: 1080\n"
         "PlayResY: 1920\n"
+        "WrapStyle: 0\n"
         "ScaledBorderAndShadow: yes\n\n"
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,{font_name},72,&H00FFFFFF,&H000000FF,"
-        "&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,4,3,5,10,10,0,0\n\n"
+        f"Style: Default,{font_name},52,&H00FFFFFF,&H000000FF,"
+        "&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,3,2,5,80,80,60,0\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
     )
@@ -171,14 +172,34 @@ def words_to_timings(
     if not entries:
         return []
 
-    # 겹침 방지
-    for i in range(1, len(entries)):
-        ps, pe, pt = entries[i - 1]
-        cs, ce, ct = entries[i]
-        if pe > cs:
-            entries[i - 1] = (ps, cs, pt)
+    # 각 단어의 end를 다음 단어의 start로 맞춤: 갭 없이 한 단어씩 이어서 표시
+    for i in range(len(entries) - 1):
+        s, _, w = entries[i]
+        ns = entries[i + 1][0]
+        entries[i] = (s, ns, w)
 
     return _apply_offset_correction(entries, audio_duration)
+
+
+def _split_line_entries_to_words(
+    line_entries: list[tuple[float, float, str]],
+) -> list[tuple[float, float, str]]:
+    """줄 단위 타이밍을 개별 단어로 균등 분할.
+    words_to_timings()가 빈 배열일 때(word_timestamps 없음) fallback으로 사용."""
+    result: list[tuple[float, float, str]] = []
+    for start, end, text in line_entries:
+        words = text.split()
+        if not words:
+            continue
+        n = len(words)
+        slot = (end - start) / n
+        for i, word in enumerate(words):
+            result.append((start + i * slot, start + (i + 1) * slot, word))
+    # 각 단어 end를 다음 단어 start로 정렬 (갭/겹침 제거)
+    for i in range(len(result) - 1):
+        s, _, w = result[i]
+        result[i] = (s, result[i + 1][0], w)
+    return result
 
 
 def map_script_to_timings(
@@ -907,8 +928,8 @@ def generate_video(
     # 줄 단위 타이밍 (CapCut 텍스트 트랙용)
     line_entries = map_script_to_timings(script_lines, segments, audio_duration)
 
-    # ASS 자막에 단어별 타이밍 사용 (없으면 줄 단위 fallback)
-    ass_entries = word_entries if word_entries else line_entries
+    # ASS 자막: 단어별 타이밍 우선, word_timestamps 없으면 줄→단어 분할
+    ass_entries = word_entries if word_entries else _split_line_entries_to_words(line_entries)
 
     # ASS 자막 파일 생성
     font_path = _find_font()
