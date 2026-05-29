@@ -462,7 +462,10 @@ _FONT_PATH    = (
     "/7577614738658479376/af10207f3446e8642b54f1db39264c8f/font.ttf"
 )
 _FONT_SIZE    = 20        # 글꼴 크기
-_STROKE_WIDTH = 0.40      # 획 두께 40 → JSON scale: UI값/100
+# 획 두께 스케일: CapCut UI값 × 500 = JSON stored값
+# UI 두께 40 → stored = 40 / 500 = 0.08
+# (실측: stored 0.40 → CapCut 표시 200 = 0.40×500 확인)
+_STROKE_WIDTH = 40 / 500  # = 0.08
 
 
 def _cc_text_content(text: str) -> str:
@@ -655,7 +658,9 @@ def save_capcut_project(
             "line_spacing": 0.02, "has_shadow": True,
             # 그림자: 체크박스 ON, 검정, 불투명도 100%, 흐림 0%, 거리 15, 각도 -45도
             "shadow_color": "#000000", "shadow_alpha": 1.0,
-            "shadow_smoothing": 0.0, "shadow_distance": 15.0,
+            # shadow_smoothing: 실제 프로젝트 분석 결과 흐림 0% = 0.888...
+            # (0.0은 최대 확산 → 그림자 보이지 않음; 스케일 반전)
+            "shadow_smoothing": 0.8880596905946732, "shadow_distance": 15.0,
             "shadow_point": {"x": 0.6363961030678928, "y": -0.6363961030678928},
             "shadow_angle": -45.0,
             "shadow_thickness_projection_enable": False,
@@ -722,7 +727,7 @@ def save_capcut_project(
             "sub_template_id": -1, "translate_original_text": "",
         })
 
-        # 인 애니메이션: 볼드 인, 길이 0.2s (200000μs)
+        # 인 애니메이션: 볼드 인, 길이 0.1s (100000μs)
         # resource_id는 CapCut 프로젝트 파일에서 실측 확인한 값
         mat_animations.append({
             "id": t_anim_id,
@@ -732,7 +737,7 @@ def save_capcut_project(
                 "anim_adjust_params": None,
                 "category_id":   "ruchang_fav",
                 "category_name": "즐겨찾기",
-                "duration":      200000,
+                "duration":      100000,
                 "id":            "7591705801023048976",
                 "material_type": "sticker",
                 "name":          "볼드 인",
@@ -757,11 +762,12 @@ def save_capcut_project(
         tseg["render_index"]     = 14000
         tseg["enable_video_mask"] = True
         tseg["extra_material_refs"] = [t_anim_id]
-        # 위치: X=0, Y=1000 (CapCut 표시 픽셀 좌표)
-        # 실측 scale: transform.y = display_Y_px / canvas_width(1080)
-        # 예) 0419 프로젝트: display≈765px → transform=0.7081 (=765/1080)
+        # 위치: X=0, Y=1000 (CapCut 표시 좌표)
+        # 실측 scale: transform.y × 1920 = CapCut 표시값
+        # (실측: transform=0.9259 → CapCut 표시 1778 = 0.9259×1920 확인)
+        # Y=1000 → transform.y = 1000 / 1920 ≈ 0.5208
         tseg["clip"]["transform"]["x"] = 0.0
-        tseg["clip"]["transform"]["y"] = round(1000 / 1080, 10)  # ≈ 0.9259
+        tseg["clip"]["transform"]["y"] = round(1000 / 1920, 10)  # ≈ 0.5208
 
         text_tracks.append({
             "id": t_trk_id, "type": "text",
