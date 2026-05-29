@@ -633,18 +633,21 @@ def save_capcut_project(
             },
             "layer_weight": 1, "letter_spacing": 0.0,
             "line_spacing": 0.02, "has_shadow": True,
-            "shadow_color": "", "shadow_alpha": 0.9,
-            "shadow_smoothing": 0.45, "shadow_distance": 5.0,
+            # 그림자: 검정, 불투명도 100%, 흐림 0%, 거리 15, 각도 -45도
+            "shadow_color": "#000000", "shadow_alpha": 1.0,
+            "shadow_smoothing": 0.0, "shadow_distance": 15.0,
             "shadow_point": {"x": 0.6363961030678928, "y": -0.6363961030678928},
             "shadow_angle": -45.0,
             "shadow_thickness_projection_enable": False,
             "shadow_thickness_projection_angle": 0.0,
             "shadow_thickness_projection_distance": 0.0,
-            "border_alpha": 1.0, "border_color": "",
-            "border_width": 0.08, "border_mode": 0,
+            # 획: 검정, 두께 40 (JSON scale: display_value/100 = 0.40)
+            "border_alpha": 1.0, "border_color": "#000000",
+            "border_width": 0.40, "border_mode": 0,
+            # 글꼴: 학교안심사물함R, 크기: 20, 색상: 흰색
             "style_name": "", "text_color": "#FFFFFF",
-            "text_alpha": 1.0, "font_name": "",
-            "font_title": "none", "font_size": 15.0,
+            "text_alpha": 1.0, "font_name": "학교안심사물함R",
+            "font_title": "학교안심사물함R", "font_size": 20.0,
             "font_path": "", "font_id": "",
             "font_resource_id": "", "initial_scale": 1.0,
             "font_url": "", "typesetting": 0, "alignment": 1,
@@ -654,7 +657,7 @@ def save_capcut_project(
             "text_to_audio_ids": [], "bold_width": 0.0,
             "italic_degree": 0, "underline": False,
             "underline_width": 0.05, "underline_offset": 0.22,
-            "sub_type": 0, "check_flag": 7, "text_size": 30,
+            "sub_type": 0, "check_flag": 7, "text_size": 20,
             "font_category_name": "", "font_source_platform": 0,
             "font_category_id": "", "add_type": 0,
             "operation_type": 0, "recognize_type": 0,
@@ -697,11 +700,34 @@ def save_capcut_project(
             "sub_template_id": -1, "translate_original_text": "",
         })
 
+        # 인 애니메이션: 볼드 인, 길이 0.2s (200000μs)
+        # resource_id는 CapCut 프로젝트 파일에서 실측 확인한 값
         mat_animations.append({
             "id": t_anim_id,
             "type": "sticker_animation",
-            "animations": [],
             "multi_language_current": "none",
+            "animations": [{
+                "anim_adjust_params": None,
+                "category_id":   "ruchang_fav",
+                "category_name": "즐겨찾기",
+                "duration":      200000,
+                "id":            "7591705801023048976",
+                "material_type": "sticker",
+                "name":          "볼드 인",
+                "panel":         "",
+                "path": (
+                    "C:/Users/user/AppData/Local/CapCut/User Data"
+                    "/Cache/effect/7591705801023048976"
+                    "/aa410ff44e49e9ef8ed043d065b46edf"
+                ),
+                "platform":        "all",
+                "request_id":      "",
+                "resource_id":     "7591705801023048976",
+                "source_platform": 1,
+                "start":           0,
+                "third_resource_id": "0",
+                "type":            "in",
+            }],
         })
 
         tseg = _cc_seg_base(t_seg_id, t_mat_id, s_us, d_us)
@@ -709,10 +735,9 @@ def save_capcut_project(
         tseg["render_index"]     = 14000
         tseg["enable_video_mask"] = True
         tseg["extra_material_refs"] = [t_anim_id]
-        # 자막 y축 위치: 화면 상단 23% (9:16 기준 좌표 −0.48)
-        # 좌표계: width=1.0 기준, top=−0.8889, bottom=+0.8889
-        # −0.8889 + 0.23×1.7778 ≈ −0.48
-        tseg["clip"]["transform"]["y"] = -0.48
+        # 위치: X=0, Y=1000 (CapCut 표시 좌표 → transform 직접 적용)
+        tseg["clip"]["transform"]["x"] = 0
+        tseg["clip"]["transform"]["y"] = 1000
 
         text_tracks.append({
             "id": t_trk_id, "type": "text",
