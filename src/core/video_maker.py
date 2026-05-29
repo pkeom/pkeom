@@ -709,6 +709,10 @@ def save_capcut_project(
         tseg["render_index"]     = 14000
         tseg["enable_video_mask"] = True
         tseg["extra_material_refs"] = [t_anim_id]
+        # 자막 y축 위치: 화면 상단 23% (9:16 기준 좌표 −0.48)
+        # 좌표계: width=1.0 기준, top=−0.8889, bottom=+0.8889
+        # −0.8889 + 0.23×1.7778 ≈ −0.48
+        tseg["clip"]["transform"]["y"] = -0.48
 
         text_tracks.append({
             "id": t_trk_id, "type": "text",
