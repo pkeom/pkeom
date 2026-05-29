@@ -349,6 +349,47 @@ def _text_match_starts(
     return starts
 
 
+def _correct_timing_drift(
+    segments: list[dict],
+    audio_duration: float,
+    min_drift: float = 0.05,
+) -> list[dict]:
+    """Whisper 타임스탬프 drift 비율 보정.
+
+    Whisper는 노래 후반부로 갈수록 타임스탬프가 늘어지는 경향이 있다.
+    마지막 유효 단어의 end 시간과 실제 오디오 길이의 비율로
+    전체 타임스탬프를 선형 스케일링한다.
+
+    min_drift: 이 비율 미만의 drift는 보정 생략 (5% = 기본값)
+    """
+    if not segments:
+        return segments
+
+    last_end = max(
+        float(seg.get("end", 0)) for seg in segments
+    )
+    if last_end <= 0:
+        return segments
+
+    scale = audio_duration / last_end
+    if abs(scale - 1.0) < min_drift:
+        return segments  # drift 미미, 보정 불필요
+
+    corrected = []
+    for seg in segments:
+        new_seg = {**seg}
+        new_seg["start"] = min(float(seg["start"]) * scale, audio_duration)
+        new_seg["end"]   = min(float(seg["end"])   * scale, audio_duration)
+        new_seg["words"] = [
+            {**w,
+             "start": min(float(w["start"]) * scale, audio_duration),
+             "end":   min(float(w["end"])   * scale, audio_duration)}
+            for w in seg.get("words", [])
+        ]
+        corrected.append(new_seg)
+    return corrected
+
+
 def _enforce_monotone(
     starts: list[float],
     audio_duration: float,
@@ -547,6 +588,7 @@ def save_capcut_project(
     audio_path: str,
     subtitle_entries: list[tuple[float, float, str]],
     project_name: str = "스마트스토어 영상",
+    duration_sec: float | None = None,
 ) -> str:
     """CapCut 편집 가능한 프로젝트 저장.
 
@@ -555,11 +597,6 @@ def save_capcut_project(
     - 영상 클립 / 오디오 / 자막 트랙 각각 분리
     반환값: 프로젝트 폴더 절대 경로
     """
-    try:
-        import ffmpeg  # type: ignore
-    except ImportError:
-        raise RuntimeError("ffmpeg-python 패키지가 필요합니다: pip install ffmpeg-python")
-
     username = os.getenv("USERNAME", os.getenv("USER", ""))
     lveditor_root = Path(
         rf"C:\Users\{username}\AppData\Local\CapCut\User Data\Projects\com.lveditor.draft"
@@ -598,10 +635,17 @@ def save_capcut_project(
     proj_fwd  = str(project_dir).replace("\\", "/")
     root_fwd  = str(lveditor_root).replace("\\", "/")
 
-    # 영상 길이 (마이크로초)
-    probe = ffmpeg.probe(str(video_path))
-    duration_sec = float(probe["format"]["duration"])
-    duration_us  = int(duration_sec * 1_000_000)
+    # 영상 길이 — 호출자가 duration_sec를 전달하면 ffprobe 불필요
+    # (ffprobe PATH 의존성 제거 → CapCut 프로젝트 저장 안정성 향상)
+    if duration_sec is None:
+        try:
+            import ffmpeg as _ffmpeg  # type: ignore
+            duration_sec = float(_ffmpeg.probe(str(video_path))["format"]["duration"])
+        except Exception:
+            import soundfile as _sf
+            info = _sf.info(str(audio_path))
+            duration_sec = info.frames / info.samplerate
+    duration_us = int(duration_sec * 1_000_000)
 
     # CapCut 타임스탬프: microseconds since Unix epoch
     now_us  = int(time.time() * 1_000_000)
@@ -1185,6 +1229,10 @@ def generate_video(
     # Whisper 전사 (타이밍 추출용, 텍스트는 사용하지 않음)
     segments = transcribe_audio(str(audio_path))
 
+    # Drift 보정: 후반부로 갈수록 타임스탬프가 늘어지는 현상 교정
+    # 마지막 단어 end 기준으로 전체 타임스탬프를 audio_duration에 비례 스케일
+    segments = _correct_timing_drift(segments, audio_duration)
+
     # 구절을 Whisper 타이밍에 매핑
     capcut_entries = map_phrases_to_timings(phrases, segments, audio_duration)
 
@@ -1245,6 +1293,7 @@ def generate_video(
         audio_path=audio_path,
         subtitle_entries=capcut_entries,
         project_name=project_name,
+        duration_sec=audio_duration,   # ffprobe 재호출 불필요
     )
 
     return video_path, capcut_dir
