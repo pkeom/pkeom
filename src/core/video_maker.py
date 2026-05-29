@@ -51,9 +51,13 @@ def _find_ffmpeg() -> str:
 def _separate_vocals(audio_path: str) -> str:
     """Demucs htdemucs 모델로 보컬 스템 분리.
 
-    배경음악과 보컬을 분리해 WhisperX가 보컬만 전사하도록 한다.
-    반환: 임시 보컬 WAV 파일 경로 (호출자가 삭제 책임)
+    하이라이트 구간에서 악기와 보컬이 겹쳐 Whisper 타이밍이 밀리는 문제 방지.
+    Demucs로 배경음악을 제거한 순수 보컬 WAV를 반환한다.
+
+    한글/공백 경로 대응: ASCII 임시 디렉토리 사용 (경로 인코딩 오류 방지)
+    반환: 임시 보컬 WAV 경로 (호출자가 부모 디렉토리째 삭제 책임)
     """
+    import tempfile
     try:
         import torch
         import numpy as np
@@ -67,48 +71,47 @@ def _separate_vocals(audio_path: str) -> str:
 
     model = get_model("htdemucs")
     model.eval()
-
-    # torchaudio 2.11+ 는 MP3/WAV 모두 torchcodec 필요 → soundfile + ffmpeg로 대체
-    # 1) ffmpeg로 PCM WAV 변환
     ffmpeg_bin = _find_ffmpeg()
-    wav_input = str(Path(audio_path).with_suffix("")) + f"_input_{uuid.uuid4().hex[:8]}.wav"
-    subprocess.run(
-        [ffmpeg_bin, "-y", "-i", str(audio_path),
-         "-ar", str(model.samplerate), "-ac", "2", "-f", "wav", wav_input],
-        check=True, capture_output=True,
-    )
-    # 2) soundfile로 로드 → torch tensor (2, samples)
+
+    # 한글·공백 경로 문제 방지: ASCII 임시 디렉토리에서 처리
+    tmp_dir = tempfile.mkdtemp(prefix="vcl_")
     try:
-        data, sr = sf.read(wav_input, dtype="float32")  # (samples, channels)
-    finally:
-        try:
-            os.unlink(wav_input)
-        except Exception:
-            pass
-    wav = torch.from_numpy(data.T)  # (channels, samples)
-    if wav.shape[0] == 1:
-        wav = wav.repeat(2, 1)  # mono → stereo
+        safe_mp3 = os.path.join(tmp_dir, "audio.mp3")
+        shutil.copy2(audio_path, safe_mp3)
 
-    # 정규화
-    ref = wav.mean(0)
-    wav_norm = (wav - ref.mean()) / ref.std()
+        wav_in = os.path.join(tmp_dir, "input.wav")
+        subprocess.run(
+            [ffmpeg_bin, "-y", "-i", safe_mp3,
+             "-ar", str(model.samplerate), "-ac", "2", "-f", "wav", wav_in],
+            check=True, capture_output=True,
+        )
 
-    with torch.no_grad():
-        sources = apply_model(model, wav_norm.unsqueeze(0), device="cpu", progress=False)
+        data, _ = sf.read(wav_in, dtype="float32")  # (samples, channels)
+        wav = torch.from_numpy(data.T)               # (channels, samples)
+        if wav.shape[0] == 1:
+            wav = wav.repeat(2, 1)
 
-    # 보컬 스템 추출 (htdemucs stems: drums/bass/other/vocals)
-    stems = list(model.sources)
-    if "vocals" not in stems:
-        raise RuntimeError(f"htdemucs 모델에 vocals 스템 없음: {stems}")
+        ref = wav.mean(0)
+        wav_norm = (wav - ref.mean()) / ref.std()
 
-    vocals_idx = stems.index("vocals")
-    vocals = sources[0, vocals_idx] * ref.std() + ref.mean()
+        with torch.no_grad():
+            sources = apply_model(model, wav_norm.unsqueeze(0), device="cpu", progress=False)
 
-    # 임시 파일 저장 (soundfile 사용, torchaudio.save는 torchcodec 필요)
-    vocals_tmp = str(Path(audio_path).with_suffix("")) + f"_vocals_{uuid.uuid4().hex[:8]}.wav"
-    vocals_np = vocals.cpu().numpy().T  # (samples, channels)
-    sf.write(vocals_tmp, vocals_np, model.samplerate)
-    return vocals_tmp
+        stems = list(model.sources)
+        if "vocals" not in stems:
+            raise RuntimeError(f"htdemucs 모델에 vocals 스템 없음: {stems}")
+
+        vi = stems.index("vocals")
+        vocals    = sources[0, vi] * ref.std() + ref.mean()
+        vocals_np = vocals.cpu().numpy().T  # (samples, channels)
+
+        vocals_path = os.path.join(tmp_dir, "vocals.wav")
+        sf.write(vocals_path, vocals_np, model.samplerate)
+        return vocals_path   # tmp_dir는 호출자가 shutil.rmtree로 정리
+
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
 
 
 def transcribe_audio(audio_path: str) -> list[dict]:
@@ -200,11 +203,17 @@ def transcribe_audio(audio_path: str) -> list[dict]:
         return segments
 
     finally:
-        if vocals_path and os.path.exists(vocals_path):
-            try:
-                os.unlink(vocals_path)
-            except Exception:
-                pass
+        if vocals_path:
+            # _separate_vocals가 반환한 파일은 ASCII 임시 디렉토리 안에 있음
+            # 파일이 아닌 디렉토리째 삭제하여 잔여 파일 없도록 정리
+            tmp_dir = os.path.dirname(vocals_path)
+            if os.path.basename(tmp_dir).startswith("vcl_"):
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            elif os.path.exists(vocals_path):
+                try:
+                    os.unlink(vocals_path)
+                except Exception:
+                    pass
 
 
 def _decompose_jamo(text: str) -> str:
@@ -702,9 +711,11 @@ def save_capcut_project(
             "line_spacing": 0.02, "has_shadow": True,
             # 그림자: 체크박스 ON, 검정, 불투명도 100%, 흐림 0%, 거리 15, 각도 -45도
             "shadow_color": "#000000", "shadow_alpha": 1.0,
-            # shadow_smoothing: 실제 프로젝트 분석 결과 흐림 0% = 0.888...
-            # (0.0은 최대 확산 → 그림자 보이지 않음; 스케일 반전)
-            "shadow_smoothing": 0.8880596905946732, "shadow_distance": 15.0,
+            # shadow_smoothing 스케일: display_blur = stored × (1/0.03) ≈ stored × 33.3
+            # 흐림  0% → stored = 0.0   (선명한 그림자)
+            # 흐림 15% → stored = 0.45  (기본값)
+            # 흐림 30% → stored = 0.888 (이전 잘못된 값)
+            "shadow_smoothing": 0.0, "shadow_distance": 15.0,
             "shadow_point": {"x": 0.6363961030678928, "y": -0.6363961030678928},
             "shadow_angle": -45.0,
             "shadow_thickness_projection_enable": False,
