@@ -112,11 +112,12 @@ def _separate_vocals(audio_path: str) -> str:
 
 
 def transcribe_audio(audio_path: str) -> list[dict]:
-    """Demucs 보컬 분리 + whisper-timestamped 정밀 전사.
+    """Demucs 보컬 분리 + whisper-timestamped medium 정밀 전사.
 
     1) Demucs htdemucs 로 배경음악 제거 → 보컬 WAV 추출
-    2) whisper-timestamped base 모델로 전사
-       (DTW Cross-Attention 기반 word timestamp — faster-whisper 대비 평균 9% 오차 감소)
+    2) whisper-timestamped medium 모델로 전사
+       - DTW Cross-Attention word timestamp
+       - hallucination 필터: 오디오 길이 초과 타임스탬프 제거, confidence 임계값 적용
 
     반환: [{start, end, text, words:[{word, start, end}...]}, ...]
     """
@@ -127,50 +128,69 @@ def transcribe_audio(audio_path: str) -> list[dict]:
             "whisper-timestamped 패키지가 필요합니다: pip install whisper-timestamped"
         )
 
+    # confidence 임계값: 이 미만 단어는 환각(hallucination)으로 간주해 제거
+    CONF_MIN = 0.15
+
     vocals_path: str | None = None
     try:
         # 1단계: Demucs 보컬 분리
         vocals_path = _separate_vocals(str(audio_path))
 
-        # 2단계: whisper-timestamped 전사 (DTW Cross-Attention word timestamps)
-        # wt.load_audio는 ffmpeg PATH 필요 → soundfile로 직접 로드해 numpy 배열 전달
+        # 2단계: soundfile로 WAV 로드 → numpy 배열 (ffmpeg PATH 의존성 제거)
         import soundfile as sf
         import numpy as np
+        import math
         data, sr = sf.read(vocals_path, dtype="float32")
         if data.ndim > 1:
             data = data.mean(axis=1)
+        audio_duration = len(data) / sr
         if sr != 16000:
-            # 단순 리샘플 (soundfile은 리샘플 미지원 → 간격 재색인)
-            import math
-            ratio = 16000 / sr
-            new_len = math.ceil(len(data) * ratio)
+            new_len = math.ceil(len(data) * 16000 / sr)
             indices = np.linspace(0, len(data) - 1, new_len)
             data = np.interp(indices, np.arange(len(data)), data)
         audio_np = data.astype(np.float32)
 
-        model = wt.load_model("base", device="cpu")
+        # 3단계: whisper-timestamped medium 전사
+        model = wt.load_model("medium", device="cpu")
         result = wt.transcribe(
             model, audio_np,
             language="ko",
             detect_disfluencies=False,
         )
 
+        # 4단계: hallucination 필터링
         segments: list[dict] = []
         for seg in result.get("segments", []):
-            words = [
-                {
+            seg_start = float(seg["start"])
+
+            # 오디오 길이를 초과하는 세그먼트 전체 제거 (hallucination)
+            if seg_start >= audio_duration:
+                continue
+
+            words = []
+            for w in seg.get("words", []):
+                w_start = float(w.get("start", seg_start))
+                w_conf  = float(w.get("confidence", 1.0))
+
+                # 오디오 범위 초과 or 신뢰도 미달 단어 제거
+                if w_start >= audio_duration:
+                    continue
+                if w_conf < CONF_MIN:
+                    continue
+
+                words.append({
                     "word":  w.get("text", ""),
-                    "start": float(w.get("start", seg["start"])),
-                    "end":   float(w.get("end",   seg["end"])),
-                }
-                for w in seg.get("words", [])
-            ]
-            segments.append({
-                "start": float(seg["start"]),
-                "end":   float(seg["end"]),
-                "text":  seg.get("text", ""),
-                "words": words,
-            })
+                    "start": w_start,
+                    "end":   min(float(w.get("end", seg_start)), audio_duration),
+                })
+
+            if words:
+                segments.append({
+                    "start": seg_start,
+                    "end":   min(float(seg["end"]), audio_duration),
+                    "text":  seg.get("text", "").strip(),
+                    "words": words,
+                })
 
         return segments
 
@@ -180,6 +200,34 @@ def transcribe_audio(audio_path: str) -> list[dict]:
                 os.unlink(vocals_path)
             except Exception:
                 pass
+
+
+def _decompose_jamo(text: str) -> str:
+    """한글 음절을 초성·중성·종성 자모로 분해.
+
+    '운전하는' → 'ㅇㅜㄴㅈㅓㄴㅎㅏㄴㅡㄴ'
+    '문전하는' → 'ㅁㅜㄴㅈㅓㄴㅎㅏㄴㅡㄴ'
+    → SequenceMatcher ratio 0.75(음절) → ~0.91(자모) 향상
+    """
+    CHOSUNG  = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+    JUNGSUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
+    JONGSUNG = " ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ"
+    result = []
+    for ch in text:
+        code = ord(ch)
+        if 0xAC00 <= code <= 0xD7A3:
+            code -= 0xAC00
+            jong = code % 28
+            code //= 28
+            jung = code % 21
+            cho  = code // 21
+            result.append(CHOSUNG[cho])
+            result.append(JUNGSUNG[jung])
+            if jong:
+                result.append(JONGSUNG[jong])
+        else:
+            result.append(ch)
+    return "".join(result)
 
 
 def _apply_offset_correction(
@@ -210,12 +258,13 @@ def _text_match_starts(
     segments: list[dict],
     audio_duration: float,
 ) -> list[float] | None:
-    """텍스트 유사도 기반 구절→Whisper 타임스탬프 매핑.
+    """한글 자모 분해 + 음절 유사도 결합 기반 구절→Whisper 타임스탬프 매핑.
 
-    각 구절을 Whisper 단어 시퀀스에서 SequenceMatcher로 가장 유사한 위치에 매핑.
     - 정방향 greedy: phrase[i] 매핑 위치 이후에서만 phrase[i+1] 탐색
-    - window 크기 1~8 범위 슬라이딩으로 최대 유사도 위치 선택
-    - 평균 매칭 점수가 0.2 미만이면 None 반환 (fallback 유도)
+    - window 크기 1~8 슬라이딩으로 최대 유사도 위치 선택
+    - 유사도 = 0.55 × 자모(jamo) score + 0.45 × 음절(syllable) score
+      → '운전하는' vs '문전하는': 음절 0.75 → 자모 0.91, 결합 0.84 (대폭 향상)
+    - 평균 매칭 점수 0.2 미만이면 None 반환 (fallback 유도)
     """
     words: list[tuple[float, str]] = []
     for seg in segments:
@@ -227,7 +276,7 @@ def _text_match_starts(
     if not words:
         return None
 
-    n_words = len(words)
+    n_words   = len(words)
     n_phrases = len(phrases)
     search_from = 0
     starts: list[float] = []
@@ -240,36 +289,42 @@ def _text_match_starts(
             scores.append(0.0)
             continue
 
+        jamo_phrase = _decompose_jamo(norm_phrase)
+
         best_score = -1.0
         best_start = words[min(search_from, n_words - 1)][0]
-        best_pos = search_from
+        best_pos   = search_from
 
-        # 남은 구절 수에 따라 탐색 상한 조정 (뒤쪽 구절에 자리를 남김)
         remaining_after = n_phrases - ph_idx - 1
-        search_limit = max(search_from + 1, n_words - remaining_after)
+        search_limit    = max(search_from + 1, n_words - remaining_after)
 
         for pos in range(search_from, min(search_limit, n_words)):
             for win in range(1, min(9, n_words - pos + 1)):
-                window_text = "".join(w[1] for w in words[pos: pos + win])
-                score = difflib.SequenceMatcher(
-                    None, norm_phrase, window_text
-                ).ratio()
+                window_syl  = "".join(w[1] for w in words[pos: pos + win])
+                window_jamo = _decompose_jamo(window_syl)
+
+                # 음절 유사도
+                score_syl  = difflib.SequenceMatcher(None, norm_phrase, window_syl).ratio()
+                # 자모 유사도 (초성 1자 차이도 높은 점수)
+                score_jamo = difflib.SequenceMatcher(None, jamo_phrase, window_jamo).ratio()
+                # 결합 (자모에 더 높은 가중치)
+                score = 0.55 * score_jamo + 0.45 * score_syl
+
                 # 구절보다 현저히 짧은 window에 패널티
-                # (예: "비올때" vs "때" → 0.5가 "비었대" vs "비올때" 0.333을 이기는 오작동 방지)
-                length_ratio = len(window_text) / max(1, len(norm_phrase))
+                length_ratio = len(window_syl) / max(1, len(norm_phrase))
                 if length_ratio < 0.6:
                     score *= length_ratio
+
                 if score > best_score:
                     best_score = score
                     best_start = words[pos][0]
-                    best_pos = pos
+                    best_pos   = pos
 
         starts.append(best_start)
         scores.append(best_score)
         search_from = best_pos + 1
 
         if search_from >= n_words:
-            # 남은 구절은 마지막 단어 이후 균등 배분
             remaining = n_phrases - len(starts)
             if remaining > 0:
                 last_t = starts[-1]
