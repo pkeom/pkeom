@@ -128,8 +128,11 @@ def transcribe_audio(audio_path: str) -> list[dict]:
             "whisper-timestamped 패키지가 필요합니다: pip install whisper-timestamped"
         )
 
-    # confidence 임계값: 이 미만 단어는 환각(hallucination)으로 간주해 제거
-    CONF_MIN = 0.15
+    # ── hallucination 필터 파라미터 ───────────────────────────────────
+    # confidence < CONF_MIN 단어 제거 (0.20으로 강화 — 이전 0.15)
+    CONF_MIN      = 0.20
+    # 오디오 끝 TAIL_MARGIN 초 이내 시작하는 단어도 제거 (끝 직전 hallucination 차단)
+    TAIL_MARGIN   = 0.3
 
     vocals_path: str | None = None
     try:
@@ -144,6 +147,8 @@ def transcribe_audio(audio_path: str) -> list[dict]:
         if data.ndim > 1:
             data = data.mean(axis=1)
         audio_duration = len(data) / sr
+        # hallucination 판단 기준선: 오디오 끝 TAIL_MARGIN 초 전부터 차단
+        cut_at = audio_duration - TAIL_MARGIN
         if sr != 16000:
             new_len = math.ceil(len(data) * 16000 / sr)
             indices = np.linspace(0, len(data) - 1, new_len)
@@ -163,8 +168,8 @@ def transcribe_audio(audio_path: str) -> list[dict]:
         for seg in result.get("segments", []):
             seg_start = float(seg["start"])
 
-            # 오디오 길이를 초과하는 세그먼트 전체 제거 (hallucination)
-            if seg_start >= audio_duration:
+            # 오디오 유효 구간(= audio_duration - TAIL_MARGIN) 이후 세그먼트 전체 제거
+            if seg_start >= cut_at:
                 continue
 
             words = []
@@ -172,8 +177,8 @@ def transcribe_audio(audio_path: str) -> list[dict]:
                 w_start = float(w.get("start", seg_start))
                 w_conf  = float(w.get("confidence", 1.0))
 
-                # 오디오 범위 초과 or 신뢰도 미달 단어 제거
-                if w_start >= audio_duration:
+                # 유효 구간 초과 or confidence 미달 단어 제거
+                if w_start >= cut_at:
                     continue
                 if w_conf < CONF_MIN:
                     continue
@@ -307,8 +312,8 @@ def _text_match_starts(
                 score_syl  = difflib.SequenceMatcher(None, norm_phrase, window_syl).ratio()
                 # 자모 유사도 (초성 1자 차이도 높은 점수)
                 score_jamo = difflib.SequenceMatcher(None, jamo_phrase, window_jamo).ratio()
-                # 결합 (자모에 더 높은 가중치)
-                score = 0.55 * score_jamo + 0.45 * score_syl
+                # 결합: 자모에 더 높은 가중치 (0.70/0.30 — 이전 0.55/0.45)
+                score = 0.70 * score_jamo + 0.30 * score_syl
 
                 # 구절보다 현저히 짧은 window에 패널티
                 length_ratio = len(window_syl) / max(1, len(norm_phrase))

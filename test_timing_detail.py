@@ -77,8 +77,9 @@ def separate_vocals(mp3_path: str, tmp_dir: str) -> str:
     sf.write(vocals_wav, vocals_np, model.samplerate)
     return vocals_wav
 
-# ── Step2: whisper-timestamped medium + hallucination 필터 ────────
-CONF_MIN = 0.15
+# ── Step2: whisper-timestamped medium + 강화된 hallucination 필터 ──
+CONF_MIN    = 0.20   # 강화: 이전 0.15 → 0.20
+TAIL_MARGIN = 0.3    # 오디오 끝 0.3초 이내 시작 단어도 제거
 
 def transcribe_wt(wav_path: str) -> list[dict]:
     import whisper_timestamped as wt
@@ -88,6 +89,7 @@ def transcribe_wt(wav_path: str) -> list[dict]:
     if data.ndim > 1:
         data = data.mean(axis=1)
     audio_duration = len(data) / sr
+    cut_at = audio_duration - TAIL_MARGIN   # 강화: 끝 0.3초 전부터 차단
     if sr != 16000:
         indices = np.linspace(0, len(data) - 1, math.ceil(len(data) * 16000 / sr))
         data = np.interp(indices, np.arange(len(data)), data)
@@ -100,17 +102,17 @@ def transcribe_wt(wav_path: str) -> list[dict]:
     filtered_count = 0
     for seg in result.get("segments", []):
         seg_start = float(seg["start"])
-        if seg_start >= audio_duration:          # hallucination: 오디오 길이 초과
+        if seg_start >= cut_at:              # 강화: 끝 tail 구간 세그먼트 제거
             filtered_count += len(seg.get("words", []))
             continue
         words = []
         for w in seg.get("words", []):
             w_start = float(w.get("start", seg_start))
             w_conf  = float(w.get("confidence", 1.0))
-            if w_start >= audio_duration:        # 길이 초과 단어
+            if w_start >= cut_at:            # 강화: tail 구간 단어 제거
                 filtered_count += 1
                 continue
-            if w_conf < CONF_MIN:                # 신뢰도 미달
+            if w_conf < CONF_MIN:            # 강화: 신뢰도 0.20 미달 제거
                 filtered_count += 1
                 continue
             words.append({
@@ -127,7 +129,7 @@ def transcribe_wt(wav_path: str) -> list[dict]:
                 "words": words,
             })
     if filtered_count:
-        print(f"  [필터] hallucination/low-conf 단어 {filtered_count}개 제거됨")
+        print(f"  [필터] hallucination/low-conf/tail 단어 {filtered_count}개 제거됨")
     return segments
 
 # ── Step3: onset detection ─────────────────────────────────────────
