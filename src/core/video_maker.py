@@ -244,6 +244,34 @@ def _decompose_jamo(text: str) -> str:
     return "".join(result)
 
 
+# 한글 조사/어미 목록 — 구절 끝에 붙은 조사를 제거한 변형을 매칭에 활용
+_PARTICLES = frozenset([
+    # 2음절
+    "이면", "에서", "으로", "이나", "부터", "까지", "처럼", "같이", "보다",
+    "이고", "이라", "이랑", "에게", "한테", "으면",
+    # 1음절
+    "이", "가", "은", "는", "을", "를", "에", "로", "와", "과",
+    "도", "만", "의", "면", "나", "고", "서", "랑",
+])
+
+
+def _particle_variants(text: str) -> list[tuple[str, str]]:
+    """조사/어미 제거 변형(원본 포함)의 (음절, 자모) 쌍 목록 반환.
+
+    '사이드미러에' → [('사이드미러에', jamo), ('사이드미러', jamo)]
+    '운전하는사람이면' → [('운전하는사람이면', jamo), ('운전하는사람', jamo), ...]
+    """
+    seen = {text}
+    pairs = [(text, _decompose_jamo(text))]
+    for p in _PARTICLES:
+        if text.endswith(p) and len(text) > len(p) + 1:
+            stripped = text[:-len(p)]
+            if stripped not in seen:
+                seen.add(stripped)
+                pairs.append((stripped, _decompose_jamo(stripped)))
+    return pairs
+
+
 def _apply_offset_correction(
     entries: list[tuple[float, float, str]],
     audio_duration: float,
@@ -276,8 +304,9 @@ def _text_match_starts(
 
     - 정방향 greedy: phrase[i] 매핑 위치 이후에서만 phrase[i+1] 탐색
     - window 크기 1~8 슬라이딩으로 최대 유사도 위치 선택
-    - 유사도 = 0.55 × 자모(jamo) score + 0.45 × 음절(syllable) score
-      → '운전하는' vs '문전하는': 음절 0.75 → 자모 0.91, 결합 0.84 (대폭 향상)
+    - 유사도 = 0.70 × 자모(jamo) score + 0.30 × 음절(syllable) score
+    - 조사/어미 변형 후보(_particle_variants)를 모두 시도해 최고 점수 채택
+      → '사이드미러에' vs '사이드미러': 조사 '에' 제거 변형이 더 높은 점수
     - 평균 매칭 점수 0.2 미만이면 None 반환 (fallback 유도)
     """
     words: list[tuple[float, str]] = []
@@ -303,7 +332,7 @@ def _text_match_starts(
             scores.append(0.0)
             continue
 
-        jamo_phrase = _decompose_jamo(norm_phrase)
+        phrase_variants = _particle_variants(norm_phrase)
 
         best_score = -1.0
         best_start = words[min(search_from, n_words - 1)][0]
@@ -317,17 +346,17 @@ def _text_match_starts(
                 window_syl  = "".join(w[1] for w in words[pos: pos + win])
                 window_jamo = _decompose_jamo(window_syl)
 
-                # 음절 유사도
-                score_syl  = difflib.SequenceMatcher(None, norm_phrase, window_syl).ratio()
-                # 자모 유사도 (초성 1자 차이도 높은 점수)
-                score_jamo = difflib.SequenceMatcher(None, jamo_phrase, window_jamo).ratio()
-                # 결합: 자모에 더 높은 가중치 (0.70/0.30 — 이전 0.55/0.45)
-                score = 0.70 * score_jamo + 0.30 * score_syl
-
-                # 구절보다 현저히 짧은 window에 패널티
-                length_ratio = len(window_syl) / max(1, len(norm_phrase))
-                if length_ratio < 0.6:
-                    score *= length_ratio
+                # 조사/어미 제거 변형 포함, 최고 점수 채택
+                score = -1.0
+                for p_syl, p_jamo in phrase_variants:
+                    s_syl  = difflib.SequenceMatcher(None, p_syl,  window_syl).ratio()
+                    s_jamo = difflib.SequenceMatcher(None, p_jamo, window_jamo).ratio()
+                    s      = 0.70 * s_jamo + 0.30 * s_syl
+                    lr     = len(window_syl) / max(1, len(p_syl))
+                    if lr < 0.6:
+                        s *= lr
+                    if s > score:
+                        score = s
 
                 if score > best_score:
                     best_score = score
