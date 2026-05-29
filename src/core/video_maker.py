@@ -456,14 +456,34 @@ def _cc_uid() -> str:
     return str(uuid.uuid4()).upper()
 
 
+_FONT_RES_ID  = "7577614738658479376"
+_FONT_PATH    = (
+    "C:/Users/user/AppData/Local/CapCut/User Data/Cache/effect"
+    "/7577614738658479376/af10207f3446e8642b54f1db39264c8f/font.ttf"
+)
+_FONT_SIZE    = 20        # 글꼴 크기
+_STROKE_WIDTH = 0.40      # 획 두께 40 → JSON scale: UI값/100
+
+
 def _cc_text_content(text: str) -> str:
-    """CapCut text material의 content 필드용 JSON 문자열 생성"""
+    """CapCut text material content 필드 JSON 생성.
+
+    실제 CapCut 프로젝트 파일 분석 결과:
+    - font 적용은 content.styles[].font.path + font.id 가 필수
+    - 획(stroke)은 content.styles[].strokes 배열로 지정
+    - 폰트·획은 material 레벨 필드와 content 필드 모두 설정해야 반영됨
+    """
     return json.dumps({
         "text": text,
         "styles": [{
             "fill": {"content": {"render_type": "solid", "solid": {"color": [1, 1, 1]}}},
-            "font": {"path": "", "id": ""},
-            "size": 15,
+            "font": {"path": _FONT_PATH, "id": _FONT_RES_ID},
+            "strokes": [{
+                "content": {"render_type": "solid", "solid": {"color": [0, 0, 0]}},
+                "width": _STROKE_WIDTH,
+            }],
+            "size": _FONT_SIZE,
+            "useLetterColor": True,
             "range": [0, len(text)],
         }],
     }, ensure_ascii=False)
@@ -633,7 +653,7 @@ def save_capcut_project(
             },
             "layer_weight": 1, "letter_spacing": 0.0,
             "line_spacing": 0.02, "has_shadow": True,
-            # 그림자: 검정, 불투명도 100%, 흐림 0%, 거리 15, 각도 -45도
+            # 그림자: 체크박스 ON, 검정, 불투명도 100%, 흐림 0%, 거리 15, 각도 -45도
             "shadow_color": "#000000", "shadow_alpha": 1.0,
             "shadow_smoothing": 0.0, "shadow_distance": 15.0,
             "shadow_point": {"x": 0.6363961030678928, "y": -0.6363961030678928},
@@ -641,15 +661,17 @@ def save_capcut_project(
             "shadow_thickness_projection_enable": False,
             "shadow_thickness_projection_angle": 0.0,
             "shadow_thickness_projection_distance": 0.0,
-            # 획: 검정, 두께 40 (JSON scale: display_value/100 = 0.40)
+            # 획: 체크박스 ON, 검정, 두께 40 (JSON scale: UI값/100 = 0.40)
+            # content.strokes 배열에도 동일 값 반영 (실제 렌더링 기준)
             "border_alpha": 1.0, "border_color": "#000000",
-            "border_width": 0.40, "border_mode": 0,
-            # 글꼴: 학교안심사물함R, 크기: 20, 색상: 흰색
+            "border_width": _STROKE_WIDTH, "border_mode": 0,
+            # 글꼴: 학교안심사물함R (resource_id=7577614738658479376)
+            # font_path + font_id 필수 — content 필드의 font와 동기화
             "style_name": "", "text_color": "#FFFFFF",
             "text_alpha": 1.0, "font_name": "학교안심사물함R",
-            "font_title": "학교안심사물함R", "font_size": 20.0,
-            "font_path": "", "font_id": "",
-            "font_resource_id": "", "initial_scale": 1.0,
+            "font_title": "학교안심사물함R", "font_size": float(_FONT_SIZE),
+            "font_path": _FONT_PATH, "font_id": _FONT_RES_ID,
+            "font_resource_id": _FONT_RES_ID, "initial_scale": 1.0,
             "font_url": "", "typesetting": 0, "alignment": 1,
             "line_feed": 1, "use_effect_default_color": True,
             "is_rich_text": False, "shape_clip_x": False,
@@ -657,7 +679,7 @@ def save_capcut_project(
             "text_to_audio_ids": [], "bold_width": 0.0,
             "italic_degree": 0, "underline": False,
             "underline_width": 0.05, "underline_offset": 0.22,
-            "sub_type": 0, "check_flag": 7, "text_size": 20,
+            "sub_type": 0, "check_flag": 7, "text_size": _FONT_SIZE,
             "font_category_name": "", "font_source_platform": 0,
             "font_category_id": "", "add_type": 0,
             "operation_type": 0, "recognize_type": 0,
@@ -735,9 +757,11 @@ def save_capcut_project(
         tseg["render_index"]     = 14000
         tseg["enable_video_mask"] = True
         tseg["extra_material_refs"] = [t_anim_id]
-        # 위치: X=0, Y=1000 (CapCut 표시 좌표 → transform 직접 적용)
-        tseg["clip"]["transform"]["x"] = 0
-        tseg["clip"]["transform"]["y"] = 1000
+        # 위치: X=0, Y=1000 (CapCut 표시 픽셀 좌표)
+        # 실측 scale: transform.y = display_Y_px / canvas_width(1080)
+        # 예) 0419 프로젝트: display≈765px → transform=0.7081 (=765/1080)
+        tseg["clip"]["transform"]["x"] = 0.0
+        tseg["clip"]["transform"]["y"] = round(1000 / 1080, 10)  # ≈ 0.9259
 
         text_tracks.append({
             "id": t_trk_id, "type": "text",
