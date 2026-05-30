@@ -669,6 +669,7 @@ tbody tr:hover td { background: #FAFBFC; }
             <th>상품명</th>
             <th>수량</th>
             <th>취소 사유</th>
+            <th>도매처 발주번호</th>
             <th>처리 결과</th>
             <th>감지 시각</th>
           </tr>
@@ -1245,9 +1246,10 @@ async function regSubmit() {
 
 // ── 7. Cancels ────────────────────────────────────────────────
 const _CANCEL_RESULT = {
-  CANCEL_APPROVED: ['bdg-inv',   '취소 승인'],
-  RETURN_GUIDE:    ['bdg-pend',  '반품 안내 필요'],
-  APPROVE_FAILED:  ['bdg-err',   '승인 실패'],
+  CANCEL_APPROVED:        ['bdg-inv',   '취소 승인'],
+  RETURN_GUIDE:           ['bdg-pend',  '반품 안내 필요'],
+  APPROVE_FAILED:         ['bdg-err',   '승인 실패'],
+  SUPPLIER_CANCEL_FAILED: ['bdg-err',   '도매처 취소 실패'],
 };
 
 function cancelBdg(result) {
@@ -1264,7 +1266,8 @@ async function loadCancels() {
         <td>${c.product_name||'-'}</td>
         <td style="text-align:center">${c.quantity||'-'}</td>
         <td>${c.cancel_reason||'-'}</td>
-        <td>${cancelBdg(c.result)}</td>
+        <td class="mono" style="font-size:11px">${c.supplier_info||'-'}</td>
+        <td>${cancelBdg(c.result)}<br><span style="font-size:10px;color:var(--text3)">${c.result_label||''}</span></td>
         <td>${fmtDate(c.detected_at)}</td>
       </tr>`).join('')
     : empty('취소 요청 없음');

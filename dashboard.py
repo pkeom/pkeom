@@ -134,7 +134,7 @@ def api_summary():
     all_cancels   = cancellations_data.get("cancellations", [])
     pending_cancel = sum(
         1 for c in all_cancels
-        if c.get("result") in ("RETURN_GUIDE", "APPROVE_FAILED")
+        if c.get("result") in ("RETURN_GUIDE", "APPROVE_FAILED", "SUPPLIER_CANCEL_FAILED")
     )
 
     return jsonify({

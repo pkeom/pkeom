@@ -118,6 +118,31 @@ class DomaekkukAPI:
         )
         return self._root(resp)
 
+    def cancel_order(self, order_no: str) -> dict:
+        """발주 취소.
+
+        ※ 도매꾹 주문 API는 Private API(별도 승인 필요)이므로
+          실제 mode명·파라미터명은 승인 후 발급된 문서와 대조하여 수정하세요.
+          배송 시작 전에만 취소 가능. 이미 발송된 경우 API가 오류를 반환합니다.
+        """
+        resp = requests.post(
+            self.API_URL,
+            data={
+                "ver":      "4.1",
+                "mode":     "cancelOrder",   # Private API 문서 확인 후 수정
+                "aid":      self.api_key,
+                "uid":      self.user_id,
+                "pwd":      self.password,
+                "om":       "json",
+                "order_no": order_no,        # 파라미터명 확인 필요
+            },
+        )
+        root = self._root(resp)
+        err = root.get("error") or root.get("errCode") or root.get("errMsg")
+        if err:
+            raise RuntimeError(f"도매꾹 발주 취소 실패: {err}")
+        return root
+
     def get_order_tracking(self, order_no: str) -> dict:
         """발주 건 송장 정보 조회. 반환값: {order_no, delivery_company, tracking_number}
         ※ 실제 필드명은 API 승인 후 문서에서 확인 필요. 아래는 일반적 후보를 모두 시도.

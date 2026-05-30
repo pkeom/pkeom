@@ -122,7 +122,7 @@ def main():
     inventory = InventorySync(ss_api, dk_api, dm_cli, notifier=notifier, order_placer=placer)
     price_mon   = PriceMonitor(dk_api, dm_cli, notifier)
     return_mon  = ReturnMonitor(ss_api, notifier)
-    cancel_mon  = CancelMonitor(ss_api, notifier)
+    cancel_mon  = CancelMonitor(ss_api, notifier, dk_api=dk_api, dm_cli=dm_cli)
 
     sched_cfg = cfg["schedule"]
     scheduler = AutomationScheduler()

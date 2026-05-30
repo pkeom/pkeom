@@ -250,6 +250,18 @@ class DomaemaeClient:
         root = self._post("setOrder", "4.3", data)
         return str(root.get("orderNo", ""))
 
+    def cancel_order(self, order_no: str) -> dict:
+        """setCancelOrder로 발주 취소.
+
+        ※ Private API — 실제 mode명은 techsupport@ggook.com 확인 필요.
+          배송 시작 전에만 취소 가능. 이미 발송된 경우 API가 오류를 반환합니다.
+        """
+        root = self._post("setCancelOrder", "4.0", {"no": order_no})
+        err = root.get("error") or root.get("errCode") or root.get("errMsg")
+        if err:
+            raise RuntimeError(f"도매매 발주 취소 실패: {err}")
+        return root
+
     def get_order_tracking(self, order_no: str) -> dict:
         """getOrderView로 송장 정보 조회."""
         root  = self._get("getOrderView", "4.0", {"for": "buy", "no": order_no})
