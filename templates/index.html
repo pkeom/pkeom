@@ -342,6 +342,7 @@ tbody tr:hover td { background: #FAFBFC; }
     <button class="nav-tab" data-tab="budget">예산 관리</button>
     <button class="nav-tab" data-tab="register">상품 등록</button>
     <button class="nav-tab" data-tab="prices">가격 변동<span class="nav-dot" id="price-dot"></span></button>
+    <button class="nav-tab" data-tab="cancels">취소 요청<span class="nav-dot" id="cancel-dot"></span></button>
     <button class="nav-tab" data-tab="returns">반품 목록<span class="nav-dot" id="return-dot"></span></button>
     <button class="nav-tab" data-tab="video">영상 제작</button>
   </div>
@@ -362,6 +363,7 @@ tbody tr:hover td { background: #FAFBFC; }
     <div class="stat"><div class="stat-label">발주 완료</div><div class="stat-val green" id="s-ordered">-</div></div>
     <div class="stat"><div class="stat-label">대기 중</div><div class="stat-val" id="s-pending">-</div></div>
     <div class="stat"><div class="stat-label">재고 부족</div><div class="stat-val red" id="s-stock">-</div></div>
+    <div class="stat"><div class="stat-label">취소 요청</div><div class="stat-val red" id="s-cancels">-</div></div>
     <div class="stat"><div class="stat-label">반품 신청</div><div class="stat-val" id="s-returns">-</div></div>
   </div>
 
@@ -652,7 +654,32 @@ tbody tr:hover td { background: #FAFBFC; }
   </div>
 </div>
 
-<!-- ── 6. Returns ─────────────────────────────────────────────── -->
+<!-- ── 7. Cancels ─────────────────────────────────────────────── -->
+<div id="panel-cancels" class="panel">
+  <div class="sh">
+    <div class="sh-title">취소 요청 처리 현황</div>
+    <button class="btn btn-ghost btn-sm" onclick="loadCancels()">새로고침</button>
+  </div>
+  <div class="card">
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>주문번호</th>
+            <th>상품명</th>
+            <th>수량</th>
+            <th>취소 사유</th>
+            <th>처리 결과</th>
+            <th>감지 시각</th>
+          </tr>
+        </thead>
+        <tbody id="cancel-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── 8. Returns ─────────────────────────────────────────────── -->
 <div id="panel-returns" class="panel">
   <div class="sh"><div class="sh-title">반품 목록</div></div>
   <div class="card">
@@ -829,6 +856,7 @@ function loadTab() {
     budget:    loadBudget,
     register:  () => {},
     prices:    loadPrices,
+    cancels:   loadCancels,
     returns:   loadReturns,
     video:     () => {},
   }[curTab] || (() => {}))();
@@ -843,6 +871,7 @@ async function loadDashboard() {
   $('s-ordered').textContent  = fmtN(d.ordered_count || 0);
   $('s-pending').textContent  = fmtN(d.pending_count || 0);
   $('s-stock').textContent    = fmtN(d.out_of_stock  || 0);
+  $('s-cancels').textContent  = fmtN(d.cancel_count  || 0);
   $('s-returns').textContent  = fmtN(d.return_count  || 0);
 
   const on = d.system_running;
@@ -852,6 +881,8 @@ async function loadDashboard() {
 
   const pCnt = d.price_alert_count || 0;
   $('price-dot').className  = 'nav-dot' + (pCnt > 0 ? ' show' : '');
+  const cCnt = d.cancel_pending || 0;
+  $('cancel-dot').className = 'nav-dot' + (cCnt > 0 ? ' show' : '');
   const rCnt = d.return_count || 0;
   $('return-dot').className = 'nav-dot' + (rCnt > 0 ? ' show' : '');
 
@@ -1212,7 +1243,34 @@ async function regSubmit() {
   $('reg-preview-btn').disabled = false;
 }
 
-// ── 6. Returns ────────────────────────────────────────────────
+// ── 7. Cancels ────────────────────────────────────────────────
+const _CANCEL_RESULT = {
+  CANCEL_APPROVED: ['bdg-inv',   '취소 승인'],
+  RETURN_GUIDE:    ['bdg-pend',  '반품 안내 필요'],
+  APPROVE_FAILED:  ['bdg-err',   '승인 실패'],
+};
+
+function cancelBdg(result) {
+  const [cls, label] = _CANCEL_RESULT[result] || ['bdg-done', result];
+  return `<span class="bdg ${cls}">${label}</span>`;
+}
+
+async function loadCancels() {
+  const items = await api('/api/cancellations').catch(() => []);
+  const tbody = $('cancel-tbody');
+  tbody.innerHTML = items.length
+    ? items.map(c => `<tr>
+        <td class="mono">${c.product_order_id||'-'}</td>
+        <td>${c.product_name||'-'}</td>
+        <td style="text-align:center">${c.quantity||'-'}</td>
+        <td>${c.cancel_reason||'-'}</td>
+        <td>${cancelBdg(c.result)}</td>
+        <td>${fmtDate(c.detected_at)}</td>
+      </tr>`).join('')
+    : empty('취소 요청 없음');
+}
+
+// ── 8. Returns ────────────────────────────────────────────────
 async function loadReturns() {
   const returns = await api('/api/returns').catch(() => []);
   const tbody   = $('ret-tbody');

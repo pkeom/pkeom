@@ -39,6 +39,7 @@ schedule:
   inventory_sync_interval: 60       # 재고 동기화 주기 (분)
   price_monitor_interval: 120       # 가격 모니터링 주기 (분)
   return_monitor_interval: 10       # 반품 감지 주기 (분)
+  cancel_monitor_interval: 10      # 취소 요청 처리 주기 (분)
 
 database:
   path: "data/orders.db"

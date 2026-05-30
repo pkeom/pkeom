@@ -125,9 +125,17 @@ def api_summary():
     today  = [o for o in orders if _is_today(o.get("collected_at", ""))]
     counts = _order_repo.count_by_status()
 
-    returns_data = _read_json("data/returns.json", {"returns": []})
-    stock_cache  = _read_json("data/stock_cache.json", {"status": {}})
+    returns_data      = _read_json("data/returns.json",       {"returns": []})
+    cancellations_data = _read_json("data/cancellations.json", {"cancellations": []})
+    stock_cache       = _read_json("data/stock_cache.json",    {"status": {}})
     out_of_stock = sum(1 for v in stock_cache.get("status", {}).values() if not v)
+
+    # 미처리 취소 건 (RETURN_GUIDE: 반품 안내 필요, APPROVE_FAILED: 수동 처리 필요)
+    all_cancels   = cancellations_data.get("cancellations", [])
+    pending_cancel = sum(
+        1 for c in all_cancels
+        if c.get("result") in ("RETURN_GUIDE", "APPROVE_FAILED")
+    )
 
     return jsonify({
         "balance":           _budget.get_balance() if _budget else 0,
@@ -136,6 +144,8 @@ def api_summary():
         "pending_count":     counts.get("PENDING", 0) + counts.get("STOCK_PENDING", 0),
         "out_of_stock":      out_of_stock,
         "return_count":      len(returns_data.get("returns", [])),
+        "cancel_count":      len(all_cancels),
+        "cancel_pending":    pending_cancel,
         "price_alert_count": _price_alerts.count_unread(),
         "system_running":    _is_running(),
         "order_counts":      counts,
@@ -234,6 +244,19 @@ def api_mark_read(aid):
 def api_mark_all_read():
     _price_alerts.mark_all_read()
     return jsonify({"ok": True})
+
+
+# ── 취소 요청 ─────────────────────────────────────────────────────
+
+@app.route("/api/cancellations")
+def api_cancellations():
+    data  = _read_json("data/cancellations.json", {"cancellations": []})
+    items = sorted(
+        data.get("cancellations", []),
+        key=lambda c: c.get("detected_at", ""),
+        reverse=True,
+    )
+    return jsonify(items)
 
 
 # ── 반품 ──────────────────────────────────────────────────────────

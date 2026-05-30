@@ -25,6 +25,7 @@ from src.core.invoice_manager import InvoiceManager
 from src.core.inventory_sync import InventorySync
 from src.core.price_monitor import PriceMonitor
 from src.core.return_monitor import ReturnMonitor
+from src.core.cancel_monitor import CancelMonitor
 from src.core.budget_manager import BudgetManager
 from src.core.pending_order_repository import PendingOrderRepository
 from src.core.stock_pending_repository import StockPendingRepository
@@ -38,6 +39,7 @@ _SCHEDULE_LABELS = {
     "inventory_sync": ("재고 동기화",   "inventory_sync_interval"),
     "price_monitor":  ("가격 모니터링", "price_monitor_interval"),
     "return_monitor": ("반품 감지",     "return_monitor_interval"),
+    "cancel_monitor": ("취소 처리",     "cancel_monitor_interval"),
 }
 
 
@@ -65,6 +67,7 @@ def _print_schedule(sched_cfg: dict):
         f"  │  재고 동기화      매 {sched_cfg['inventory_sync_interval']:>3d}분              │",
         f"  │  가격 모니터링    매 {sched_cfg['price_monitor_interval']:>3d}분              │",
         f"  │  반품 감지        매 {sched_cfg.get('return_monitor_interval', 60):>3d}분              │",
+        f"  │  취소 처리        매 {sched_cfg.get('cancel_monitor_interval', 10):>3d}분              │",
         "  ├─────────────────────────────────────────┤",
         "  │  Ctrl+C 로 종료                          │",
         "  └─────────────────────────────────────────┘",
@@ -119,6 +122,7 @@ def main():
     inventory = InventorySync(ss_api, dk_api, dm_cli, notifier=notifier, order_placer=placer)
     price_mon   = PriceMonitor(dk_api, dm_cli, notifier)
     return_mon  = ReturnMonitor(ss_api, notifier)
+    cancel_mon  = CancelMonitor(ss_api, notifier)
 
     sched_cfg = cfg["schedule"]
     scheduler = AutomationScheduler()
@@ -130,6 +134,7 @@ def main():
     scheduler.add_job(inventory.run,   sched_cfg["inventory_sync_interval"], "inventory_sync", run_now=True)
     scheduler.add_job(price_mon.run,    sched_cfg["price_monitor_interval"],   "price_monitor",  run_now=True)
     scheduler.add_job(return_mon.run,   sched_cfg.get("return_monitor_interval", 60), "return_monitor", run_now=True)
+    scheduler.add_job(cancel_mon.run,   sched_cfg.get("cancel_monitor_interval", 10), "cancel_monitor", run_now=True)
 
     _print_schedule(sched_cfg)
     scheduler.start()

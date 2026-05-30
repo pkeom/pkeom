@@ -387,6 +387,49 @@ class SmartstoreAPI:
         data = resp.json()
         return data.get("simpleProducts", data.get("contents", data.get("products", [])))
 
+    def get_cancellations(self, hours: int = 1) -> list:
+        """취소 요청 목록 조회 (최근 hours시간 이내 CANCEL_REQUEST 상태)"""
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        window_start = now - timedelta(hours=hours)
+
+        resp = requests.get(
+            f"{self.BASE_URL}/v1/pay-order/seller/product-orders/last-changed-statuses",
+            headers=self._headers(),
+            params={
+                "lastChangedFrom": window_start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                "lastChangedTo":   now.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                "productOrderStatuses": "CANCEL_REQUEST",
+                "limitCount": 100,
+            },
+        )
+        resp.raise_for_status()
+        changed = resp.json().get("lastChangeStatuses", [])
+        product_order_ids = [item["productOrderId"] for item in changed]
+
+        if not product_order_ids:
+            return []
+
+        resp = requests.post(
+            f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
+            headers=self._headers(),
+            json={"productOrderIds": product_order_ids},
+        )
+        resp.raise_for_status()
+        return resp.json().get("data", [])
+
+    def approve_cancel(self, product_order_id: str) -> dict:
+        """취소 요청 승인 — 환불 처리.
+        발송 전 주문에만 유효. 발송 후에는 반품 절차로 처리해야 함.
+        """
+        resp = requests.post(
+            f"{self.BASE_URL}/v1/pay-order/seller/product-orders"
+            f"/{product_order_id}/claim/cancel/approve",
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def get_returns(self, hours: int = 1) -> list:
         """반품 신청 목록 조회 (최근 hours시간 이내 RETURN_REQUEST 상태)"""
         from datetime import datetime, timedelta, timezone
