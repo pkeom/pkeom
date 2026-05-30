@@ -361,10 +361,26 @@ tbody tr:hover td { background: #FAFBFC; }
     <div class="stat"><div class="stat-label">예산 잔액</div><div class="stat-val blue" id="s-balance">-</div></div>
     <div class="stat"><div class="stat-label">오늘 주문</div><div class="stat-val" id="s-today">-</div></div>
     <div class="stat"><div class="stat-label">발주 완료</div><div class="stat-val green" id="s-ordered">-</div></div>
+    <div class="stat"><div class="stat-label">발주확인(오늘)</div><div class="stat-val blue" id="s-confirmed">-</div></div>
     <div class="stat"><div class="stat-label">대기 중</div><div class="stat-val" id="s-pending">-</div></div>
     <div class="stat"><div class="stat-label">재고 부족</div><div class="stat-val red" id="s-stock">-</div></div>
     <div class="stat"><div class="stat-label">취소 요청</div><div class="stat-val red" id="s-cancels">-</div></div>
     <div class="stat"><div class="stat-label">반품 신청</div><div class="stat-val" id="s-returns">-</div></div>
+  </div>
+
+  <div class="card mb">
+    <div class="sh">
+      <div class="sh-title">발주확인 현황 (최근 10건)</div>
+      <button class="btn btn-ghost btn-sm" onclick="loadConfirms()">새로고침</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>주문번호</th><th>확인 시각</th></tr>
+        </thead>
+        <tbody id="confirm-tbody"></tbody>
+      </table>
+    </div>
   </div>
 
   <div class="card">
@@ -484,6 +500,7 @@ tbody tr:hover td { background: #FAFBFC; }
     <button class="chip" data-status="ERROR">오류</button>
     <button class="chip" data-status="PENDING">예산대기</button>
     <button class="chip" data-status="STOCK_PENDING">재고대기</button>
+    <button class="chip" data-status="CANCELLED">취소됨</button>
   </div>
   <div class="card">
     <div class="tbl-wrap">
@@ -798,6 +815,7 @@ function fmtDate(s) {
 function sbdg(s) {
   const m = {
     NEW:          ['bdg-new',   '신규'],
+    CANCELLED:    ['bdg-done',  '취소됨'],
     ORDERED:      ['bdg-ord',   '발주완료'],
     INVOICED:     ['bdg-inv',   '송장등록'],
     DONE:         ['bdg-done',  '완료'],
@@ -869,7 +887,8 @@ async function loadDashboard() {
 
   $('s-balance').textContent  = fmt(d.balance   || 0);
   $('s-today').textContent    = fmtN(d.today_orders  || 0);
-  $('s-ordered').textContent  = fmtN(d.ordered_count || 0);
+  $('s-ordered').textContent    = fmtN(d.ordered_count   || 0);
+  $('s-confirmed').textContent  = fmtN(d.today_confirmed || 0);
   $('s-pending').textContent  = fmtN(d.pending_count || 0);
   $('s-stock').textContent    = fmtN(d.out_of_stock  || 0);
   $('s-cancels').textContent  = fmtN(d.cancel_count  || 0);
@@ -889,6 +908,8 @@ async function loadDashboard() {
 
   $('updTime').textContent = new Date().toLocaleTimeString('ko-KR', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
+  await loadConfirms();
+
   const orders = await api('/api/orders').catch(() => []);
   const tbody = $('dash-orders');
   const recent = orders.slice(0, 10);
@@ -901,6 +922,18 @@ async function loadDashboard() {
         <td>${o.buyer_name||'-'}</td>
       </tr>`).join('')
     : empty('주문 없음');
+}
+
+async function loadConfirms() {
+  const items  = await api('/api/confirm-log').catch(() => []);
+  const tbody  = $('confirm-tbody');
+  const recent = items.slice(0, 10);
+  tbody.innerHTML = recent.length
+    ? recent.map(c => `<tr>
+        <td class="mono">${c.order_id||'-'}</td>
+        <td>${fmtDate(c.confirmed_at)}</td>
+      </tr>`).join('')
+    : empty('발주확인 내역 없음');
 }
 
 // ── 2. Mapping ────────────────────────────────────────────────

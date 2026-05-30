@@ -1,13 +1,22 @@
-"""매핑 테이블 기반 도매처 자동 발주
+"""매핑 테이블 기반 도매처 자동 발주 + SS 발주확인
 
 흐름:
-  orders.json [NEW] → 매핑 조회 → 재고 확인 → (예산 확인) → 도매처 발주 API 호출
-    재고 없음      → stock_pending_orders.json [STOCK_PENDING] → 스마트스토어 품절 처리 → 이메일 알림
-    예산 충분      → 발주 → SupplierOrder DB 저장 → orders.json [ORDERED] → 예산 차감
-    예산 부족      → pending_orders.json [PENDING] → orders.json [PENDING] → 이메일 알림
-    매핑 없음      → orders.json [ERROR]   → 이메일 알림
+  orders.json [NEW]
+    → 취소 요청 확인 (SS CANCEL_REQUEST)
+        취소 요청 있음 → orders.json [CANCELLED] → 발주 건너뜀
+    → 매핑 조회 → 재고 확인 → (예산 확인) → 도매처 발주 API 호출
+        재고 없음  → stock_pending_orders.json [STOCK_PENDING] → SS 품절 처리 → 이메일 알림
+        예산 충분  → 발주 → SupplierOrder DB 저장 → orders.json [ORDERED] → 예산 차감
+        예산 부족  → pending_orders.json [PENDING] → orders.json [PENDING] → 이메일 알림
+        매핑 없음  → orders.json [ERROR] → 이메일 알림
+    → 발주 성공 건 일괄 SS 발주확인 (30건씩 배치)
+        확인 성공  → data/confirm_log.json 저장
+        확인 실패  → 이메일 알림
 """
+import json
 import logging
+import os
+from datetime import datetime, timezone
 from src.api.domaekkuk import DomaekkukAPI
 from src.api.domaemae import DomaemaeClient
 from src.core.mapping_repository import MappingRepository
@@ -81,11 +90,19 @@ class OrderPlacer:
     # ── 진입점 ───────────────────────────────────────────────
 
     def run(self) -> dict:
-        """NEW 상태 주문 전체 발주 처리.
-        반환값: {"total": n, "ordered": n, "error": n, "deferred": n, "stock_pending": n}
+        """NEW 상태 주문 전체 발주 처리 + SS 발주확인.
+
+        반환값: {total, ordered, error, deferred, stock_pending,
+                 cancelled, ss_confirmed, ss_confirm_failed}
         """
         new_orders = self._orders.find_by_status("NEW")
-        stats = {"total": len(new_orders), "ordered": 0, "error": 0, "deferred": 0, "stock_pending": 0}
+        stats = {
+            "total": len(new_orders), "ordered": 0, "error": 0,
+            "deferred": 0, "stock_pending": 0,
+            "cancelled": 0,          # 취소 요청으로 발주 건너뜀
+            "ss_confirmed": 0,       # SS 발주확인 성공
+            "ss_confirm_failed": 0,  # SS 발주확인 실패
+        }
 
         if not new_orders:
             logger.info("발주 대상 주문 없음")
@@ -93,18 +110,30 @@ class OrderPlacer:
 
         logger.info("자동 발주 시작: %d건", stats["total"])
 
+        # 1. 취소 요청 주문 사전 필터링
+        new_orders = self._filter_cancel_requests(new_orders, stats)
+
+        # 2. 도매처 발주 (성공 건 to_confirm에 수집)
+        to_confirm: list[str] = []
         if self._budget is None:
             for order in new_orders:
                 result = self._place_one(order)
                 stats[result] += 1
+                if result == "ordered":
+                    to_confirm.append(order["order_id"])
         else:
-            self._run_with_budget(new_orders, stats)
+            self._run_with_budget(new_orders, stats, to_confirm)
 
         logger.info(
-            "자동 발주 완료: 전체 %d건 / 성공 %d건 / 실패 %d건 / 대기 %d건 / 재고부족 %d건",
-            stats["total"], stats["ordered"], stats["error"],
-            stats["deferred"], stats["stock_pending"],
+            "자동 발주 완료: 전체 %d건 / 성공 %d건 / 취소건너뜀 %d건 / "
+            "실패 %d건 / 대기 %d건 / 재고부족 %d건",
+            stats["total"], stats["ordered"], stats["cancelled"],
+            stats["error"], stats["deferred"], stats["stock_pending"],
         )
+
+        # 3. SS 발주확인 (발주 성공 건만, 30건씩 배치)
+        if to_confirm and self._ss_api:
+            self._run_ss_confirm(to_confirm, stats)
 
         # 재고부족 대기 주문이 있으면 배치 이메일
         if stats["stock_pending"] > 0:
@@ -115,7 +144,7 @@ class OrderPlacer:
 
     # ── 예산 관리 발주 ───────────────────────────────────────
 
-    def _run_with_budget(self, orders: list[dict], stats: dict):
+    def _run_with_budget(self, orders: list[dict], stats: dict, to_confirm: list[str]):
         """예산 범위 내 최대 발주 + 초과분 대기 전환"""
         balance = self._budget.get_balance()
 
@@ -164,6 +193,7 @@ class OrderPlacer:
             result = self._place_one(order, mapping=mapping)
             if result == "ordered":
                 stats["ordered"] += 1
+                to_confirm.append(order["order_id"])
                 if cost > 0:
                     self._budget.deduct(
                         cost, f"발주 완료: {order['order_id']}", order["order_id"]
@@ -455,6 +485,109 @@ class OrderPlacer:
             self._notifier.send(subject=subject, body="\n".join(lines))
         except Exception as e:
             logger.error("재고부족 대기 이메일 전송 실패: %s", e)
+
+    # ── 취소 요청 필터 ───────────────────────────────────────
+
+    def _filter_cancel_requests(
+        self, orders: list[dict], stats: dict
+    ) -> list[dict]:
+        """SS CANCEL_REQUEST 상태 주문을 발주 전에 걸러낸다.
+
+        SS API에서 최근 24시간 취소 요청 목록을 한 번 조회해
+        취소 요청된 order_id는 CANCELLED로 마킹하고 발주 대상에서 제외한다.
+        """
+        if not self._ss_api:
+            return orders
+        try:
+            cancel_data = self._ss_api.get_cancellations(hours=24)
+            cancel_ids: set[str] = {
+                item.get("productOrder", {}).get("productOrderId", "")
+                for item in cancel_data
+                if item.get("productOrder", {}).get("productOrderId")
+            }
+        except Exception as e:
+            logger.warning("취소 요청 조회 실패 — 발주 계속 진행: %s", e)
+            return orders
+
+        if not cancel_ids:
+            return orders
+
+        filtered: list[dict] = []
+        for order in orders:
+            if order["order_id"] in cancel_ids:
+                self._orders.update_status(order["order_id"], "CANCELLED")
+                stats["cancelled"] += 1
+                logger.info(
+                    "취소 요청 감지 → 발주 건너뜀: order_id=%s / %s",
+                    order["order_id"], order.get("product_name", ""),
+                )
+            else:
+                filtered.append(order)
+
+        if stats["cancelled"]:
+            logger.info(
+                "취소 요청 %d건 제외 → 실발주 대상 %d건",
+                stats["cancelled"], len(filtered),
+            )
+        return filtered
+
+    # ── SS 발주확인 ──────────────────────────────────────────
+
+    def _run_ss_confirm(self, order_ids: list[str], stats: dict):
+        """발주 성공 건에 대해 SS 발주확인 API를 30건씩 배치 호출한다."""
+        logger.info("SS 발주확인 시작: %d건", len(order_ids))
+        try:
+            result = self._ss_api.confirm_orders(order_ids)
+            confirmed = result.get("confirmed", [])
+            failed    = result.get("failed", [])
+            stats["ss_confirmed"]      = len(confirmed)
+            stats["ss_confirm_failed"] = len(failed)
+            if confirmed:
+                self._save_confirm_log(confirmed)
+                logger.info("SS 발주확인 완료: %d건", len(confirmed))
+            if failed:
+                logger.error("SS 발주확인 실패: %d건 — %s", len(failed), failed[:5])
+                self._notify_confirm_failed(failed)
+        except Exception as e:
+            logger.error("SS 발주확인 전체 실패: %s", e)
+            stats["ss_confirm_failed"] = len(order_ids)
+            self._notify_confirm_failed(order_ids)
+
+    def _save_confirm_log(self, confirmed_ids: list[str]):
+        """발주확인 이력을 data/confirm_log.json에 누적 저장."""
+        log_file = "data/confirm_log.json"
+        try:
+            if os.path.exists(log_file):
+                with open(log_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            else:
+                data = {"confirms": []}
+
+            now = datetime.now(timezone.utc).isoformat()
+            for oid in confirmed_ids:
+                data["confirms"].append({"order_id": oid, "confirmed_at": now})
+
+            os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
+            with open(log_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error("발주확인 로그 저장 실패: %s", e)
+
+    def _notify_confirm_failed(self, failed_ids: list[str]):
+        if not self._notifier or not failed_ids:
+            return
+        subject = f"[위탁판매] SS 발주확인 실패 — {len(failed_ids)}건"
+        body = "\n".join([
+            f"■ 발주확인 API 호출에 실패한 주문이 {len(failed_ids)}건 있습니다.",
+            "  스마트스토어 센터에서 수동으로 발주확인 처리해 주세요.",
+            "",
+            "■ 실패 주문번호 (최대 10건)",
+            *[f"  {oid}" for oid in failed_ids[:10]],
+        ])
+        try:
+            self._notifier.send(subject=subject, body=body)
+        except Exception as e:
+            logger.error("발주확인 실패 이메일 전송 오류: %s", e)
 
     # ── 오류 처리 ────────────────────────────────────────────
 

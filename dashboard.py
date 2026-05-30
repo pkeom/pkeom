@@ -127,8 +127,13 @@ def api_summary():
 
     returns_data      = _read_json("data/returns.json",       {"returns": []})
     cancellations_data = _read_json("data/cancellations.json", {"cancellations": []})
-    stock_cache       = _read_json("data/stock_cache.json",    {"status": {}})
+    confirm_data       = _read_json("data/confirm_log.json",   {"confirms": []})
+    stock_cache        = _read_json("data/stock_cache.json",   {"status": {}})
     out_of_stock = sum(1 for v in stock_cache.get("status", {}).values() if not v)
+    today_confirmed = sum(
+        1 for c in confirm_data.get("confirms", [])
+        if _is_today(c.get("confirmed_at", ""))
+    )
 
     # 미처리 취소 건 (RETURN_GUIDE: 반품 안내 필요, APPROVE_FAILED: 수동 처리 필요)
     all_cancels   = cancellations_data.get("cancellations", [])
@@ -146,6 +151,7 @@ def api_summary():
         "return_count":      len(returns_data.get("returns", [])),
         "cancel_count":      len(all_cancels),
         "cancel_pending":    pending_cancel,
+        "today_confirmed":   today_confirmed,
         "price_alert_count": _price_alerts.count_unread(),
         "system_running":    _is_running(),
         "order_counts":      counts,
@@ -244,6 +250,19 @@ def api_mark_read(aid):
 def api_mark_all_read():
     _price_alerts.mark_all_read()
     return jsonify({"ok": True})
+
+
+# ── 발주확인 로그 ─────────────────────────────────────────────────
+
+@app.route("/api/confirm-log")
+def api_confirm_log():
+    data  = _read_json("data/confirm_log.json", {"confirms": []})
+    items = sorted(
+        data.get("confirms", []),
+        key=lambda c: c.get("confirmed_at", ""),
+        reverse=True,
+    )
+    return jsonify(items[:200])
 
 
 # ── 취소 요청 ─────────────────────────────────────────────────────

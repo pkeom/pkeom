@@ -387,6 +387,45 @@ class SmartstoreAPI:
         data = resp.json()
         return data.get("simpleProducts", data.get("contents", data.get("products", [])))
 
+    def confirm_orders(self, product_order_ids: list[str]) -> dict:
+        """발주 확인 처리 — 30건씩 배치 호출.
+
+        POST /v1/pay-order/seller/product-orders/confirm
+        구매자에게 판매자가 주문을 접수했음을 알림. 최대 30건 제한이 있어
+        30건씩 나눠서 연속 호출한다.
+
+        반환: {"confirmed": [성공 IDs], "failed": [실패 IDs]}
+        """
+        if not product_order_ids:
+            return {"confirmed": [], "failed": []}
+
+        BATCH = 30
+        confirmed: list[str] = []
+        failed: list[str] = []
+
+        for i in range(0, len(product_order_ids), BATCH):
+            batch = product_order_ids[i : i + BATCH]
+            try:
+                resp = requests.post(
+                    f"{self.BASE_URL}/v1/pay-order/seller/product-orders/confirm",
+                    headers=self._headers(),
+                    json={"productOrderIds": batch},
+                )
+                resp.raise_for_status()
+                confirmed.extend(batch)
+                logger.info(
+                    "발주확인 배치 성공: %d~%d건 / 총 %d건",
+                    i + 1, i + len(batch), len(product_order_ids),
+                )
+            except Exception as e:
+                logger.error(
+                    "발주확인 배치 실패 (%d~%d건): %s",
+                    i + 1, i + len(batch), e,
+                )
+                failed.extend(batch)
+
+        return {"confirmed": confirmed, "failed": failed}
+
     def get_cancellations(self, hours: int = 1) -> list:
         """취소 요청 목록 조회 (최근 hours시간 이내 CANCEL_REQUEST 상태)"""
         from datetime import datetime, timedelta, timezone
