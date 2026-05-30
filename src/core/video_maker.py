@@ -114,35 +114,160 @@ def _separate_vocals(audio_path: str) -> str:
         raise
 
 
-def transcribe_audio(audio_path: str) -> list[dict]:
-    """Demucs 보컬 분리 + whisper-timestamped medium 정밀 전사.
+def _forced_align_wav2vec2(
+    audio_np: "np.ndarray",
+    audio_duration: float,
+    phrases: list[str],
+    model_name: str = "kresnik/wav2vec2-large-xlsr-korean",
+    device: str = "cpu",
+) -> list[dict]:
+    """wav2vec2 CTC trellis 강제 정렬 — whisperx alignment 알고리즘 직접 구현.
 
-    1) Demucs htdemucs 로 배경음악 제거 → 보컬 WAV 추출
-    2) whisper-timestamped medium 모델로 전사
-       - DTW Cross-Attention word timestamp
-       - hallucination 필터: 오디오 길이 초과 타임스탬프 제거, confidence 임계값 적용
-
-    반환: [{start, end, text, words:[{word, start, end}...]}, ...]
+    pyannote.audio 없이 transformers + torch 만으로 동작.
+    whisperx의 get_trellis/backtrack/merge_repeats 로직을 그대로 재현한다.
+    반환: [{start, end, text, words:[{word, start, end, score}...]}, ...]
     """
-    try:
-        import whisper_timestamped as wt  # type: ignore
-    except ImportError:
-        raise RuntimeError(
-            "whisper-timestamped 패키지가 필요합니다: pip install whisper-timestamped"
+    import torch
+    from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor  # type: ignore
+
+    SAMPLE_RATE = 16000
+
+    # 모델 로드
+    processor = Wav2Vec2Processor.from_pretrained(model_name)
+    model = Wav2Vec2ForCTC.from_pretrained(model_name).to(device)
+    model.eval()
+
+    vocab = processor.tokenizer.get_vocab()
+    model_dict: dict[str, int] = {char.lower(): code for char, code in vocab.items()}
+    blank_id = next(
+        (code for char, code in model_dict.items() if char in ("[pad]", "<pad>")), 0
+    )
+
+    # 구절을 공백으로 연결한 전체 텍스트 (각 구절이 하나의 "word"가 됨)
+    full_text = " ".join(phrases)
+
+    # CTC 로그 확률 계산
+    inputs = processor(audio_np, sampling_rate=SAMPLE_RATE, return_tensors="pt")
+    with torch.inference_mode():
+        logits = model(inputs["input_values"].to(device)).logits
+    emission = torch.log_softmax(logits[0], dim=-1).cpu()
+
+    # 텍스트 → 토큰 ID (vocab에 있는 문자만, 공백은 "|"로 변환)
+    clean_chars: list[str] = []
+    clean_cdx: list[int] = []
+    for cdx, ch in enumerate(full_text):
+        ch_lower = ch.lower().replace(" ", "|")
+        if ch_lower in model_dict:
+            clean_chars.append(ch_lower)
+            clean_cdx.append(cdx)
+
+    def _fallback() -> list[dict]:
+        n = len(phrases)
+        step = audio_duration / max(n, 1)
+        words = [
+            {"word": p, "start": round(i * step, 3),
+             "end": round(min((i + 1) * step, audio_duration), 3), "score": 0.0}
+            for i, p in enumerate(phrases)
+        ]
+        return [{"start": 0.0, "end": audio_duration, "text": full_text, "words": words}]
+
+    if not clean_chars:
+        return _fallback()
+
+    tokens = [model_dict[c] for c in clean_chars]
+    n_frames, n_tokens = emission.size(0), len(tokens)
+
+    # Trellis DP (whisperx get_trellis와 동일)
+    trellis = torch.empty((n_frames + 1, n_tokens + 1))
+    trellis[0, 0] = 0
+    trellis[1:, 0] = torch.cumsum(emission[:, blank_id], 0)
+    trellis[0, -n_tokens:] = -float("inf")
+    trellis[-n_tokens:, 0] = float("inf")
+    for t in range(n_frames):
+        trellis[t + 1, 1:] = torch.maximum(
+            trellis[t, 1:] + emission[t, blank_id],
+            trellis[t, :-1] + emission[t, tokens],
         )
 
-    # ── hallucination 필터 파라미터 ───────────────────────────────────
-    # confidence < CONF_MIN 단어 제거 (0.20으로 강화 — 이전 0.15)
-    CONF_MIN      = 0.20
-    # 오디오 끝 TAIL_MARGIN 초 이내 시작하는 단어도 제거 (끝 직전 hallucination 차단)
-    TAIL_MARGIN   = 0.3
+    # Backtrack (whisperx backtrack와 동일)
+    j = n_tokens
+    t_start = int(torch.argmax(trellis[:, j]).item())
+    path: list[tuple[int, int, float]] = []
+    for t in range(t_start, 0, -1):
+        stayed  = trellis[t - 1, j]     + emission[t - 1, blank_id]
+        changed = trellis[t - 1, j - 1] + emission[t - 1, tokens[j - 1]]
+        prob = emission[t - 1, tokens[j - 1] if changed > stayed else blank_id].exp().item()
+        path.append((j - 1, t - 1, prob))
+        if changed > stayed:
+            j -= 1
+            if j == 0:
+                break
+    path = path[::-1]
 
+    if not path:
+        return _fallback()
+
+    # merge_repeats: 연속 동일 token 프레임을 합쳐 문자별 구간 생성
+    ratio = audio_duration / max(1, trellis.size(0) - 1)
+    char_segs: list[tuple[float, float, float]] = []
+    i1 = i2 = 0
+    while i1 < len(path):
+        while i2 < len(path) and path[i2][0] == path[i1][0]:
+            i2 += 1
+        avg_score = sum(p[2] for p in path[i1:i2]) / (i2 - i1)
+        char_segs.append((
+            path[i1][1] * ratio,
+            (path[i2 - 1][1] + 1) * ratio,
+            avg_score,
+        ))
+        i1 = i2
+
+    # clean_cdx[i] → 원본 full_text 내 위치; char_segs[i] → 해당 문자의 타임스탬프
+    char_ts: dict[int, tuple[float, float, float]] = {}
+    for i, (ts, te, sc) in enumerate(char_segs):
+        if i < len(clean_cdx):
+            char_ts[clean_cdx[i]] = (ts, min(te, audio_duration), sc)
+
+    # 구절별 타임스탬프 집계 (full_text 내 문자 위치 추적)
+    word_results: list[dict] = []
+    cdx = 0
+    for phrase in phrases:
+        starts, ends, scores = [], [], []
+        for _ in phrase:
+            if cdx in char_ts:
+                ts, te, sc = char_ts[cdx]
+                starts.append(ts)
+                ends.append(te)
+                scores.append(sc)
+            cdx += 1
+        cdx += 1  # 구절 사이 공백 건너뜀
+        entry: dict = {"word": phrase}
+        if starts:
+            entry["start"] = round(min(starts), 3)
+            entry["end"]   = round(max(ends), 3)
+            entry["score"] = round(sum(scores) / len(scores), 3)
+        word_results.append(entry)
+
+    return [{"start": 0.0, "end": audio_duration, "text": full_text, "words": word_results}]
+
+
+def transcribe_audio(audio_path: str, phrases: list[str] | None = None) -> list[dict]:
+    """Demucs 보컬 분리 + wav2vec2 CTC 강제 정렬(forced alignment).
+
+    1) Demucs htdemucs 로 배경음악 제거 → 보컬 WAV 추출
+    2) 사용자가 입력한 가사를 segments로 수동 생성
+    3) _forced_align_wav2vec2()로 CTC trellis 강제 정렬 실행
+       - 모델: kresnik/wav2vec2-large-xlsr-korean
+       - whisperx alignment 알고리즘 직접 구현 (pyannote.audio 불필요)
+
+    반환: [{start, end, text, words:[{word, start, end, score}...]}, ...]
+    """
     vocals_path: str | None = None
     try:
         # 1단계: Demucs 보컬 분리
         vocals_path = _separate_vocals(str(audio_path))
 
-        # 2단계: soundfile로 WAV 로드 → numpy 배열 (ffmpeg PATH 의존성 제거)
+        # 2단계: 오디오 로드 (wav2vec2는 16kHz float32 필요)
         import soundfile as sf
         import numpy as np
         import math
@@ -150,62 +275,22 @@ def transcribe_audio(audio_path: str) -> list[dict]:
         if data.ndim > 1:
             data = data.mean(axis=1)
         audio_duration = len(data) / sr
-        # hallucination 판단 기준선: 오디오 끝 TAIL_MARGIN 초 전부터 차단
-        cut_at = audio_duration - TAIL_MARGIN
+
         if sr != 16000:
             new_len = math.ceil(len(data) * 16000 / sr)
             indices = np.linspace(0, len(data) - 1, new_len)
             data = np.interp(indices, np.arange(len(data)), data)
         audio_np = data.astype(np.float32)
 
-        # 3단계: whisper-timestamped medium 전사
-        model = wt.load_model("medium", device="cpu")
-        result = wt.transcribe(
-            model, audio_np,
-            language="ko",
-            detect_disfluencies=False,
+        # 3단계: CTC 강제 정렬
+        return _forced_align_wav2vec2(
+            audio_np=audio_np,
+            audio_duration=audio_duration,
+            phrases=phrases or [],
         )
-
-        # 4단계: hallucination 필터링
-        segments: list[dict] = []
-        for seg in result.get("segments", []):
-            seg_start = float(seg["start"])
-
-            # 오디오 유효 구간(= audio_duration - TAIL_MARGIN) 이후 세그먼트 전체 제거
-            if seg_start >= cut_at:
-                continue
-
-            words = []
-            for w in seg.get("words", []):
-                w_start = float(w.get("start", seg_start))
-                w_conf  = float(w.get("confidence", 1.0))
-
-                # 유효 구간 초과 or confidence 미달 단어 제거
-                if w_start >= cut_at:
-                    continue
-                if w_conf < CONF_MIN:
-                    continue
-
-                words.append({
-                    "word":  w.get("text", ""),
-                    "start": w_start,
-                    "end":   min(float(w.get("end", seg_start)), audio_duration),
-                })
-
-            if words:
-                segments.append({
-                    "start": seg_start,
-                    "end":   min(float(seg["end"]), audio_duration),
-                    "text":  seg.get("text", "").strip(),
-                    "words": words,
-                })
-
-        return segments
 
     finally:
         if vocals_path:
-            # _separate_vocals가 반환한 파일은 ASCII 임시 디렉토리 안에 있음
-            # 파일이 아닌 디렉토리째 삭제하여 잔여 파일 없도록 정리
             tmp_dir = os.path.dirname(vocals_path)
             if os.path.basename(tmp_dir).startswith("vcl_"):
                 shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -1273,14 +1358,10 @@ def generate_video(
     probe = ffmpeg.probe(str(audio_path))
     audio_duration = float(probe["format"]["duration"])
 
-    # Whisper 전사 (타이밍 추출용, 텍스트는 사용하지 않음)
-    segments = transcribe_audio(str(audio_path))
+    # WhisperX 강제 정렬 (사용자 가사 기반 — whisper-timestamped 전사 불필요)
+    segments = transcribe_audio(str(audio_path), phrases=phrases)
 
-    # Drift 보정: 후반부로 갈수록 타임스탬프가 늘어지는 현상 교정
-    # 마지막 단어 end 기준으로 전체 타임스탬프를 audio_duration에 비례 스케일
-    segments = _correct_timing_drift(segments, audio_duration)
-
-    # 구절을 Whisper 타이밍에 매핑
+    # 구절을 강제 정렬 타이밍에 매핑
     capcut_entries = map_phrases_to_timings(phrases, segments, audio_duration)
 
     # 자막 내용 검증: 반드시 입력한 구절만 포함되어야 함
