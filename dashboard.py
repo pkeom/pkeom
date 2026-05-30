@@ -137,9 +137,18 @@ def api_summary():
 
     # 미처리 취소 건 (RETURN_GUIDE: 반품 안내 필요, APPROVE_FAILED: 수동 처리 필요)
     all_cancels   = cancellations_data.get("cancellations", [])
+    _PENDING_CANCEL_STATES = {
+        # 신규 상태 — 처리 중 또는 수동 처리 필요
+        "DENY_SENT", "URGENT_3DAY", "REJECTED_WAIT_SHIP",
+        "DENY_FAILED", "MANUAL_4DAY", "RACE_CONDITION", "MANUAL_REQUIRED",
+        "SHIPPED_REJECT", "REJECTED",
+        # 구버전 호환
+        "RETURN_GUIDE", "APPROVE_FAILED", "SUPPLIER_CANCEL_FAILED",
+    }
     pending_cancel = sum(
         1 for c in all_cancels
-        if c.get("result") in ("RETURN_GUIDE", "APPROVE_FAILED", "SUPPLIER_CANCEL_FAILED")
+        if c.get("cancel_state") in _PENDING_CANCEL_STATES
+        or c.get("result") in _PENDING_CANCEL_STATES
     )
 
     return jsonify({

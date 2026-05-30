@@ -261,6 +261,32 @@ class DomaemaeClient:
             raise RuntimeError(f"도매매 발주 취소 실패: {err}")
         return root
 
+    def get_cancel_result(self, order_no: str) -> str:
+        """setOrdDeny 후 도매처 취소 처리 결과 확인 (getOrderView).
+
+        반환: 'APPROVED' | 'REJECTED' | 'PENDING'
+        ※ 실제 status 값은 API 문서 확인 후 아래 키워드 목록 조정 필요.
+        """
+        try:
+            root  = self._get("getOrderView", "4.0", {"for": "buy", "no": order_no})
+            items = root.get("items", [])
+            if isinstance(items, dict):
+                items = list(items.values())
+            item   = items[0] if items and isinstance(items[0], dict) else {}
+            status = (
+                str(item.get("status",         ""))
+                or str(item.get("ordStatus",   ""))
+                or str(item.get("cancelStatus",""))
+                or str(root.get("status",      ""))
+            ).lower()
+            if any(k in status for k in ["cancel_ok", "취소승인", "cancel_accept", "deny_ok", "refund"]):
+                return "APPROVED"
+            if any(k in status for k in ["cancel_deny", "취소거부", "deny_fail", "cancel_reject"]):
+                return "REJECTED"
+        except Exception as e:
+            logger.warning("도매매 취소 결과 조회 실패 (%s): %s", order_no, e)
+        return "PENDING"
+
     def get_order_tracking(self, order_no: str) -> dict:
         """getOrderView로 송장 정보 조회."""
         root  = self._get("getOrderView", "4.0", {"for": "buy", "no": order_no})

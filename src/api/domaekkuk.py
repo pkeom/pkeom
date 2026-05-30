@@ -141,6 +141,33 @@ class DomaekkukAPI:
             raise RuntimeError(f"도매꾹 발주 취소 실패: {err}")
         return root
 
+    def get_cancel_result(self, order_no: str) -> str:
+        """setOrdDeny 후 도매처 취소 처리 결과 확인 (getOrderInfo).
+
+        반환: 'APPROVED' | 'REJECTED' | 'PENDING'
+        ※ 실제 status 값은 API 문서 확인 후 아래 키워드 목록 조정 필요.
+        """
+        try:
+            resp = requests.get(
+                self.API_URL,
+                params=self._params({"mode": "getOrderInfo", "order_no": order_no}),
+            )
+            root   = self._root(resp)
+            order  = root.get("order", root)
+            status = (
+                str(order.get("status",       ""))
+                or str(order.get("ordStatus", ""))
+                or str(order.get("cancelStatus", ""))
+            ).lower()
+            if any(k in status for k in ["cancel_ok", "취소승인", "cancel_accept", "deny_ok", "refund"]):
+                return "APPROVED"
+            if any(k in status for k in ["cancel_deny", "취소거부", "deny_fail", "cancel_reject"]):
+                return "REJECTED"
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).warning("도매꾹 취소 결과 조회 실패 (%s): %s", order_no, e)
+        return "PENDING"
+
     def get_order_tracking(self, order_no: str) -> dict:
         """발주 건 송장 정보 조회. 반환값: {order_no, delivery_company, tracking_number}
         ※ 실제 필드명은 API 승인 후 문서에서 확인 필요. 아래는 일반적 후보를 모두 시도.

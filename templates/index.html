@@ -1279,14 +1279,29 @@ async function regSubmit() {
 
 // ── 7. Cancels ────────────────────────────────────────────────
 const _CANCEL_RESULT = {
-  CANCEL_APPROVED:        ['bdg-inv',   '취소 승인'],
-  RETURN_GUIDE:           ['bdg-pend',  '반품 안내 필요'],
-  APPROVE_FAILED:         ['bdg-err',   '승인 실패'],
-  SUPPLIER_CANCEL_FAILED: ['bdg-err',   '도매처 취소 실패'],
+  // 신규 상태
+  SS_AUTO:            ['bdg-done',  'SS 자동처리'],
+  DENY_SENT:          ['bdg-ord',   '취소 요청 전송'],
+  DENY_FAILED:        ['bdg-err',   '요청 실패'],
+  APPROVED:           ['bdg-inv',   '취소 완료'],
+  REJECTED:           ['bdg-pend',  'CANCEL_REJECT'],
+  REJECTED_WAIT_SHIP: ['bdg-pend',  '출고 대기'],
+  SHIPPED_REJECT:     ['bdg-pend',  'CANCEL_REJECT'],
+  URGENT_3DAY:        ['bdg-err',   '⚠ 3영업일'],
+  MANUAL_4DAY:        ['bdg-err',   '수동처리 필요'],
+  RACE_CONDITION:     ['bdg-err',   '예외 감지'],
+  MANUAL_REQUIRED:    ['bdg-err',   '수동처리 필요'],
+  LEGACY:             ['bdg-done',  '이전 기록'],
+  // 구버전 호환
+  CANCEL_APPROVED:        ['bdg-inv',  '취소 승인'],
+  RETURN_GUIDE:           ['bdg-pend', '반품 안내 필요'],
+  APPROVE_FAILED:         ['bdg-err',  '승인 실패'],
+  SUPPLIER_CANCEL_FAILED: ['bdg-err',  '도매처 취소 실패'],
 };
 
-function cancelBdg(result) {
-  const [cls, label] = _CANCEL_RESULT[result] || ['bdg-done', result];
+function cancelBdg(c) {
+  const key = c.cancel_state || c.result || '';
+  const [cls, label] = _CANCEL_RESULT[key] || ['bdg-done', key];
   return `<span class="bdg ${cls}">${label}</span>`;
 }
 
@@ -1300,7 +1315,7 @@ async function loadCancels() {
         <td style="text-align:center">${c.quantity||'-'}</td>
         <td>${c.cancel_reason||'-'}</td>
         <td class="mono" style="font-size:11px">${c.supplier_info||'-'}</td>
-        <td>${cancelBdg(c.result)}<br><span style="font-size:10px;color:var(--text3)">${c.result_label||''}</span></td>
+        <td>${cancelBdg(c)}<br><span style="font-size:10px;color:var(--text3)">${c.result_label||''}</span></td>
         <td>${fmtDate(c.detected_at)}</td>
       </tr>`).join('')
     : empty('취소 요청 없음');
