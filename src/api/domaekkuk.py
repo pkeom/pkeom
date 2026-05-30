@@ -119,22 +119,20 @@ class DomaekkukAPI:
         return self._root(resp)
 
     def cancel_order(self, order_no: str) -> dict:
-        """발주 취소.
+        """발주 취소 (setOrdDeny).
 
-        ※ 도매꾹 주문 API는 Private API(별도 승인 필요)이므로
-          실제 mode명·파라미터명은 승인 후 발급된 문서와 대조하여 수정하세요.
-          배송 시작 전에만 취소 가능. 이미 발송된 경우 API가 오류를 반환합니다.
+        배송 시작 전에만 취소 가능. 이미 발송된 경우 API가 오류를 반환합니다.
         """
         resp = requests.post(
             self.API_URL,
             data={
                 "ver":      "4.1",
-                "mode":     "cancelOrder",   # Private API 문서 확인 후 수정
+                "mode":     "setOrdDeny",
                 "aid":      self.api_key,
                 "uid":      self.user_id,
                 "pwd":      self.password,
                 "om":       "json",
-                "order_no": order_no,        # 파라미터명 확인 필요
+                "order_no": order_no,
             },
         )
         root = self._root(resp)
