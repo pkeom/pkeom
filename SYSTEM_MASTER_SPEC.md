@@ -398,25 +398,25 @@ CancelMonitor.run()
 
 ```mermaid
 flowchart TD
-    A[NEW 주문] --> B{취소요청\n포함?}
-    B -->|예| C[CANCELLED\n발주 건너뜀]
-    B -->|아니오| D{예산 관리\n활성화?}
-    D -->|비활성| E[_place_one]
-    D -->|활성| F{예산 잔액\n≥ 예상비용?}
+    A["NEW 주문"] --> B{"취소요청<br/>포함?"}
+    B -->|예| C["CANCELLED<br/>발주 건너뜀"]
+    B -->|아니오| D{"예산 관리<br/>활성화?"}
+    D -->|비활성| E["_place_one"]
+    D -->|활성| F{"예산 잔액<br/>≥ 예상비용?"}
     F -->|예| E
-    F -->|아니오| G[PENDING\npending_orders.json]
-    E --> H{매핑 존재?}
-    H -->|없음| I[ERROR\n이메일]
-    H -->|있음| J{재고 확인\n활성화?}
-    J -->|활성| K{도매처 재고\n= 0?}
-    J -->|비활성| L[발주 API 호출]
-    K -->|예| M[STOCK_PENDING\n판매중지]
+    F -->|아니오| G["PENDING<br/>pending_orders.json"]
+    E --> H{"매핑 존재?"}
+    H -->|없음| I["ERROR<br/>이메일"]
+    H -->|있음| J{"재고 확인<br/>활성화?"}
+    J -->|활성| K{"도매처 재고<br/>= 0?"}
+    J -->|비활성| L["발주 API 호출"]
+    K -->|예| M["STOCK_PENDING<br/>판매중지"]
     K -->|아니오| L
-    K -->|조회 실패| N[경고 로그 후\n발주 계속]
+    K -->|조회 실패| N["경고 로그 후<br/>발주 계속"]
     N --> L
-    L --> O{API 성공?}
+    L --> O{"API 성공?"}
     O -->|실패| I
-    O -->|성공| P[ORDERED\nDB저장\n예산차감]
+    O -->|성공| P["ORDERED<br/>DB저장<br/>예산차감"]
 ```
 
 ### 5.2 취소 처리 상태 머신 (State Machine)
@@ -425,43 +425,43 @@ flowchart TD
 stateDiagram-v2
     [*] --> 신규감지
 
-    신규감지 --> SS_AUTO : DB발주없음\n또는 PENDING/STOCK_PENDING
-    신규감지 --> SHIPPED_REJECT : DB상태=SHIPPED\n(출고 완료)
-    신규감지 --> DENY_FAILED : 발주번호없음\n또는 setOrdDeny실패
+    신규감지 --> SS_AUTO : DB 발주없음 또는 PENDING
+    신규감지 --> SHIPPED_REJECT : DB 상태=SHIPPED 출고 완료
+    신규감지 --> DENY_FAILED : 발주번호없음 또는 setOrdDeny실패
     신규감지 --> DENY_SENT : setOrdDeny 성공
 
-    DENY_SENT --> APPROVED : 도매처 취소 승인\n→ SS approve_cancel
+    DENY_SENT --> APPROVED : 도매처 취소 승인 SS approve_cancel
     DENY_SENT --> MANUAL_REQUIRED : SS approve_cancel 실패
-    DENY_SENT --> REJECTED : 거부+송장있음\n→ SS CANCEL_REJECT
+    DENY_SENT --> REJECTED : 거부+송장있음 SS CANCEL_REJECT
     DENY_SENT --> REJECTED_WAIT_SHIP : 거부+송장없음
     DENY_SENT --> URGENT_3DAY : 3영업일 경과
     URGENT_3DAY --> MANUAL_4DAY : 4영업일 경과
 
-    REJECTED_WAIT_SHIP --> REJECTED : 송장 확인 후\nSS CANCEL_REJECT
+    REJECTED_WAIT_SHIP --> REJECTED : 송장 확인 후 SS CANCEL_REJECT
     REJECTED_WAIT_SHIP --> MANUAL_REQUIRED : SS dispatch 실패
 
     SHIPPED_REJECT --> MANUAL_REQUIRED : SS dispatch 실패
 
-    신규감지 --> RACE_CONDITION : 발주확인 후\n취소 요청 감지
+    신규감지 --> RACE_CONDITION : 발주확인 후 취소 요청 감지
 ```
 
 ### 5.3 재고 동기화 결정 트리
 
 ```mermaid
 flowchart TD
-    A[활성 매핑] --> B[도매처 get_product]
-    B -->|API 오류| C[error + 이메일]
-    B -->|성공| D{재고 수량}
-    D -->|0< stock <50| E{쿨다운\n60분 경과?}
-    E -->|예| F[재고부족 이메일\n쿨다운 갱신]
-    E -->|아니오| G[쿨다운 유지]
-    D --> H{캐시와\n상태 동일?}
-    H -->|동일| I[unchanged\nAPI 호출 없음]
-    H -->|변경| J{in_stock?}
-    J -->|False (품절)| K[SS 판매중지\n품절 이메일]
-    J -->|True (재입고)| L[SS 판매재개\n재고부족 대기 재발주]
-    K --> M[캐시 갱신 paused]
-    L --> N[캐시 갱신 resumed]
+    A["활성 매핑"] --> B["도매처 get_product"]
+    B -->|"API 오류"| C["error + 이메일"]
+    B -->|"성공"| D{"재고 수량"}
+    D -->|"0 < stock < 50"| E{"쿨다운<br/>60분 경과?"}
+    E -->|"예"| F["재고부족 이메일<br/>쿨다운 갱신"]
+    E -->|"아니오"| G["쿨다운 유지"]
+    D --> H{"캐시와<br/>상태 동일?"}
+    H -->|"동일"| I["unchanged<br/>API 호출 없음"]
+    H -->|"변경"| J{"in_stock?"}
+    J -->|"False 품절"| K["SS 판매중지<br/>품절 이메일"]
+    J -->|"True 재입고"| L["SS 판매재개<br/>재고부족 대기 재발주"]
+    K --> M["캐시 갱신 paused"]
+    L --> N["캐시 갱신 resumed"]
 ```
 
 ### 5.4 예산 그리디 선택 로직
@@ -813,11 +813,11 @@ graph TD
     PRG --> DM
     PRG --> MAP_R
 
-    BUD --> budget.json[(budget.json)]
-    ORD_R --> orders.json[(orders.json)]
-    MAP_R --> mappings.json[(mappings.json)]
-    PRI_R --> price_alerts.json[(price_alerts.json)]
-    DB --> orders.db[(orders.db)]
+    BUD --> BUDGET_J[("budget.json")]
+    ORD_R --> ORDERS_J[("orders.json")]
+    MAP_R --> MAPPINGS_J[("mappings.json")]
+    PRI_R --> PRICE_J[("price_alerts.json")]
+    DB --> ORDERS_DB[("orders.db")]
 ```
 
 ### 8.2 핵심 순환 의존성
@@ -859,7 +859,7 @@ erDiagram
         datetime detected_at
     }
 
-    ORDER {
+    ORDERS {
         int id PK
         string ss_order_id
         string ss_product_id
@@ -1278,21 +1278,21 @@ class AutomationScheduler:
 
 ```mermaid
 gantt
-    title 스케줄 실행 타임라인 (60분 기준)
+    title 스케줄 실행 타임라인
     dateFormat mm:ss
-    axisFormat %M분
+    axisFormat %Mm
 
-    section 매 10분
+    section 10분 주기
     주문수집       :00:00, 10m
     자동발주       :00:00, 10m
     송장동기화     :00:00, 10m
     취소처리       :00:00, 10m
 
-    section 매 60분
+    section 60분 주기
     재고동기화     :00:00, 60m
     반품감지       :00:00, 60m
 
-    section 매 120분
+    section 120분 주기
     가격모니터링   :00:00, 120m
 ```
 
@@ -1538,29 +1538,29 @@ sequenceDiagram
     participant COL as order_collector
     participant DB_J as orders.json
     participant PLC as order_placer
-    participant DK as 도매꾹/도매매 API
-    participant DB_S as SQLite(SupplierOrder)
+    participant DK as 도매꾹 도매매 API
+    participant DB_S as SQLite SupplierOrder
     participant INV as invoice_manager
 
     SS->>COL: PAYED 주문 조회 응답
     COL->>DB_J: status=NEW 저장
 
     PLC->>DB_J: status=NEW 주문 로드
-    PLC->>SS: get_cancellations(hours=24) 취소 필터
-    PLC->>DK: get_product() 재고 확인 (옵션)
-    PLC->>DK: place_order(product_id, qty, shipping, opt)
-    DK-->>PLC: supplier_order_no
-    PLC->>DB_S: SupplierOrder INSERT (ORDERED)
-    PLC->>DB_J: status=ORDERED, supplier, supplier_order_no 기록
-    PLC->>SS: confirm_orders([order_id]) 발주확인
+    PLC->>SS: get_cancellations 취소 필터
+    PLC->>DK: get_product 재고 확인
+    PLC->>DK: place_order 발주 요청
+    DK-->>PLC: supplier_order_no 반환
+    PLC->>DB_S: SupplierOrder INSERT ORDERED
+    PLC->>DB_J: status=ORDERED 기록
+    PLC->>SS: confirm_orders 발주확인
     PLC->>DB_J: confirm_log.json 기록
 
-    loop 매 10분 (송장 미발송 → pending 유지)
+    loop 매 10분 폴링 - 송장 미발송시 pending 유지
         INV->>DB_J: status=ORDERED 로드
-        INV->>DK: get_order_tracking(supplier_order_no)
-        DK-->>INV: tracking_number 있음
-        INV->>SS: dispatch_order(order_id, company_code, tracking)
-        INV->>DB_S: SupplierOrder UPDATE (tracking, SHIPPED)
+        INV->>DK: get_order_tracking 조회
+        DK-->>INV: tracking_number 반환
+        INV->>SS: dispatch_order 송장 등록
+        INV->>DB_S: SupplierOrder UPDATE SHIPPED
         INV->>DB_J: status=INVOICED 기록
     end
 ```
@@ -1571,31 +1571,31 @@ sequenceDiagram
 sequenceDiagram
     participant SS as 스마트스토어 API
     participant CAN as cancel_monitor
-    participant DK as 도매꾹/도매매 API
-    participant DB_S as SQLite(SupplierOrder)
+    participant DK as 도매꾹 도매매 API
+    participant DB_S as SQLite SupplierOrder
     participant DB_C as cancellations.json
 
-    SS->>CAN: get_cancellations(hours=1) CANCEL_REQUEST
-    CAN->>DB_S: SupplierOrder 조회 (ORDERED 확인)
-    CAN->>DB_C: _make_entry() DENY_SENT 기록
-    CAN->>DK: setOrdDeny(order_no)
-    DK-->>CAN: 성공
+    SS->>CAN: get_cancellations CANCEL_REQUEST 감지
+    CAN->>DB_S: SupplierOrder 조회 ORDERED 확인
+    CAN->>DB_C: _make_entry DENY_SENT 기록
+    CAN->>DK: setOrdDeny 취소 요청
+    DK-->>CAN: 성공 응답
 
     loop 매 10분 폴링
-        CAN->>DK: getOrderView(order_no) 취소 결과 조회
+        CAN->>DK: getOrderView 취소 결과 조회
         alt APPROVED
-            CAN->>SS: approve_cancel(product_order_id)
+            CAN->>SS: approve_cancel 취소 승인
             CAN->>DB_C: APPROVED 기록
-        else REJECTED + 송장
-            CAN->>SS: dispatch_order(CANCEL_REJECT)
+        else REJECTED 송장있음
+            CAN->>SS: dispatch_order CANCEL_REJECT
             CAN->>DB_C: REJECTED 기록
         else PENDING
             CAN->>DB_C: 영업일 계산
-            opt 3영업일
-                CAN->>DB_C: URGENT_3DAY + 이메일
+            opt 3영업일 경과
+                CAN->>DB_C: URGENT_3DAY 이메일 발송
             end
-            opt 4영업일
-                CAN->>DB_C: MANUAL_4DAY + 이메일
+            opt 4영업일 경과
+                CAN->>DB_C: MANUAL_4DAY 이메일 발송
             end
         end
     end
@@ -1611,18 +1611,18 @@ sequenceDiagram
     participant SP as StockPending
     participant PLC as order_placer
 
-    SYN->>DK: get_product() stock=0 감지
-    SYN->>SS: set_product_sale_status(on_sale=False)
-    SYN->>SP: stock_cache.json 업데이트 (False)
+    SYN->>DK: get_product stock=0 감지
+    SYN->>SS: set_product_sale_status on_sale=False
+    SYN->>SP: stock_cache.json 품절 상태 기록
 
-    Note over SP: 신규 주문 수신 시:
-    Note over PLC: get_product() stock=0 → STOCK_PENDING
+    Note over SP: 신규 주문 수신 시
+    Note over PLC: stock=0 감지 STOCK_PENDING 처리
     PLC->>SP: stock_pending_orders.json 추가
 
-    SYN->>DK: get_product() stock=100 감지 (재입고)
-    SYN->>SS: set_product_sale_status(on_sale=True)
-    SYN->>PLC: resume_stock_pending(supplier, product_id)
-    PLC->>DK: place_order() (skip_stock_check=True)
+    SYN->>DK: get_product stock=100 재입고 감지
+    SYN->>SS: set_product_sale_status on_sale=True
+    SYN->>PLC: resume_stock_pending 재발주 요청
+    PLC->>DK: place_order skip_stock_check=True
     PLC->>SP: stock_pending_orders.json 에서 제거
 ```
 
