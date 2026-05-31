@@ -90,8 +90,45 @@ def _make_cancel_raw(order_id: str, reason: str = "변심") -> dict:
 
 def _make_return_raw(order_id: str, reason: str = "불량") -> dict:
     return {
-        "productOrder": {"productOrderId": order_id, "productName": "테스트상품", "quantity": 1},
-        "claim": {"returnReason": reason, "returnReasonType": "DEFECT"},
+        "productOrder": {
+            "productOrderId":     order_id,
+            "orderId":            f"ORD_{order_id}",
+            "productId":          "SS_PROD_001",
+            "productName":        "테스트상품",
+            "optionCode":         "OPT_001",
+            "optionName":         "빨간색",
+            "quantity":           2,
+            "unitPrice":          15000,
+            "totalPaymentAmount": 30000,
+            "invoiceNumber":      "1234567890",
+            "deliveryCompany":    "CJ대한통운",
+        },
+        "order": {
+            "ordererName": "홍길동",
+            "ordererTel":  "010-1111-2222",
+        },
+        "shippingAddress": {
+            "name":          "이순신",
+            "tel1":          "010-3333-4444",
+            "addressStr":    "서울시 강남구 테헤란로 123 456동 789호",
+            "roadAddress":   "서울시 강남구 테헤란로 123",
+            "detailAddress": "456동 789호",
+            "zipCode":       "06234",
+        },
+        "deliveryMemo": "문 앞에 놔주세요",
+        "claim": {
+            "returnReason":           reason,
+            "returnReasonType":       "DEFECT",
+            "claimStatus":            "RETURN_REQUEST",
+            "claimRequestDate":       "2026-05-31T10:00:00",
+            "returnDeliveryCompany":  "롯데택배",
+            "returnTrackingNumber":   "9876543210",
+            "refundExpectedDate":     "2026-06-03",
+            "deliveryFeePayType":     "SELLER",
+            "claimPrice": {
+                "refundPayAmount": 28000,
+            },
+        },
     }
 
 
@@ -871,7 +908,7 @@ def scenario_E2_price_api_error():
 # ── F: 반품 감지 ──────────────────────────────────────────────────────────────
 
 def scenario_F1_return_request():
-    """F1: RETURN_REQUEST → 이메일 + returns.json"""
+    """F1: RETURN_REQUEST → 이메일(전체 필드) + returns.json 저장 + 중복 방지"""
     from src.core.return_monitor import ReturnMonitor
 
     with _env() as (ss, dk, dm, ntf, _):
@@ -886,8 +923,48 @@ def scenario_F1_return_request():
         assert len(ntf.sent) == 2
         assert all("반품" in s["subject"] for s in ntf.sent)
 
+        # returns.json 저장 확인
         data = json.loads(Path("data/returns.json").read_text(encoding="utf-8"))
         assert len(data["returns"]) == 2
+
+        # 새로 추가된 필드 검증
+        entry = data["returns"][0]
+        assert entry["product_order_id"] == "ORD_RET_001"
+        assert entry["ss_order_id"] == "ORD_ORD_RET_001"
+        assert entry["product_id"] == "SS_PROD_001"
+        assert entry["option_code"] == "OPT_001"
+        assert entry["option_name"] == "빨간색"
+        assert entry["quantity"] == 2
+        assert entry["unit_price"] == 15000
+        assert entry["total_payment_amount"] == 30000
+        assert entry["buyer_name"] == "홍길동"
+        assert entry["buyer_phone"] == "010-1111-2222"
+        assert entry["receiver_name"] == "이순신"
+        assert entry["receiver_phone"] == "010-3333-4444"
+        assert entry["receiver_address"] == "서울시 강남구 테헤란로 123 456동 789호"
+        assert entry["receiver_road_address"] == "서울시 강남구 테헤란로 123"
+        assert entry["receiver_detail_address"] == "456동 789호"
+        assert entry["receiver_zipcode"] == "06234"
+        assert entry["delivery_memo"] == "문 앞에 놔주세요"
+        assert entry["invoice_number"] == "1234567890"
+        assert entry["delivery_company"] == "CJ대한통운"
+        assert entry["return_reason"] == "불량"
+        assert entry["return_reason_type"] == "DEFECT"
+        assert entry["claim_status"] == "RETURN_REQUEST"
+        assert entry["return_delivery_company"] == "롯데택배"
+        assert entry["return_tracking_number"] == "9876543210"
+        assert entry["refund_amount"] == 28000
+        assert entry["refund_expected_date"] == "2026-06-03"
+        assert entry["return_delivery_fee_payer"] == "SELLER"
+
+        # 이메일 본문에 주요 필드 포함 여부
+        body = ntf.sent[0]["body"]
+        assert "이순신" in body          # 수령인명
+        assert "홍길동" in body          # 구매자명
+        assert "1234567890" in body      # 기존 송장번호
+        assert "28,000" in body          # 환불금액
+        assert "롯데택배" in body         # 반품 택배사
+        assert "9876543210" in body      # 반품 송장번호
 
         # 중복 방지
         ntf.clear()
