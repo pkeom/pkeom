@@ -88,34 +88,81 @@ class DomaekkukAPI:
 
     # ── 발주 ─────────────────────────────────────────────────
 
+    def get_options(self, product_no: str) -> list[dict]:
+        """상품 옵션 목록 조회. 반환값: [{"id": str, "name": str}]
+
+        getItemView 응답의 selectOpt 노드를 파싱한다.
+        """
+        import logging as _log
+        resp = requests.get(
+            self.API_URL,
+            params=self._params({"mode": "getItemView", "no": product_no}),
+        )
+        root       = self._root(resp)
+        select_opt = root.get("selectOpt") or {}
+        if not isinstance(select_opt, dict):
+            return []
+        options: list[dict] = []
+        seen: set[str] = set()
+        for code, info in select_opt.items():
+            if not isinstance(info, dict):
+                continue
+            if int(info.get("hid", 0)) == 2:   # hid=2: 완전 숨김 제외
+                continue
+            name = str(info.get("name", "")).strip()
+            if name and code not in seen:
+                options.append({"id": str(code), "name": name})
+                seen.add(code)
+        _log.getLogger(__name__).debug(
+            "도매꾹 옵션 목록: product=%s, count=%d", product_no, len(options)
+        )
+        return options
+
     def place_order(self, product_no: str, quantity: int, shipping_info: dict,
-                    *, dry_run: bool = False) -> dict:
+                    *, supplier_option_id: str = "", dry_run: bool = False) -> dict:
         """발주 요청. 반환값: {"order_no": "도매처발주번호", ...}
 
-        dry_run=True: 실제 API 호출 없이 즉시 가짜 발주번호 반환 (테스트/시뮬레이션용).
+        supplier_option_id: 매핑에 저장된 도매꾹 옵션 코드.
+          값이 있으면 addOrder 요청의 'opt' 필드로 전달한다.
+          없으면 opt 필드를 생략하고 옵션 없이 발주한다.
+
+        dry_run=True: 실제 API 호출 없이 즉시 가짜 발주번호 반환.
         ※ 도매꾹 addOrder API는 Private API(승인 필요)입니다.
-          실제 필드명은 발급받은 API 문서에서 확인 후 아래 data 딕셔너리를 조정하세요.
+          실제 필드명은 발급받은 API 문서에서 확인 후 조정하세요.
+          (현재 옵션 필드명 'opt' 는 추정값 — API 승인 후 검증 필요)
         """
+        import logging as _log
+        _logger = _log.getLogger(__name__)
+
         if dry_run:
-            return {"order_no": f"[DRY_RUN] prod={product_no} qty={quantity}"}
-        resp = requests.post(
-            self.API_URL,
-            data={                          # form-encoded (not JSON)
-                "ver":      "4.1",
-                "mode":     "addOrder",
-                "aid":      self.api_key,
-                "uid":      self.user_id,
-                "pwd":      self.password,
-                "om":       "json",
-                "no":       product_no,     # 상품번호
-                "cnt":      quantity,       # 수량
-                "rtNm":     shipping_info["name"],      # 수령인명
-                "rtPh":     shipping_info["phone"],     # 수령인 연락처
-                "rtZip":    shipping_info["zipcode"],   # 우편번호
-                "rtAddr":   shipping_info["address"],   # 주소
-                "rtMsg":    shipping_info.get("memo", ""),  # 배송 메모
-            },
-        )
+            opt_tag = f" opt={supplier_option_id}" if supplier_option_id else ""
+            return {"order_no": f"[DRY_RUN] prod={product_no} qty={quantity}{opt_tag}"}
+
+        data: dict = {
+            "ver":      "4.1",
+            "mode":     "addOrder",
+            "aid":      self.api_key,
+            "uid":      self.user_id,
+            "pwd":      self.password,
+            "om":       "json",
+            "no":       product_no,                       # 상품번호
+            "cnt":      quantity,                         # 수량
+            "rtNm":     shipping_info["name"],            # 수령인명
+            "rtPh":     shipping_info["phone"],           # 수령인 연락처
+            "rtZip":    shipping_info["zipcode"],         # 우편번호
+            "rtAddr":   shipping_info["address"],         # 주소
+            "rtMsg":    shipping_info.get("memo", ""),    # 배송 메모
+        }
+
+        if supplier_option_id:
+            data["opt"] = supplier_option_id             # 옵션 코드 전달
+            _logger.info(
+                "도매꾹 발주 옵션 전달: product=%s, opt=%s", product_no, supplier_option_id
+            )
+        else:
+            _logger.debug("도매꾹 발주 옵션 없음: product=%s", product_no)
+
+        resp = requests.post(self.API_URL, data=data)
         return self._root(resp)
 
     def cancel_order(self, order_no: str) -> dict:

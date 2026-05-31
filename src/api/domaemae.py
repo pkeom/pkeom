@@ -213,26 +213,47 @@ class DomaemaeClient:
         return self._parse_options(root.get("selectOpt"))
 
     def place_order(self, product_id: str, quantity: int, shipping_info: dict,
-                    *, option_name: str = "", dry_run: bool = False) -> str:
+                    *, option_id: str = "", option_name: str = "",
+                    dry_run: bool = False) -> str:
         """setOrder로 발주. 주문번호 반환.
+
+        옵션 처리 우선순위:
+          1. option_id  : 매핑에 저장된 도매처 옵션 코드를 직접 사용 (권장)
+          2. option_name: option_id 없을 때 옵션명으로 API 검색 후 매칭 (폴백)
+          3. 둘 다 없음 : 옵션 없이 발주
 
         shipping_info 필수 키: name, phone, zipcode, address
         shipping_info 선택 키: memo
         """
         if dry_run:
-            return f"[DRY_RUN] prod={product_id} qty={quantity}"
+            opt_tag = f" opt={option_id or option_name}" if (option_id or option_name) else ""
+            return f"[DRY_RUN] prod={product_id} qty={quantity}{opt_tag}"
 
         option_code: str | None = None
-        if option_name:
+
+        if option_id:
+            # supplier_option_id 직접 사용 — API 검색 불필요
+            option_code = option_id
+            logger.info(
+                "도매매 발주 옵션 직접 전달: product=%s, option_id=%s",
+                product_id, option_id,
+            )
+        elif option_name:
+            # 폴백: 옵션명으로 getItemView 호출 후 매칭
             options = self.get_options(product_id)
             option_code = self._match_option(options, option_name)
             if option_code:
-                logger.info("옵션 매칭 성공: '%s' → code=%s", option_name, option_code)
+                logger.info(
+                    "도매매 발주 옵션 매칭 성공: '%s' → code=%s (product=%s)",
+                    option_name, option_code, product_id,
+                )
             else:
                 logger.warning(
-                    "옵션 '%s' 미매칭 (product=%s, 후보=%d건) — 옵션 없이 발주",
+                    "도매매 발주 옵션 매칭 실패: '%s' (product=%s, 후보=%d건) — 옵션 없이 발주",
                     option_name, product_id, len(options),
                 )
+        else:
+            logger.debug("도매매 발주 옵션 없음: product=%s", product_id)
 
         data: dict = {
             "item[0][no]":        product_id,

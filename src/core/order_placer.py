@@ -384,11 +384,37 @@ class OrderPlacer:
             "zipcode": order["receiver_zipcode"],
             "memo":    order.get("delivery_memo", ""),
         }
+        supplier_option_id = mapping.get("supplier_option_id", "")
         try:
             client = self.clients[mapping["supplier"]]
             kwargs = {}
-            if mapping["supplier"] == "domaemae":
-                kwargs["option_name"] = order.get("option_code", "")
+            if mapping["supplier"] == "domaekkuk":
+                # supplier_option_id가 있으면 addOrder 'opt' 필드로 전달
+                if supplier_option_id:
+                    kwargs["supplier_option_id"] = supplier_option_id
+                    logger.info(
+                        "도매꾹 발주 옵션 전달: order_id=%s, opt=%s",
+                        order_id, supplier_option_id,
+                    )
+            elif mapping["supplier"] == "domaemae":
+                if supplier_option_id:
+                    # 매핑의 도매처 옵션 코드를 직접 전달 (SS 숫자코드 대신)
+                    kwargs["option_id"] = supplier_option_id
+                    logger.info(
+                        "도매매 발주 옵션 직접 전달: order_id=%s, option_id=%s",
+                        order_id, supplier_option_id,
+                    )
+                else:
+                    # supplier_option_id 없음 → SS option_code로 이름 매칭 폴백
+                    ss_option = order.get("option_code", "")
+                    kwargs["option_name"] = ss_option
+                    if ss_option:
+                        logger.warning(
+                            "도매매 발주 옵션: supplier_option_id 없음 "
+                            "— SS option_code '%s' 로 이름 매칭 시도 (order_id=%s). "
+                            "매핑에 supplier_option_id를 등록하면 정확도가 높아집니다.",
+                            ss_option, order_id,
+                        )
             if self._dry_run:
                 kwargs["dry_run"] = True
             result = client.place_order(

@@ -254,13 +254,20 @@ class MockDomaekkukAPI:
     def search_products(self, keyword, market="dome", page=1, size=20):
         return {"total": 0, "items": []}
 
-    def place_order(self, product_no, quantity, shipping_info, *, dry_run=False):
+    def get_options(self, product_no):
+        return []
+
+    def place_order(self, product_no, quantity, shipping_info, *,
+                    supplier_option_id="", dry_run=False):
         if dry_run:
             return {"order_no": f"[DRY_RUN] {product_no}"}
         if self.order_fail:
             raise RuntimeError("도매꾹 발주 실패 (Mock)")
         order_no = self.order_results.get(str(product_no), f"DK_{product_no}")
-        self.placed.append({"product_no": product_no, "qty": quantity, "order_no": order_no})
+        self.placed.append({
+            "product_no": product_no, "qty": quantity,
+            "order_no": order_no, "supplier_option_id": supplier_option_id,
+        })
         return {"order_no": order_no}
 
     def cancel_order(self, order_no):
@@ -307,13 +314,18 @@ class MockDomaemaeClient:
     def get_options(self, product_id):
         return []
 
-    def place_order(self, product_id, quantity, shipping_info, *, option_name="", dry_run=False):
+    def place_order(self, product_id, quantity, shipping_info, *,
+                    option_id="", option_name="", dry_run=False):
         if dry_run:
             return f"[DRY_RUN] {product_id}"
         if self.order_fail:
             raise RuntimeError("도매매 발주 실패 (Mock)")
         order_no = self.order_results.get(str(product_id), f"DM_{product_id}")
-        self.placed.append({"product_id": product_id, "qty": quantity, "order_no": order_no})
+        self.placed.append({
+            "product_id": product_id, "qty": quantity,
+            "order_no": order_no,
+            "option_id": option_id, "option_name": option_name,
+        })
         return order_no
 
     def cancel_order(self, order_no):
