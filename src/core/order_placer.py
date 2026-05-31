@@ -442,6 +442,7 @@ class OrderPlacer:
                     quantity=order["quantity"],
                     status="ORDERED",
                 ))
+                session.commit()
         except Exception as e:
             logger.error("SupplierOrder DB 저장 실패: order_id=%s, %s", order_id, e)
 

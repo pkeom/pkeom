@@ -60,6 +60,7 @@ class SmartstoreAPI:
                 "grant_type":         "client_credentials",
                 "type":               self.account_type,
             },
+            timeout=10,
         )
 
         if not resp.ok:
@@ -317,6 +318,7 @@ class SmartstoreAPI:
                     "productOrderStatuses": status,
                     "limitCount": 100,
                 },
+                timeout=10,
             )
             resp.raise_for_status()
             changed = resp.json().get("lastChangeStatuses", [])
@@ -331,6 +333,7 @@ class SmartstoreAPI:
             f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
             headers=self._headers(),
             json={"productOrderIds": product_order_ids},
+            timeout=10,
         )
         resp.raise_for_status()
         return resp.json().get("data", [])
@@ -353,6 +356,7 @@ class SmartstoreAPI:
                     }
                 ]
             },
+            timeout=10,
         )
         resp.raise_for_status()
         return resp.json()
@@ -363,6 +367,7 @@ class SmartstoreAPI:
             f"{self.BASE_URL}/v2/products/{product_id}",
             headers=self._headers(),
             json={"saleStatus": "ON_SALE" if on_sale else "SUSPENSION"},
+            timeout=10,
         )
         resp.raise_for_status()
         return resp.json()
@@ -372,6 +377,7 @@ class SmartstoreAPI:
         resp = requests.get(
             f"{self.BASE_URL}/v2/products/{product_id}",
             headers=self._headers(),
+            timeout=10,
         )
         resp.raise_for_status()
         return resp.json()
@@ -382,6 +388,7 @@ class SmartstoreAPI:
             f"{self.BASE_URL}/v2/products",
             headers=self._headers(),
             params={"size": size},
+            timeout=10,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -410,6 +417,7 @@ class SmartstoreAPI:
                     f"{self.BASE_URL}/v1/pay-order/seller/product-orders/confirm",
                     headers=self._headers(),
                     json={"productOrderIds": batch},
+                    timeout=10,
                 )
                 resp.raise_for_status()
                 confirmed.extend(batch)
@@ -441,6 +449,7 @@ class SmartstoreAPI:
                 "productOrderStatuses": "CANCEL_REQUEST",
                 "limitCount": 100,
             },
+            timeout=10,
         )
         resp.raise_for_status()
         changed = resp.json().get("lastChangeStatuses", [])
@@ -453,6 +462,7 @@ class SmartstoreAPI:
             f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
             headers=self._headers(),
             json={"productOrderIds": product_order_ids},
+            timeout=10,
         )
         resp.raise_for_status()
         return resp.json().get("data", [])
@@ -465,6 +475,7 @@ class SmartstoreAPI:
             f"{self.BASE_URL}/v1/pay-order/seller/product-orders"
             f"/{product_order_id}/claim/cancel/approve",
             headers=self._headers(),
+            timeout=10,
         )
         resp.raise_for_status()
         return resp.json()
@@ -484,6 +495,7 @@ class SmartstoreAPI:
                 "productOrderStatuses": "RETURN_REQUEST",
                 "limitCount": 100,
             },
+            timeout=10,
         )
         resp.raise_for_status()
         changed = resp.json().get("lastChangeStatuses", [])
@@ -496,6 +508,7 @@ class SmartstoreAPI:
             f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
             headers=self._headers(),
             json={"productOrderIds": product_order_ids},
+            timeout=10,
         )
         resp.raise_for_status()
         return resp.json().get("data", [])

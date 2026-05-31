@@ -29,7 +29,10 @@ class DomaekkukAPI:
     def _root(self, resp: requests.Response) -> dict:
         """응답 JSON의 domeggook 루트 노드 반환"""
         resp.raise_for_status()
-        return resp.json().get("domeggook", {})
+        try:
+            return resp.json().get("domeggook", {})
+        except ValueError:
+            raise ValueError(f"도매꾹 API 응답 JSON 파싱 실패: {resp.text[:200]}")
 
     # ── 상품 조회 ────────────────────────────────────────────
 
@@ -38,16 +41,25 @@ class DomaekkukAPI:
         resp = requests.get(
             self.API_URL,
             params=self._params({"mode": "getItemView", "no": product_no}),
+            timeout=10,
         )
         root   = self._root(resp)
         basis  = root.get("basis", {})
         price  = root.get("price", {})
         qty    = root.get("qty", {})
         seller = root.get("seller", {})
+        try:
+            price_val = int(price.get("dome") or price.get("supply") or 0)
+        except (TypeError, ValueError):
+            price_val = 0
+        try:
+            stock_val = int(qty.get("inventory", 0))
+        except (TypeError, ValueError):
+            stock_val = 0
         return {
             "title":     basis.get("title", ""),
-            "price":     int(price.get("dome") or price.get("supply") or 0),
-            "stock":     int(qty.get("inventory", 0)),
+            "price":     price_val,
+            "stock":     stock_val,
             "seller_id": seller.get("id", ""),
         }
 
@@ -67,19 +79,25 @@ class DomaekkukAPI:
                 "pg":     page,
                 "sz":     size,
             }),
+            timeout=10,
         )
         root   = self._root(resp)
         header = root.get("header", {})
         items  = root.get("list", {}).get("item", [])
         if isinstance(items, dict):
             items = [items]
+        def _safe_int(v, default=0):
+            try:
+                return int(v or default)
+            except (TypeError, ValueError):
+                return default
         return {
             "total": header.get("numberOfItems", 0),
             "items": [
                 {
                     "no":        item.get("no", ""),
                     "title":     item.get("title", ""),
-                    "price":     int(item.get("price") or 0),
+                    "price":     _safe_int(item.get("price")),
                     "seller_id": item.get("id", ""),
                 }
                 for item in items
@@ -97,6 +115,7 @@ class DomaekkukAPI:
         resp = requests.get(
             self.API_URL,
             params=self._params({"mode": "getItemView", "no": product_no}),
+            timeout=10,
         )
         root       = self._root(resp)
         select_opt = root.get("selectOpt") or {}
@@ -107,7 +126,11 @@ class DomaekkukAPI:
         for code, info in select_opt.items():
             if not isinstance(info, dict):
                 continue
-            if int(info.get("hid", 0)) == 2:   # hid=2: 완전 숨김 제외
+            try:
+                hid = int(info.get("hid", 0))
+            except (TypeError, ValueError):
+                hid = 0
+            if hid == 2:   # hid=2: 완전 숨김 제외
                 continue
             name = str(info.get("name", "")).strip()
             if name and code not in seen:
@@ -162,7 +185,7 @@ class DomaekkukAPI:
         else:
             _logger.debug("도매꾹 발주 옵션 없음: product=%s", product_no)
 
-        resp = requests.post(self.API_URL, data=data)
+        resp = requests.post(self.API_URL, data=data, timeout=10)
         return self._root(resp)
 
     def cancel_order(self, order_no: str) -> dict:
@@ -181,6 +204,7 @@ class DomaekkukAPI:
                 "om":       "json",
                 "order_no": order_no,
             },
+            timeout=10,
         )
         root = self._root(resp)
         err = root.get("error") or root.get("errCode") or root.get("errMsg")
@@ -198,6 +222,7 @@ class DomaekkukAPI:
             resp = requests.get(
                 self.API_URL,
                 params=self._params({"mode": "getOrderInfo", "order_no": order_no}),
+                timeout=10,
             )
             root   = self._root(resp)
             order  = root.get("order", root)
@@ -222,6 +247,7 @@ class DomaekkukAPI:
         resp = requests.get(
             self.API_URL,
             params=self._params({"mode": "getOrderInfo", "order_no": order_no}),
+            timeout=10,
         )
         root  = self._root(resp)
         order = root.get("order", root)

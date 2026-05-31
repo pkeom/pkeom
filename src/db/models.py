@@ -66,8 +66,8 @@ class PriceHistory(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     supplier = Column(String, nullable=False)
     supplier_product_id = Column(String, nullable=False)
-    old_price = Column(Integer)
-    new_price = Column(Integer)
+    old_price = Column(Integer, nullable=True)
+    new_price = Column(Integer, nullable=True)
     detected_at = Column(DateTime, default=datetime.utcnow)
 
 

@@ -23,7 +23,7 @@ class EmailNotifier:
         msg.attach(MIMEText(body, "plain", "utf-8"))
 
         try:
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as server:
                 server.ehlo()
                 server.starttls()
                 server.login(self.sender, self.password)

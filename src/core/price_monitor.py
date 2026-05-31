@@ -49,6 +49,7 @@ class PriceMonitor:
             for mapping in active:
                 result = self._check_one(session, mapping)
                 stats[result] += 1
+            session.commit()
 
         if stats["changed"]:
             logger.info("가격 변동 감지: %d건 — price_alerts.json 저장 완료", stats["changed"])

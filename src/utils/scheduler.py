@@ -44,5 +44,5 @@ class AutomationScheduler:
         logger.info("스케줄러 시작")
 
     def stop(self):
-        self.scheduler.shutdown(wait=False)
+        self.scheduler.shutdown(wait=True)
         logger.info("스케줄러 종료")

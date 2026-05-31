@@ -179,6 +179,9 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         _shutdown()
+    except Exception as e:
+        logger.error("예기치 않은 오류로 종료: %s", e, exc_info=True)
+        _shutdown()
 
     print("종료 완료.", flush=True)
     sys.exit(0)

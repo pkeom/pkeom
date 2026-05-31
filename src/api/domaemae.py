@@ -60,9 +60,13 @@ class DomaemaeClient:
             "loginKeep":  "1",
             "ip":         self._local_ip(),
             "device":     "Third Party",
-        })
+        }, timeout=10)
         resp.raise_for_status()
-        root = resp.json().get("domeggook", resp.json())
+        try:
+            data = resp.json()
+        except ValueError:
+            raise ValueError(f"도매매 로그인 응답 JSON 파싱 실패: {resp.text[:200]}")
+        root = data.get("domeggook", data)
 
         self._sid        = str(root.get("sId", ""))
         self._login_time = datetime.datetime.now()
@@ -90,9 +94,13 @@ class DomaemaeClient:
             "sIdRenewDate":  self._sid_renew_date.strftime("%Y-%m-%d %H:%M:%S")
                              if self._sid_renew_date else "",
             "loginKeep":     "1",
-        })
+        }, timeout=10)
         resp.raise_for_status()
-        root = resp.json().get("domeggook", resp.json())
+        try:
+            data = resp.json()
+        except ValueError:
+            raise ValueError(f"도매매 세션 갱신 응답 JSON 파싱 실패: {resp.text[:200]}")
+        root = data.get("domeggook", data)
 
         new_sid = str(root.get("sId", ""))
         if new_sid:
@@ -131,9 +139,13 @@ class DomaemaeClient:
                   "aid": self.api_key, "sId": self._sid}
         if extra:
             params.update(extra)
-        resp = requests.get(API_URL, params=params)
+        resp = requests.get(API_URL, params=params, timeout=10)
         resp.raise_for_status()
-        return resp.json().get("domeggook", resp.json())
+        try:
+            data = resp.json()
+        except ValueError:
+            raise ValueError(f"도매매 API 응답 JSON 파싱 실패 (mode={mode}): {resp.text[:200]}")
+        return data.get("domeggook", data)
 
     def _post(self, mode: str, ver: str, data: dict | None = None) -> dict:
         self._ensure_session()
@@ -141,9 +153,13 @@ class DomaemaeClient:
              "aid": self.api_key, "sId": self._sid}
         if data:
             d.update(data)
-        resp = requests.post(API_URL, data=d)
+        resp = requests.post(API_URL, data=d, timeout=10)
         resp.raise_for_status()
-        return resp.json().get("domeggook", resp.json())
+        try:
+            body = resp.json()
+        except ValueError:
+            raise ValueError(f"도매매 API 응답 JSON 파싱 실패 (mode={mode}): {resp.text[:200]}")
+        return body.get("domeggook", body)
 
     # ── 파싱 헬퍼 ─────────────────────────────────────────────────
 
@@ -161,7 +177,11 @@ class DomaemaeClient:
         for code, info in select_opt.items():
             if not isinstance(info, dict):
                 continue
-            if int(info.get("hid", 0)) == 2:
+            try:
+                hid = int(info.get("hid", 0))
+            except (TypeError, ValueError):
+                hid = 0
+            if hid == 2:
                 continue
             name = str(info.get("name", "")).strip()
             if name and code not in seen:
@@ -197,11 +217,19 @@ class DomaemaeClient:
         basis = root.get("basis", {})
         price = root.get("price", {})
         qty   = root.get("qty", {})
+        try:
+            price_val = int(price.get("supply") or price.get("dome") or 0) or None
+        except (TypeError, ValueError):
+            price_val = None
+        try:
+            stock_val = int(qty.get("inventory", 0))
+        except (TypeError, ValueError):
+            stock_val = 0
         return {
             "product_id": product_id,
             "title":      basis.get("title", ""),
-            "price":      int(price.get("supply") or price.get("dome") or 0) or None,
-            "stock":      int(qty.get("inventory", 0)),
+            "price":      price_val,
+            "stock":      stock_val,
         }
 
     def get_stock(self, product_id: str) -> int:
