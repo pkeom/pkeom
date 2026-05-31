@@ -52,6 +52,7 @@ def _order_summary(order: dict, mapping: dict | None = None) -> str:
         f"상품ID:   {order.get('product_id', '')}",
         f"옵션코드: {order.get('option_code', '')}",
         f"수량:     {order.get('quantity', '')}",
+        f"구매자:   {order.get('buyer_name', '')}",
         f"수령인:   {order.get('receiver_name', '')} / {order.get('receiver_phone', '')}",
         f"주소:     {order.get('receiver_address', '')} ({order.get('receiver_zipcode', '')})",
         f"배송메모: {order.get('delivery_memo', '')}",
@@ -630,13 +631,19 @@ class OrderPlacer:
             return
         subject = f"[위탁판매] 발주 실패 알림 — {reason}"
         body = "\n".join([
-            f"■ 발주 실패 사유: {reason}",
+            f"■ 알림 종류 : 발주 실패",
+            f"■ 실패 사유 : {reason}",
+            f"■ 현재 상태 : ERROR (발주 미완료)",
             "",
             "■ 주문 정보",
             _order_summary(order, mapping),
             "",
             "■ 오류 상세",
             detail,
+            "",
+            "■ 필요한 조치",
+            "  도매꾹/도매매 사이트에서 직접 발주 후 스마트스토어 센터에서",
+            "  해당 주문의 발주확인을 수동으로 처리해 주세요.",
         ])
         try:
             self._notifier.send(subject=subject, body=body)

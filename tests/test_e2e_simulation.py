@@ -83,7 +83,23 @@ def _make_raw_order(order_id: str, product_id: str = "SS_PROD_001",
 
 def _make_cancel_raw(order_id: str, reason: str = "변심") -> dict:
     return {
-        "productOrder": {"productOrderId": order_id, "productName": "테스트상품", "quantity": 1},
+        "productOrder": {
+            "productOrderId": order_id,
+            "orderId":        f"ORD_{order_id}",
+            "productName":    "테스트상품",
+            "quantity":       2,
+            "invoiceNumber":  "INVNUM_001",
+        },
+        "order": {
+            "ordererName": "홍길동",
+            "ordererTel":  "010-1111-2222",
+        },
+        "shippingAddress": {
+            "name":       "이순신",
+            "tel1":       "010-3333-4444",
+            "addressStr": "서울시 강남구 테헤란로 123",
+            "zipCode":    "06234",
+        },
         "claim": {"cancelReason": reason},
     }
 
@@ -1519,7 +1535,7 @@ def scenario_I8_no_title_fails():
 # ── J: 이메일 내용 검증 ──────────────────────────────────────────────────────
 
 def scenario_J1_order_fail_email_fields():
-    """J1: 발주 실패 이메일에 주문ID·상품명·사유 포함"""
+    """J1: 발주 실패 이메일에 주문ID·상품명·구매자명·사유·필요조치 포함"""
     from src.core.order_repository import OrderRepository
     from src.core.mapping_repository import MappingRepository
 
@@ -1536,15 +1552,21 @@ def scenario_J1_order_fail_email_fields():
         placer.run()
 
         assert len(ntf.sent) >= 1
-        body = ntf.last()["body"]
-        assert "ORD_EMAIL_001" in body
-        assert "이메일검증상품" in body
+        email = ntf.last()
+        body = email["body"]
+        assert "ORD_EMAIL_001" in body,    "주문ID 누락"
+        assert "이메일검증상품" in body,     "상품명 누락"
+        assert "홍길동" in body,            "구매자명 누락"
+        assert "발주 실패" in email["subject"]
+        assert "필요한 조치" in body,        "필요한 조치 섹션 누락"
+        assert "현재 상태" in body,          "현재 상태 섹션 누락"
 
 
 def scenario_J2_cancel_email_fields():
-    """J2: 취소 이메일에 SS 주문번호·도매처 포함
+    """J2: 취소 이메일에 SS 주문번호·도매처·수령인·수량·송장번호 포함
 
     DENY_SENT → 즉시 폴링 → APPROVED → 이메일 (같은 run 사이클).
+    _make_cancel_raw에 order·shippingAddress 포함되어 있어 수령인 추출 가능.
     """
     with _env() as (ss, dk, dm, ntf, _):
         _insert_sup_order("ORD_CEL_EMAIL", "domaekkuk", "DK_EMAIL_ORDER", status="ORDERED")
@@ -1555,15 +1577,17 @@ def scenario_J2_cancel_email_fields():
         mon.run()  # DENY_SENT → 즉시 폴링 → APPROVED → 이메일 발송
 
         assert len(ntf.sent) >= 1, "이메일이 발송되지 않았습니다"
-        # APPROVED 이메일 확인
         approved_email = next(
-            (e for e in ntf.sent if "취소완료" in e["subject"] or "APPROVED" in e["subject"]
-             or "취소 승인" in e["subject"]),
+            (e for e in ntf.sent if "취소완료" in e["subject"] or "취소 승인" in e["subject"]),
             ntf.last()
         )
         body = approved_email["body"]
-        assert "ORD_CEL_EMAIL" in body, "SS 주문번호 누락"
-        assert "domaekkuk" in body, "도매처 누락"
+        assert "ORD_CEL_EMAIL" in body,  "SS 주문번호 누락"
+        assert "domaekkuk" in body,      "도매처 누락"
+        assert "이순신" in body,          "수령인명 누락"
+        assert "2개" in body,            "수량 누락"
+        assert "INVNUM_001" in body,     "기존 송장번호 누락"
+        assert "필요한 조치" in body,     "필요한 조치 섹션 누락"
 
 
 def scenario_J3_budget_email_amount():

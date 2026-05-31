@@ -38,7 +38,13 @@ def _invoice_summary(order: dict) -> str:
     return "\n".join([
         f"주문ID:       {order['order_id']}",
         f"상품명:       {order.get('product_name', '')}",
+        f"상품ID:       {order.get('product_id', '')}",
+        f"옵션코드:     {order.get('option_code', '')}",
+        f"수량:         {order.get('quantity', '')}",
+        f"구매자:       {order.get('buyer_name', '')}",
         f"수령인:       {order.get('receiver_name', '')} / {order.get('receiver_phone', '')}",
+        f"주소:         {order.get('receiver_address', '')} ({order.get('receiver_zipcode', '')})",
+        f"배송메모:     {order.get('delivery_memo', '')}",
         f"도매처:       {order.get('supplier', '')}",
         f"도매발주번호: {order.get('supplier_order_no', '')}",
     ])
@@ -168,13 +174,19 @@ class InvoiceManager:
             return
         subject = f"[위탁판매] 송장 등록 실패 알림 — {reason}"
         body = "\n".join([
-            f"■ 실패 사유: {reason}",
+            f"■ 알림 종류 : 송장 등록 실패",
+            f"■ 실패 사유 : {reason}",
+            f"■ 현재 상태 : ERROR (송장 미등록)",
             "",
             "■ 주문 정보",
             _invoice_summary(order),
             "",
             "■ 오류 상세",
             detail,
+            "",
+            "■ 필요한 조치",
+            "  스마트스토어 판매자 센터에서 해당 주문의 송장번호를",
+            "  직접 입력하여 발송 처리해 주세요.",
         ])
         try:
             self._notifier.send(subject=subject, body=body)

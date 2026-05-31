@@ -86,7 +86,7 @@ class CancelMonitor:
             if not order_id or order_id in seen_ids:
                 continue
 
-            entry          = self._make_entry(po, claim)
+            entry          = self._make_entry(item, po, claim)
             supplier_order = self._get_supplier_order(order_id)
 
             if not supplier_order or supplier_order["status"] in ("CANCELLED", "ERROR", ""):
@@ -355,12 +355,19 @@ class CancelMonitor:
                 logger.warning("레이스 컨디션 감지: order_id=%s", order_id)
                 entry = {
                     "product_order_id":      order_id,
+                    "ss_order_id":           "",
                     "product_name":          "(재확인 필요)",
                     "quantity":              0,
                     "cancel_reason":         "발주확인 후 취소 요청 감지",
+                    "buyer_name":            "",
+                    "buyer_phone":           "",
+                    "receiver_name":         "",
+                    "receiver_phone":        "",
+                    "receiver_address":      "",
+                    "receiver_zipcode":      "",
+                    "invoice_number":        "",
                     "supplier":              "",
                     "supplier_order_no":     "",
-                    "invoice_number":        "",
                     "cancel_state":          "RACE_CONDITION",
                     "deny_sent_at":          "",
                     "last_checked_at":       datetime.now(timezone.utc).isoformat(),
@@ -460,19 +467,39 @@ class CancelMonitor:
 
     # ── 파일 I/O ─────────────────────────────────────────────────
 
-    def _make_entry(self, po: dict, claim: dict) -> dict:
+    def _make_entry(self, raw: dict, po: dict, claim: dict) -> dict:
+        """SS product-orders/query 응답 1건 → 취소 엔트리 생성.
+
+        raw: 전체 응답 (productOrder·order·shippingAddress·claim 포함)
+        po : raw["productOrder"]
+        claim: raw["claim"]
+        """
+        ord_  = raw.get("order", {})
+        addr  = raw.get("shippingAddress", {})
         return {
-            "product_order_id":      po.get("productOrderId", ""),
-            "product_name":          po.get("productName", "알 수 없음"),
-            "quantity":              po.get("quantity", 0),
-            "cancel_reason":         (
+            # ── 주문 식별 ────────────────────────────────────────
+            "product_order_id": po.get("productOrderId", ""),
+            "ss_order_id":      po.get("orderId", ""),
+            # ── 상품 정보 ────────────────────────────────────────
+            "product_name":     po.get("productName", "알 수 없음"),
+            "quantity":         int(po.get("quantity") or 0),
+            "cancel_reason":    (
                 claim.get("cancelReason")
                 or claim.get("claimReason")
                 or "사유 미상"
             ),
+            # ── 구매자 / 수령인 정보 ─────────────────────────────
+            "buyer_name":       ord_.get("ordererName", ""),
+            "buyer_phone":      (ord_.get("ordererTel") or ord_.get("ordererTelephone", "")),
+            "receiver_name":    addr.get("name", ""),
+            "receiver_phone":   (addr.get("tel1") or addr.get("tel2") or ""),
+            "receiver_address": addr.get("addressStr", ""),
+            "receiver_zipcode": addr.get("zipCode", ""),
+            # ── 기존 발송 정보 ───────────────────────────────────
+            "invoice_number":   str(po.get("invoiceNumber") or ""),
+            # ── 도매처 처리 상태 (발주 후 채워짐) ────────────────
             "supplier":              "",
             "supplier_order_no":     "",
-            "invoice_number":        po.get("invoiceNumber", "") or "",
             "cancel_state":          "",
             "deny_sent_at":          "",
             "last_checked_at":       "",
@@ -486,8 +513,8 @@ class CancelMonitor:
             try:
                 with open(self._file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                # 구버전 항목 마이그레이션 (cancel_state 없는 경우)
                 for entry in data.get("cancellations", []):
+                    # 구버전 마이그레이션 (cancel_state 없는 경우)
                     if "cancel_state" not in entry:
                         entry.setdefault("cancel_state",          entry.get("result", "LEGACY"))
                         entry.setdefault("deny_sent_at",          "")
@@ -495,6 +522,15 @@ class CancelMonitor:
                         entry.setdefault("supplier",              "")
                         entry.setdefault("supplier_order_no",     "")
                         entry.setdefault("business_days_elapsed", 0)
+                    # 신규 필드 기본값 (구버전 호환)
+                    entry.setdefault("ss_order_id",      "")
+                    entry.setdefault("buyer_name",       "")
+                    entry.setdefault("buyer_phone",      "")
+                    entry.setdefault("receiver_name",    "")
+                    entry.setdefault("receiver_phone",   "")
+                    entry.setdefault("receiver_address", "")
+                    entry.setdefault("receiver_zipcode", "")
+                    entry.setdefault("invoice_number",   "")
                 return data
             except Exception:
                 pass
@@ -513,18 +549,29 @@ class CancelMonitor:
         if not self._notifier:
             return
         lines = [
-            f"■ {subject}",
+            f"■ 알림 종류     : {subject}",
+            f"■ 현재 상태     : {entry.get('result_label', '-')}",
             "",
-            f"상품명         : {entry.get('product_name', '-')}",
-            f"SS 주문번호    : {entry.get('product_order_id', '-')}",
-            f"도매처         : {entry.get('supplier', '-')}",
-            f"도매처 발주번호 : {entry.get('supplier_order_no', '-')}",
-            f"현재 상태      : {entry.get('result_label', '-')}",
-            f"취소 사유      : {entry.get('cancel_reason', '-')}",
-            f"감지 시각      : {entry.get('detected_at', '-')}",
+            "■ 상품 정보",
+            f"  상품명        : {entry.get('product_name', '-')}",
+            f"  수량          : {entry.get('quantity', '-')}개",
+            "",
+            "■ 주문 정보",
+            f"  SS 주문번호   : {entry.get('product_order_id', '-')}",
+            f"  구매자        : {entry.get('buyer_name', '-')} / {entry.get('buyer_phone', '-')}",
+            f"  수령인        : {entry.get('receiver_name', '-')} / {entry.get('receiver_phone', '-')}",
+            f"  배송주소      : {entry.get('receiver_address', '-')}",
+            "",
+            "■ 도매처 정보",
+            f"  도매처        : {entry.get('supplier', '-')}",
+            f"  도매처 발주번호: {entry.get('supplier_order_no', '-')}",
+            f"  기존 송장번호 : {entry.get('invoice_number', '-')}",
+            "",
+            f"■ 취소 사유     : {entry.get('cancel_reason', '-')}",
+            f"■ 감지 시각     : {entry.get('detected_at', '-')}",
         ]
         if detail:
-            lines += ["", detail]
+            lines += ["", "■ 필요한 조치", detail]
         try:
             self._notifier.send(subject=subject, body="\n".join(lines))
         except Exception as e:

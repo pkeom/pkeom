@@ -683,10 +683,10 @@ tbody tr:hover td { background: #FAFBFC; }
         <thead>
           <tr>
             <th>주문번호</th>
-            <th>상품명</th>
-            <th>수량</th>
+            <th>상품명 / 수량</th>
+            <th>수령인 / 주소</th>
             <th>취소 사유</th>
-            <th>도매처 발주번호</th>
+            <th>도매처 / 발주번호</th>
             <th>처리 결과</th>
             <th>감지 시각</th>
           </tr>
@@ -706,9 +706,11 @@ tbody tr:hover td { background: #FAFBFC; }
         <thead>
           <tr>
             <th>주문번호</th>
-            <th>상품명</th>
-            <th>수량</th>
-            <th>반품 사유</th>
+            <th>상품 / 옵션</th>
+            <th>구매자 / 수령인</th>
+            <th>기존 발송</th>
+            <th>반품 정보</th>
+            <th>환불</th>
             <th>감지 시각</th>
           </tr>
         </thead>
@@ -1310,11 +1312,19 @@ async function loadCancels() {
   const tbody = $('cancel-tbody');
   tbody.innerHTML = items.length
     ? items.map(c => `<tr>
-        <td class="mono">${c.product_order_id||'-'}</td>
-        <td>${c.product_name||'-'}</td>
-        <td style="text-align:center">${c.quantity||'-'}</td>
+        <td class="mono" style="font-size:11px">${c.product_order_id||'-'}</td>
+        <td>
+          <div>${c.product_name||'-'}</div>
+          <div style="font-size:11px;color:var(--text3)">${c.quantity ? c.quantity + '개' : ''}</div>
+        </td>
+        <td style="font-size:12px">
+          <div>${c.receiver_name||'-'} ${c.receiver_phone ? '('+c.receiver_phone+')' : ''}</div>
+          <div style="font-size:11px;color:var(--text3)">${c.receiver_address||''}</div>
+        </td>
         <td>${c.cancel_reason||'-'}</td>
-        <td class="mono" style="font-size:11px">${c.supplier_info||'-'}</td>
+        <td class="mono" style="font-size:11px">
+          ${c.supplier ? supLabel(c.supplier) + '<br>' + (c.supplier_order_no||'-') : '-'}
+        </td>
         <td>${cancelBdg(c)}<br><span style="font-size:10px;color:var(--text3)">${c.result_label||''}</span></td>
         <td>${fmtDate(c.detected_at)}</td>
       </tr>`).join('')
@@ -1327,10 +1337,36 @@ async function loadReturns() {
   const tbody   = $('ret-tbody');
   tbody.innerHTML = returns.length
     ? returns.map(r => `<tr>
-        <td class="mono">${r.product_order_id||'-'}</td>
-        <td>${r.product_name||'-'}</td>
-        <td style="text-align:center">${r.quantity||'-'}</td>
-        <td>${r.return_reason||'-'}</td>
+        <td class="mono" style="font-size:11px">
+          ${r.product_order_id||'-'}<br>
+          <span style="color:var(--text3);font-size:10px">${r.ss_order_id||''}</span>
+        </td>
+        <td>
+          <div>${r.product_name||'-'}</div>
+          <div style="font-size:11px;color:var(--text3)">
+            ${r.option_name||r.option_code||''}${(r.option_name||r.option_code) && r.quantity ? ' · ' : ''}${r.quantity ? r.quantity+'개' : ''}
+          </div>
+        </td>
+        <td style="font-size:12px">
+          <div>${r.buyer_name||'-'} ${r.buyer_phone ? '('+r.buyer_phone+')' : ''}</div>
+          <div>${r.receiver_name||'-'} ${r.receiver_phone ? '('+r.receiver_phone+')' : ''}</div>
+          <div style="font-size:11px;color:var(--text3)">${r.receiver_address||''}</div>
+        </td>
+        <td style="font-size:11px">
+          <div>${r.delivery_company||'-'}</div>
+          <div class="mono">${r.invoice_number||'-'}</div>
+        </td>
+        <td style="font-size:11px">
+          <div>${r.return_reason||'-'}</div>
+          <div style="color:var(--text3)">
+            ${r.return_delivery_company||''}${r.return_tracking_number ? ' / '+r.return_tracking_number : ''}
+          </div>
+          <div style="font-size:10px;color:var(--text3)">${r.return_delivery_fee_payer ? '배송비: '+r.return_delivery_fee_payer : ''}</div>
+        </td>
+        <td style="text-align:right;font-size:12px">
+          <div style="font-weight:700">${r.refund_amount ? fmt(r.refund_amount) : '-'}</div>
+          <div style="font-size:11px;color:var(--text3)">${r.refund_expected_date||''}</div>
+        </td>
         <td>${fmtDate(r.detected_at)}</td>
       </tr>`).join('')
     : empty('반품 신청 없음');
