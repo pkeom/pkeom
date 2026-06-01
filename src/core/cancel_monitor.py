@@ -247,13 +247,14 @@ class CancelMonitor:
                         f"  고객이 반품 요청 시 반품 절차를 안내하세요.",
                     )
             else:
-                # 아직 출고 전 → 송장 대기
+                # 아직 출고 전 → 송장 대기 (invoice_manager가 SS 송장 등록 자동 처리)
                 entry["cancel_state"] = "REJECTED_WAIT_SHIP"
-                entry["result_label"] = f"{supplier} 취소 거부 — 출고 후 송장 확인 대기 중"
+                entry["result_label"] = f"{supplier} 취소 거부 — invoice_manager 자동 처리 대기 중"
                 self._notify(
                     entry, f"[취소거부] 도매처 취소 거부 — 출고 대기 중 — {entry['product_name']}",
-                    f"→ {supplier}이(가) 취소를 거부했습니다. 출고 후 자동으로 SS CANCEL_REJECT 처리합니다.\n"
-                    f"  송장 등록(invoice_manager)을 확인하세요.",
+                    f"→ {supplier}이(가) 취소를 거부했습니다.\n"
+                    f"  도매처가 출고하면 invoice_manager가 자동으로 SS 송장 등록을 처리합니다.\n"
+                    f"  추가 수동 조치 불필요 — 송장 등록 완료 시 자동으로 알림이 발송됩니다.",
                 )
 
         else:  # PENDING
@@ -280,20 +281,29 @@ class CancelMonitor:
                 )
 
     def _poll_tracking_for_rejected(self, entry: dict):
-        """REJECTED_WAIT_SHIP: 취소 거부 후 출고 대기 → 송장 확인."""
+        """REJECTED_WAIT_SHIP: 취소 거부 후 출고 대기 → 송장 확인.
+
+        invoice_manager가 SS 송장 등록을 자동 처리하므로 dispatch는 호출하지 않는다.
+        DB에 tracking_number가 등록되면 상태를 완료로 업데이트하고 알림만 전송한다.
+        """
         order_id = entry["product_order_id"]
         entry["last_checked_at"] = datetime.now(timezone.utc).isoformat()
         sup = self._get_supplier_order(order_id)
         if not sup or not sup["tracking_number"]:
             return
-        self._do_dispatch_reject(entry, sup["delivery_company"], sup["tracking_number"])
-        if entry["cancel_state"] == "REJECTED":
-            self._notify(
-                entry, f"[취소거부] SS CANCEL_REJECT 완료 (출고 확인 후) — {entry['product_name']}",
-                f"→ {entry['supplier']} 취소 거부 후 출고가 확인되어 SS 발송처리(CANCEL_REJECT)했습니다.\n"
-                f"  송장번호: {sup['tracking_number']}\n"
-                f"  고객이 반품 요청 시 반품 절차를 안내하세요.",
-            )
+        tracking = sup["tracking_number"]
+        entry["cancel_state"] = "INVOICE_REGISTERED"
+        entry["invoice_number"] = tracking
+        entry["result_label"] = (
+            f"송장 등록 확인 — invoice_manager 자동 처리 완료 (송장: {tracking})"
+        )
+        self._notify(
+            entry, f"[취소거부] 송장 등록 확인 — 자동 처리 완료 — {entry['product_name']}",
+            f"→ {entry['supplier']} 취소 거부 후 출고가 확인되었습니다.\n"
+            f"  송장번호: {tracking}\n"
+            f"  invoice_manager가 SS 송장 등록을 자동으로 처리했습니다.\n"
+            f"  고객이 반품 요청 시 반품 절차를 안내하세요.",
+        )
 
     # ── SS dispatch (CANCEL_REJECT) ──────────────────────────────
 
