@@ -398,9 +398,11 @@ def api_ss_product(pid):
 def api_video_generate():
     from src.core.video_maker import generate_video, open_in_capcut
 
-    bg_image = request.files.get("bg_image")
-    audio    = request.files.get("audio")
-    script   = request.form.get("script", "").strip()
+    bg_image   = request.files.get("bg_image")
+    audio      = request.files.get("audio")
+    script     = request.form.get("script", "").strip()
+    subtitle_x = float(request.form.get("subtitle_x", 0))
+    subtitle_y = float(request.form.get("subtitle_y", 1000))
 
     if not bg_image or not audio or not script:
         return jsonify({"error": "배경 이미지, 대본, 음악 파일이 모두 필요합니다"}), 400
@@ -424,6 +426,8 @@ def api_video_generate():
                 audio_path     = str(audio_path),
                 output_dir     = "data/video_output",
                 output_filename = f"draft_{job_id}.mp4",
+                subtitle_x     = subtitle_x,
+                subtitle_y     = subtitle_y,
             )
             opened = open_in_capcut(capcut_dir)
             _video_jobs[job_id] = {

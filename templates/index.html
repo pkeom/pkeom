@@ -765,6 +765,26 @@ tbody tr:hover td { background: #FAFBFC; }
           <input type="file" id="audio-file" accept=".mp3,audio/mpeg" style="display:none" onchange="onAudioFile(this)">
         </div>
 
+        <!-- 자막 위치 -->
+        <div class="fg">
+          <label class="fl">자막 위치 <span style="color:var(--text3);font-weight:400">(CapCut 표시 좌표)</span></label>
+          <div class="flex-row" style="gap:8px">
+            <div style="flex:1">
+              <label style="font-size:11px;color:var(--text3);margin-bottom:2px;display:block">X 좌표 (좌우 · 기본 0)</label>
+              <input class="fi" id="vid-subtitle-x" type="number" value="0" step="10"
+                style="width:100%" placeholder="0">
+            </div>
+            <div style="flex:1">
+              <label style="font-size:11px;color:var(--text3);margin-bottom:2px;display:block">Y 좌표 (상하 · 기본 1000)</label>
+              <input class="fi" id="vid-subtitle-y" type="number" value="1000" step="10"
+                style="width:100%" placeholder="1000">
+            </div>
+          </div>
+          <div style="margin-top:4px;font-size:11px;color:var(--text3)">
+            X: 음수 → 왼쪽, 양수 → 오른쪽 &nbsp;|&nbsp; Y: 음수 → 위, 양수 → 아래 (1920 = 화면 하단)
+          </div>
+        </div>
+
         <button class="btn btn-blue btn-full" id="vid-gen-btn" onclick="generateVideo()">
           🎬 영상 초안 생성
         </button>
@@ -1465,6 +1485,8 @@ async function generateVideo() {
   const bgFile    = $('bg-file').files[0];
   const audioFile = $('audio-file').files[0];
   const script    = $('vid-script').value.trim();
+  const subtitleX = $('vid-subtitle-x').value || '0';
+  const subtitleY = $('vid-subtitle-y').value || '1000';
 
   if (!bgFile)    { toast('배경 이미지를 선택하세요');    return; }
   if (!audioFile) { toast('MP3 파일을 선택하세요');       return; }
@@ -1474,9 +1496,11 @@ async function generateVideo() {
   vidSetStatus('업로드 중…', true);
 
   const fd = new FormData();
-  fd.append('bg_image', bgFile);
-  fd.append('audio',    audioFile);
-  fd.append('script',   script);
+  fd.append('bg_image',   bgFile);
+  fd.append('audio',      audioFile);
+  fd.append('script',     script);
+  fd.append('subtitle_x', subtitleX);
+  fd.append('subtitle_y', subtitleY);
 
   try {
     const r = await fetch('/api/video/generate', {method: 'POST', body: fd});

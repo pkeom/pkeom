@@ -719,6 +719,8 @@ def save_capcut_project(
     subtitle_entries: list[tuple[float, float, str]],
     project_name: str = "스마트스토어 영상",
     duration_sec: float | None = None,
+    subtitle_x: float = 0.0,
+    subtitle_y: float = 1000.0,
 ) -> str:
     """CapCut 편집 가능한 프로젝트 저장.
 
@@ -962,12 +964,9 @@ def save_capcut_project(
         tseg["render_index"]     = 14000
         tseg["enable_video_mask"] = True
         tseg["extra_material_refs"] = [t_anim_id]
-        # 위치: X=0, Y=1000 (CapCut 표시 좌표)
-        # 실측 scale: transform.y × 1920 = CapCut 표시값
-        # (실측: transform=0.9259 → CapCut 표시 1778 = 0.9259×1920 확인)
-        # Y=1000 → transform.y = 1000 / 1920 ≈ 0.5208
-        tseg["clip"]["transform"]["x"] = 0.0
-        tseg["clip"]["transform"]["y"] = round(1000 / 1920, 10)  # ≈ 0.5208
+        # 실측 scale: transform.x × 1080 = CapCut X 표시값, transform.y × 1920 = CapCut Y 표시값
+        tseg["clip"]["transform"]["x"] = round(subtitle_x / 1080, 10)
+        tseg["clip"]["transform"]["y"] = round(subtitle_y / 1920, 10)
 
         text_tracks.append({
             "id": t_trk_id, "type": "text",
@@ -1349,6 +1348,8 @@ def generate_video(
     audio_path: str,
     output_dir: str = "data/video_output",
     output_filename: str = "draft.mp4",
+    subtitle_x: float = 0.0,
+    subtitle_y: float = 1000.0,
 ) -> tuple[str, str]:
     """
     9:16 세로형 영상을 생성하고 CapCut 프로젝트로 저장.
@@ -1446,6 +1447,8 @@ def generate_video(
         subtitle_entries=capcut_entries,
         project_name=project_name,
         duration_sec=audio_duration,   # ffprobe 재호출 불필요
+        subtitle_x=subtitle_x,
+        subtitle_y=subtitle_y,
     )
 
     return video_path, capcut_dir
