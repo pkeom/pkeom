@@ -1258,7 +1258,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
     origin_product: dict = {
         "statusType":    "SALE",
         "saleType":      "NEW",
-        "name":          info["title"][:100],
+        "name":          "가나다라마",
         "detailContent": detail_content,
         "images":        images,
         "salePrice":     selling_price,
