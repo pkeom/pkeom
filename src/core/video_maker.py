@@ -903,34 +903,58 @@ def save_capcut_project(
             "sub_template_id": -1, "translate_original_text": "",
         })
 
-        # 인 애니메이션: 볼드 인, 길이 0.1s (100000μs)
+        # 인/아웃 애니메이션: 밀기 D, 길이 0.1s (100000μs)
         # resource_id는 CapCut 프로젝트 파일에서 실측 확인한 값
         mat_animations.append({
             "id": t_anim_id,
             "type": "sticker_animation",
             "multi_language_current": "none",
-            "animations": [{
-                "anim_adjust_params": None,
-                "category_id":   "ruchang_fav",
-                "category_name": "즐겨찾기",
-                "duration":      100000,
-                "id":            "7591705801023048976",
-                "material_type": "sticker",
-                "name":          "볼드 인",
-                "panel":         "",
-                "path": (
-                    "C:/Users/user/AppData/Local/CapCut/User Data"
-                    "/Cache/effect/7591705801023048976"
-                    "/aa410ff44e49e9ef8ed043d065b46edf"
-                ),
-                "platform":        "all",
-                "request_id":      "",
-                "resource_id":     "7591705801023048976",
-                "source_platform": 1,
-                "start":           0,
-                "third_resource_id": "0",
-                "type":            "in",
-            }],
+            "animations": [
+                {
+                    "anim_adjust_params": None,
+                    "category_id":   "ruchang",
+                    "category_name": "인",
+                    "duration":      100000,
+                    "id":            "7403256520537805329",
+                    "material_type": "sticker",
+                    "name":          "밀기 D",
+                    "panel":         "",
+                    "path": (
+                        "C:/Users/user/AppData/Local/CapCut/User Data"
+                        "/Cache/effect/7403256520537805329"
+                        "/cf042bc2dd475dc6166e33f43b116641"
+                    ),
+                    "platform":        "all",
+                    "request_id":      "",
+                    "resource_id":     "7403256520537805329",
+                    "source_platform": 1,
+                    "start":           0,
+                    "third_resource_id": "7403256520537805329",
+                    "type":            "in",
+                },
+                {
+                    "anim_adjust_params": None,
+                    "category_id":   "chuchang",
+                    "category_name": "아웃",
+                    "duration":      100000,
+                    "id":            "6724919284893487619",
+                    "material_type": "sticker",
+                    "name":          "밀기 D",
+                    "panel":         "",
+                    "path": (
+                        "C:/Users/user/AppData/Local/CapCut/User Data"
+                        "/Cache/effect/6724919284893487619"
+                        "/4b1190ca81551d872f1d6b0e2ce5db2b"
+                    ),
+                    "platform":        "all",
+                    "request_id":      "",
+                    "resource_id":     "6724919284893487619",
+                    "source_platform": 1,
+                    "start":           0,
+                    "third_resource_id": "6724919284893487619",
+                    "type":            "out",
+                },
+            ],
         })
 
         tseg = _cc_seg_base(t_seg_id, t_mat_id, s_us, d_us)
