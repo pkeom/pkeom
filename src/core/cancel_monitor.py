@@ -3,9 +3,8 @@
 취소 요청(CANCEL_REQUEST) 처리 흐름:
   a) DB 발주 없음          → SS_AUTO        SS가 자동 처리 (알림 없음)
   b) DB ORDERED (출고 전)  → DENY_SENT      도매처에 setOrdDeny 전송
-       도매처 취소 승인    → APPROVED        SS approve_cancel 호출
-       도매처 취소 거부    → REJECTED        SS dispatch 호출 → CANCEL_REJECT
-       출고 후 송장 대기   → REJECTED_WAIT_SHIP  송장 확인 후 dispatch
+       도매처 취소 승인    → APPROVED            SS approve_cancel 호출
+       도매처 취소 거부    → REJECTED_WAIT_SHIP  invoice_manager 위임 (도매꾹 출고 후 취소 불가)
        3영업일 미처리      → URGENT_3DAY     긴급 알림 (계속 폴링)
        4영업일 초과        → MANUAL_4DAY     수동 처리 알림
   c) DB SHIPPED (출고됨)   → SHIPPED_REJECT  SS dispatch 호출 → CANCEL_REJECT
@@ -232,30 +231,16 @@ class CancelMonitor:
                 )
 
         elif result == "REJECTED":
-            # 도매처 취소 거부 → 송장 확인 후 SS dispatch
-            sup = self._get_supplier_order(order_id)
-            tracking = sup["tracking_number"] if sup else ""
-            company  = sup["delivery_company"] if sup else ""
-            if tracking:
-                self._do_dispatch_reject(entry, company, tracking)
-                if entry["cancel_state"] == "REJECTED":
-                    self._notify(
-                        entry, f"[취소거부] 도매처 취소 거부 → SS CANCEL_REJECT — {entry['product_name']}",
-                        f"→ {supplier}이(가) 취소 요청을 거부하고 출고를 진행했습니다.\n"
-                        f"  SS 발송처리(CANCEL_REJECT)로 취소 요청을 거부했습니다.\n"
-                        f"  송장번호: {tracking}\n"
-                        f"  고객이 반품 요청 시 반품 절차를 안내하세요.",
-                    )
-            else:
-                # 아직 출고 전 → 송장 대기 (invoice_manager가 SS 송장 등록 자동 처리)
-                entry["cancel_state"] = "REJECTED_WAIT_SHIP"
-                entry["result_label"] = f"{supplier} 취소 거부 — invoice_manager 자동 처리 대기 중"
-                self._notify(
-                    entry, f"[취소거부] 도매처 취소 거부 — 출고 대기 중 — {entry['product_name']}",
-                    f"→ {supplier}이(가) 취소를 거부했습니다.\n"
-                    f"  도매처가 출고하면 invoice_manager가 자동으로 SS 송장 등록을 처리합니다.\n"
-                    f"  추가 수동 조치 불필요 — 송장 등록 완료 시 자동으로 알림이 발송됩니다.",
-                )
+            # 도매처 취소 거부 → 출고 후 invoice_manager가 SS 송장 등록 자동 처리
+            # (도매꾹 정책상 출고 후 취소 요청 불가 → 거부 응답 시점에는 항상 출고 전)
+            entry["cancel_state"] = "REJECTED_WAIT_SHIP"
+            entry["result_label"] = f"{supplier} 취소 거부 — invoice_manager 자동 처리 대기 중"
+            self._notify(
+                entry, f"[취소거부] 도매처 취소 거부 — 출고 대기 중 — {entry['product_name']}",
+                f"→ {supplier}이(가) 취소를 거부했습니다.\n"
+                f"  도매처가 출고하면 invoice_manager가 자동으로 SS 송장 등록을 처리합니다.\n"
+                f"  추가 수동 조치 불필요 — 송장 등록 완료 시 자동으로 알림이 발송됩니다.",
+            )
 
         else:  # PENDING
             if bdays >= 4 and entry["cancel_state"] != "MANUAL_4DAY":
