@@ -11,6 +11,26 @@ import sys
 import threading
 import time
 
+# ── 단일 인스턴스 잠금 (Windows) ─────────────────────────────────────
+import ctypes, ctypes.wintypes as _wt
+
+_MUTEX_NAME = "Global\\SmartStoreDropshipping_MainScheduler"
+_mutex_handle = None
+
+def _acquire_single_instance_lock() -> bool:
+    global _mutex_handle
+    _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, True, _MUTEX_NAME)
+    if _mutex_handle and ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        ctypes.windll.kernel32.CloseHandle(_mutex_handle)
+        _mutex_handle = None
+        return False
+    return bool(_mutex_handle)
+
+def _release_single_instance_lock():
+    if _mutex_handle:
+        ctypes.windll.kernel32.ReleaseMutex(_mutex_handle)
+        ctypes.windll.kernel32.CloseHandle(_mutex_handle)
+
 from src.utils.config_loader import load_config
 from src.utils.logger import setup_logging
 from src.utils.scheduler import AutomationScheduler
@@ -90,6 +110,10 @@ def _status_printer(scheduler: AutomationScheduler, stop_event: threading.Event)
 
 
 def main():
+    if not _acquire_single_instance_lock():
+        print("이미 실행 중인 스케줄러가 있습니다. 중복 실행을 방지합니다.", flush=True)
+        sys.exit(1)
+
     cfg = load_config()
     setup_logging(**cfg["logging"])
 
@@ -167,6 +191,7 @@ def main():
         logger.info("종료 신호 수신, 스케줄러 종료 중...")
         scheduler.stop()
         stop_event.set()
+        _release_single_instance_lock()
 
     signal.signal(signal.SIGINT, _shutdown)
     # SIGTERM은 Windows에 없으므로 존재할 때만 등록
