@@ -35,11 +35,12 @@ default_category_id: "50000000"       # 스마트스토어 기본 카테고리 I
 
 schedule:
   order_collect_interval: 10        # 주문 수집 주기 (분)
+  order_place_interval: 10          # 자동 발주 주기 (분)
   invoice_sync_interval: 15         # 송장 동기화 주기 (분)
+  cancel_monitor_interval: 10       # 취소 요청 처리 주기 (분)
+  return_monitor_interval: 10       # 반품 감지 주기 (분)
   inventory_sync_interval: 60       # 재고 동기화 주기 (분)
   price_monitor_interval: 120       # 가격 모니터링 주기 (분)
-  return_monitor_interval: 10       # 반품 감지 주기 (분)
-  cancel_monitor_interval: 10      # 취소 요청 처리 주기 (분)
 
 database:
   path: "data/orders.db"

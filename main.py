@@ -5,31 +5,64 @@
 
 Ctrl+C 로 종료.
 """
+import atexit
 import logging
+import os
 import signal
 import sys
 import threading
 import time
 
-# ── 단일 인스턴스 잠금 (Windows) ─────────────────────────────────────
-import ctypes, ctypes.wintypes as _wt
+# ── 단일 인스턴스 잠금 (PID 파일, 크로스 플랫폼) ─────────────────────
+_LOCKFILE = "data/.scheduler.lock"
 
-_MUTEX_NAME = "Global\\SmartStoreDropshipping_MainScheduler"
-_mutex_handle = None
+
+def _pid_alive(pid: int) -> bool:
+    """프로세스가 살아있는지 확인 (Windows/Linux/Termux 공통)."""
+    if sys.platform == "win32":
+        import ctypes
+        handle = ctypes.windll.kernel32.OpenProcess(0x00100000, False, pid)
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # 프로세스 존재, 시그널 권한 없음
+
 
 def _acquire_single_instance_lock() -> bool:
-    global _mutex_handle
-    _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, True, _MUTEX_NAME)
-    if _mutex_handle and ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-        ctypes.windll.kernel32.CloseHandle(_mutex_handle)
-        _mutex_handle = None
+    os.makedirs(os.path.dirname(_LOCKFILE) or ".", exist_ok=True)
+    if os.path.exists(_LOCKFILE):
+        try:
+            with open(_LOCKFILE) as f:
+                pid = int(f.read().strip())
+            if _pid_alive(pid):
+                return False
+        except (ValueError, OSError):
+            pass
+        try:
+            os.remove(_LOCKFILE)
+        except OSError:
+            pass
+    try:
+        with open(_LOCKFILE, "w") as f:
+            f.write(str(os.getpid()))
+        atexit.register(_release_single_instance_lock)
+        return True
+    except OSError:
         return False
-    return bool(_mutex_handle)
+
 
 def _release_single_instance_lock():
-    if _mutex_handle:
-        ctypes.windll.kernel32.ReleaseMutex(_mutex_handle)
-        ctypes.windll.kernel32.CloseHandle(_mutex_handle)
+    try:
+        os.remove(_LOCKFILE)
+    except OSError:
+        pass
 
 from src.utils.config_loader import load_config
 from src.utils.logger import setup_logging
@@ -86,7 +119,7 @@ def _print_schedule(sched_cfg: dict):
         f"  │  송장 동기화      매 {sched_cfg['invoice_sync_interval']:>3d}분              │",
         f"  │  재고 동기화      매 {sched_cfg['inventory_sync_interval']:>3d}분              │",
         f"  │  가격 모니터링    매 {sched_cfg['price_monitor_interval']:>3d}분              │",
-        f"  │  반품 감지        매 {sched_cfg.get('return_monitor_interval', 60):>3d}분              │",
+        f"  │  반품 감지        매 {sched_cfg.get('return_monitor_interval', 10):>3d}분              │",
         f"  │  취소 처리        매 {sched_cfg.get('cancel_monitor_interval', 10):>3d}분              │",
         "  ├─────────────────────────────────────────┤",
         "  │  Ctrl+C 로 종료                          │",
