@@ -252,7 +252,7 @@ class CancelMonitor:
                     f"  도매처({supplier})의 취소 처리 결과를 계속 확인합니다.\n"
                     f"  도매처 거부 시 발주 정상 진행 / 승인 시 자동 재발주됩니다.",
                 )
-            if bdays >= 4 and state != "BUYER_WITHDREW_DENY_MANUAL":
+            if bdays >= 2 and state != "BUYER_WITHDREW_DENY_MANUAL":
                 entry["cancel_state"] = "BUYER_WITHDREW_DENY_MANUAL"
                 entry["result_label"] = f"{bdays}영업일 경과 — 수동 확인 필요"
                 self._notify(
