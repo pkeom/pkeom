@@ -40,14 +40,6 @@ def main():
     print(f"예산 충전 완료: +{amount:,}원 ({reason})")
     print(f"현재 잔액: {new_balance:,}원")
 
-    # 대기 주문이 있으면 자동 재개 시도
-    count = pending.count()
-    if count == 0:
-        print("대기 주문 없음.")
-        return
-
-    print(f"\n대기 주문 {count}건 재개 시도 중...")
-
     # 알림 설정
     notifier = None
     try:
@@ -56,6 +48,28 @@ def main():
             notifier = EmailNotifier(**email_cfg)
     except Exception:
         pass
+
+    # 예산 충전 후 판매중지 복구
+    try:
+        from src.core.budget_sale_guard import restore_all
+        from src.api.smartstore import SmartstoreAPI
+        from src.core.mapping_repository import MappingRepository
+        ss_cfg = {k: v for k, v in cfg["smartstore"].items()
+                  if k in ("client_id", "client_secret", "account_type")}
+        ss_api = SmartstoreAPI(**ss_cfg)
+        restored = restore_all(ss_api, MappingRepository(), notifier)
+        if restored > 0:
+            print(f"판매재개 완료: {restored}개 상품")
+    except Exception as e:
+        print(f"판매재개 처리 실패 (무시하고 계속): {e}")
+
+    # 대기 주문이 있으면 자동 재개 시도
+    count = pending.count()
+    if count == 0:
+        print("대기 주문 없음.")
+        return
+
+    print(f"\n대기 주문 {count}건 재개 시도 중...")
 
     dk_api = DomaekkukAPI(**cfg["domaekkuk"])
     _dm = cfg.get("domaemae", {})

@@ -243,6 +243,21 @@ def api_charge():
     if not _budget:
         return jsonify({"error": "예산 관리가 비활성화 상태입니다"}), 400
     balance = _budget.charge(amount, d.get("reason", "대시보드 충전"))
+    # 예산 충전 후 판매중지 복구
+    if _ss_api and _mapping_repo:
+        try:
+            from src.core.budget_sale_guard import restore_all
+            from src.notifications.email_notifier import EmailNotifier
+            notifier = None
+            try:
+                email_cfg = (_cfg or {}).get("email", {})
+                if email_cfg.get("smtp_host") and email_cfg.get("sender") and email_cfg.get("recipients"):
+                    notifier = EmailNotifier(**email_cfg)
+            except Exception:
+                pass
+            restore_all(_ss_api, _mapping_repo, notifier)
+        except Exception as e:
+            logger.warning("예산 충전 후 판매재개 처리 실패: %s", e)
     return jsonify({"balance": balance})
 
 

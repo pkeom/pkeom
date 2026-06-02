@@ -217,6 +217,14 @@ class OrderPlacer:
             remaining = balance - running
             self._notify_budget_shortage(to_defer, remaining, shortage)
 
+            # 예산 부족 → 전체 상품 판매중지
+            if self._ss_api:
+                try:
+                    from src.core.budget_sale_guard import suspend_all
+                    suspend_all(self._ss_api, self._mappings, self._notifier)
+                except Exception as e:
+                    logger.error("예산 부족 판매중지 처리 실패: %s", e)
+
     def _estimate_cost(self, mapping: dict, quantity: int) -> int:
         """예상 발주 비용 = 도매처 단가 × 수량 + 배송비 기본값.
         가격 조회 실패 시 0 반환 (예산 부족으로 인한 오발주 방지용 — 차감도 0으로 처리).
