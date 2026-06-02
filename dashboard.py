@@ -142,6 +142,9 @@ def api_summary():
         "DENY_SENT", "URGENT_3DAY", "REJECTED_WAIT_SHIP",
         "DENY_FAILED", "MANUAL_4DAY", "RACE_CONDITION", "MANUAL_REQUIRED",
         "SHIPPED_REJECT", "REJECTED",
+        # 취소 철회 — 모니터링 중 또는 수동 처리 필요
+        "BUYER_WITHDREW_DENY_PENDING", "BUYER_WITHDREW_DENY_MANUAL",
+        "BUYER_WITHDREW_REORDER_FAILED",
         # 구버전 호환
         "RETURN_GUIDE", "APPROVE_FAILED", "SUPPLIER_CANCEL_FAILED",
     }

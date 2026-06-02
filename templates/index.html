@@ -1314,6 +1314,13 @@ const _CANCEL_RESULT = {
   RACE_CONDITION:     ['bdg-err',   '예외 감지'],
   MANUAL_REQUIRED:    ['bdg-err',   '수동처리 필요'],
   LEGACY:             ['bdg-done',  '이전 기록'],
+  // 취소 철회 상태
+  BUYER_WITHDREW_PRE_DENY:       ['bdg-inv',   '철회·발주유지'],
+  BUYER_WITHDREW_REJECTED:       ['bdg-inv',   '철회·발주유지'],
+  BUYER_WITHDREW_REORDER:        ['bdg-ord',   '철회·재발주예정'],
+  BUYER_WITHDREW_REORDER_FAILED: ['bdg-err',   '철회·재발주실패'],
+  BUYER_WITHDREW_DENY_PENDING:   ['bdg-pend',  '철회·도매처대기'],
+  BUYER_WITHDREW_DENY_MANUAL:    ['bdg-err',   '철회·수동확인'],
   // 구버전 호환
   CANCEL_APPROVED:        ['bdg-inv',  '취소 승인'],
   RETURN_GUIDE:           ['bdg-pend', '반품 안내 필요'],
