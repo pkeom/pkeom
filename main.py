@@ -80,6 +80,7 @@ from src.core.price_monitor import PriceMonitor
 from src.core.return_monitor import ReturnMonitor
 from src.core.cancel_monitor import CancelMonitor
 from src.core.budget_manager import BudgetManager
+from src.core.order_repository import OrderRepository
 from src.core.pending_order_repository import PendingOrderRepository
 from src.core.stock_pending_repository import StockPendingRepository
 
@@ -169,17 +170,22 @@ def main():
     pending       = PendingOrderRepository() if budget is not None else None
     stock_pending = StockPendingRepository()
 
+    order_repo = OrderRepository()  # placer / cancel_mon 공유 인스턴스
+
     collector = OrderCollector(ss_api)
     placer    = OrderPlacer(
         dk_api, dm_cli,
         notifier=notifier, budget=budget, pending=pending,
         ss_api=ss_api, stock_pending=stock_pending,
+        order_repo=order_repo,
     )
     invoicer  = InvoiceManager(ss_api, dk_api, dm_cli, notifier=notifier)
     inventory = InventorySync(ss_api, dk_api, dm_cli, notifier=notifier, order_placer=placer)
     price_mon   = PriceMonitor(dk_api, dm_cli, notifier)
     return_mon  = ReturnMonitor(ss_api, notifier)
-    cancel_mon  = CancelMonitor(ss_api, notifier, dk_api=dk_api, dm_cli=dm_cli)
+    cancel_mon  = CancelMonitor(
+        ss_api, notifier, dk_api=dk_api, dm_cli=dm_cli, order_repo=order_repo,
+    )
 
     sched_cfg = cfg["schedule"]
     scheduler = AutomationScheduler()

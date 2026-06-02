@@ -467,6 +467,18 @@ class SmartstoreAPI:
         resp.raise_for_status()
         return resp.json().get("data", [])
 
+    def get_product_order(self, product_order_id: str) -> dict:
+        """단건 상품주문 상세 조회 — productOrderStatus 등 현재 상태 확인용."""
+        resp = requests.post(
+            f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
+            headers=self._headers(),
+            json={"productOrderIds": [product_order_id]},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        return data[0] if data else {}
+
     def approve_cancel(self, product_order_id: str) -> dict:
         """취소 요청 승인 — 환불 처리.
         발송 전 주문에만 유효. 발송 후에는 반품 절차로 처리해야 함.

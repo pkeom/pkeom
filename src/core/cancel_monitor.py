@@ -53,6 +53,7 @@ class CancelMonitor:
         file: str | None = None,
         dk_api=None,
         dm_cli=None,
+        order_repo=None,  # OrderRepository — 취소 철회 시 주문 상태 복원용
     ):
         self._ss       = smartstore
         self._notifier = notifier
@@ -62,6 +63,7 @@ class CancelMonitor:
             self._suppliers["domaekkuk"] = dk_api
         if dm_cli is not None:
             self._suppliers["domaemae"]  = dm_cli
+        self._order_repo = order_repo
 
     # ── 진입점 ───────────────────────────────────────────────────
 
@@ -110,7 +112,7 @@ class CancelMonitor:
         # 2. 진행 중인 취소 요청 폴링
         for entry in data["cancellations"]:
             state = entry.get("cancel_state", "")
-            if state in ("DENY_SENT", "URGENT_3DAY"):
+            if state in ("DENY_SENT", "URGENT_3DAY", "BUYER_WITHDREW_DENY_PENDING"):
                 self._poll_deny_result(entry)
             elif state == "REJECTED_WAIT_SHIP":
                 self._poll_tracking_for_rejected(entry)
@@ -152,6 +154,7 @@ class CancelMonitor:
         """case b: DB ORDERED → setOrdDeny(도매처 취소 요청 전송)."""
         supplier = sup["supplier"]
         order_no = sup["supplier_order_no"]
+        order_id = entry["product_order_id"]
         entry["supplier"]          = supplier
         entry["supplier_order_no"] = order_no
 
@@ -161,6 +164,22 @@ class CancelMonitor:
                 "⚠️ SS 발주확인 완료 후 취소 요청이 접수되었습니다.\n"
                 "   도매처 취소 요청을 자동으로 전송합니다."
             )
+
+        # ── Case 1: setOrdDeny 호출 전 구매자 취소 철회 감지 ────────────
+        ss_status = self._get_ss_order_status(order_id)
+        if ss_status and ss_status != "CANCEL_REQUEST":
+            entry["cancel_state"] = "BUYER_WITHDREW_PRE_DENY"
+            entry["result_label"] = "구매자 취소 철회 감지 — setOrdDeny 미전송, 발주 정상 진행"
+            self._restore_order_status(order_id, "ORDERED")
+            self._notify(
+                entry,
+                f"[취소철회] 구매자 취소 철회 감지 (setOrdDeny 전) — {entry['product_name']}",
+                f"→ 구매자가 취소 요청을 철회했습니다.\n"
+                f"  도매처 취소 요청(setOrdDeny)을 전송하지 않았습니다.\n"
+                f"  도매처 발주({supplier} / 주문번호: {order_no})가 정상 진행됩니다.\n"
+                f"  도매처 출고 시 송장이 자동으로 등록됩니다.",
+            )
+            return
 
         if not order_no:
             entry["cancel_state"] = "DENY_FAILED"
@@ -196,10 +215,11 @@ class CancelMonitor:
     # ── 폴링 ─────────────────────────────────────────────────────
 
     def _poll_deny_result(self, entry: dict):
-        """DENY_SENT / URGENT_3DAY: 도매처 취소 처리 결과 폴링."""
+        """DENY_SENT / URGENT_3DAY / BUYER_WITHDREW_DENY_PENDING: 도매처 취소 처리 결과 폴링."""
         supplier = entry.get("supplier", "")
         order_no = entry.get("supplier_order_no", "")
         order_id = entry["product_order_id"]
+        state    = entry.get("cancel_state", "DENY_SENT")
 
         bdays = _business_days_since(entry.get("deny_sent_at", entry["detected_at"]))
         entry["business_days_elapsed"] = bdays
@@ -208,6 +228,44 @@ class CancelMonitor:
         result = self._get_cancel_result(supplier, order_no)
         logger.debug("취소 결과 폴링: %s → %s (영업일 %d일)", order_id, result, bdays)
 
+        # ── Case 2: setOrdDeny 후 구매자 취소 철회 감지 ─────────────────
+        ss_status = self._get_ss_order_status(order_id)
+        buyer_withdrew = bool(ss_status and ss_status != "CANCEL_REQUEST")
+
+        if buyer_withdrew and result == "APPROVED":
+            self._handle_buyer_withdrawal_after_approved(entry)
+            return
+
+        if buyer_withdrew and result == "REJECTED":
+            self._handle_buyer_withdrawal_after_rejected(entry)
+            return
+
+        if buyer_withdrew and result == "PENDING":
+            # 구매자 철회 + 도매처 미처리 → 상태 갱신 후 계속 폴링
+            if state != "BUYER_WITHDREW_DENY_PENDING":
+                entry["cancel_state"] = "BUYER_WITHDREW_DENY_PENDING"
+                entry["result_label"] = "구매자 취소 철회, 도매처 응답 대기 중"
+                self._notify(
+                    entry,
+                    f"[취소철회] 구매자 취소 철회 — 도매처 응답 대기 중 — {entry['product_name']}",
+                    f"→ 구매자가 취소 요청을 철회했습니다.\n"
+                    f"  도매처({supplier})의 취소 처리 결과를 계속 확인합니다.\n"
+                    f"  도매처 거부 시 발주 정상 진행 / 승인 시 자동 재발주됩니다.",
+                )
+            if bdays >= 4 and state != "BUYER_WITHDREW_DENY_MANUAL":
+                entry["cancel_state"] = "BUYER_WITHDREW_DENY_MANUAL"
+                entry["result_label"] = f"{bdays}영업일 경과 — 수동 확인 필요"
+                self._notify(
+                    entry,
+                    f"[수동처리] 구매자 취소 철회 후 도매처 {bdays}영업일 미처리 — {entry['product_name']}",
+                    f"→ 구매자가 취소를 철회했으나 도매처({supplier}) 취소 요청이 "
+                    f"{bdays}영업일 미처리입니다.\n"
+                    f"  도매처 주문({order_no}) 상태를 직접 확인하세요.\n"
+                    f"  취소 승인 시 재발주가 필요합니다.",
+                )
+            return
+
+        # ── 구매자 철회 없음 — 기존 폴링 로직 ───────────────────────────
         if result == "APPROVED":
             # 도매처 취소 승인 → SS 취소 승인
             try:
@@ -384,6 +442,76 @@ class CancelMonitor:
                 )
         except Exception as e:
             logger.warning("레이스 컨디션 감지 실패: %s", e)
+
+    # ── 구매자 취소 철회 처리 ────────────────────────────────────
+
+    def _get_ss_order_status(self, product_order_id: str) -> str:
+        """SS 주문의 현재 productOrderStatus 반환. 조회 실패 시 '' 반환."""
+        try:
+            order_data = self._ss.get_product_order(product_order_id)
+            return order_data.get("productOrder", {}).get("productOrderStatus", "")
+        except Exception as e:
+            logger.warning("SS 주문 상태 조회 실패 (%s): %s", product_order_id, e)
+            return ""
+
+    def _restore_order_status(self, order_id: str, status: str) -> bool:
+        """orders.json의 주문 상태를 변경해 OrderPlacer/InvoiceManager가 재처리하도록 한다."""
+        if self._order_repo is None:
+            logger.warning("order_repo 미설정 — 주문 상태 변경 불가: %s", order_id)
+            return False
+        try:
+            order = self._order_repo.find(order_id)
+            if order is None:
+                logger.warning("주문 상태 변경 실패 — orders.json에 없음: %s", order_id)
+                return False
+            self._order_repo.update_status(order_id, status)
+            logger.info("주문 상태 → %s (재처리 예정): %s", status, order_id)
+            return True
+        except Exception as e:
+            logger.error("주문 상태 변경 실패 (%s → %s): %s", order_id, status, e)
+            return False
+
+    def _handle_buyer_withdrawal_after_approved(self, entry: dict):
+        """Case 2-A: 도매처 취소 승인 + 구매자 SS 취소 철회 → 재발주."""
+        order_id = entry["product_order_id"]
+        supplier = entry.get("supplier", "")
+        self._update_supplier_status(order_id, "CANCELLED")
+        restored = self._restore_order_status(order_id, "NEW")
+        if restored:
+            entry["cancel_state"] = "BUYER_WITHDREW_REORDER"
+            entry["result_label"] = f"{supplier} 취소 승인 + 구매자 철회 → 자동 재발주 예정"
+            self._notify(
+                entry,
+                f"[취소철회] 구매자 취소 철회 + 도매처 취소 승인 → 재발주 예정 — {entry['product_name']}",
+                f"→ 구매자가 취소 요청을 철회했으나 도매처({supplier})는 이미 취소를 승인했습니다.\n"
+                f"  도매처 발주 상태를 CANCELLED로 변경했습니다.\n"
+                f"  주문을 NEW로 복원 — 다음 발주 주기에 자동 재발주됩니다.",
+            )
+        else:
+            entry["cancel_state"] = "BUYER_WITHDREW_REORDER_FAILED"
+            entry["result_label"] = f"{supplier} 취소 승인 + 구매자 철회 → 재발주 실패 (수동 처리)"
+            self._notify(
+                entry,
+                f"[긴급] 구매자 취소 철회 + 도매처 취소 승인 → 재발주 실패 — {entry['product_name']}",
+                f"→ 구매자가 취소를 철회했고 도매처({supplier})는 이미 취소를 승인했습니다.\n"
+                f"  orders.json에서 주문을 찾을 수 없어 자동 재발주에 실패했습니다.\n"
+                f"  필요 조치:\n"
+                f"  1. 도매꾹/도매매 사이트에서 해당 상품을 새로 주문\n"
+                f"  2. SS 스마트스토어센터에서 발주확인 처리",
+            )
+
+    def _handle_buyer_withdrawal_after_rejected(self, entry: dict):
+        """Case 2-B: 도매처 취소 거부 + 구매자 SS 취소 철회 → 발주 정상 진행."""
+        supplier = entry.get("supplier", "")
+        entry["cancel_state"] = "BUYER_WITHDREW_REJECTED"
+        entry["result_label"] = f"{supplier} 취소 거부 + 구매자 철회 → 발주 정상 진행"
+        self._notify(
+            entry,
+            f"[취소철회] 구매자 취소 철회 + 도매처 취소 거부 → 발주 정상 진행 — {entry['product_name']}",
+            f"→ 구매자가 취소 요청을 철회했으며, 도매처({supplier})도 취소를 거부했습니다.\n"
+            f"  도매처 발주는 이미 진행 중입니다.\n"
+            f"  도매처 출고 시 송장이 자동으로 등록됩니다. 추가 조치 불필요.",
+        )
 
     # ── 도매처 API ───────────────────────────────────────────────
 
