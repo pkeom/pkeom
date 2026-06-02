@@ -16,9 +16,11 @@
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from src.api.domaekkuk import DomaekkukAPI
 from src.api.domaemae import DomaemaeClient
+from src.core.exceptions import EmoneyShortageError
 from src.core.mapping_repository import MappingRepository
 from src.core.order_repository import OrderRepository
 from src.db.database import get_session
@@ -65,6 +67,8 @@ def _order_summary(order: dict, mapping: dict | None = None) -> str:
 
 
 class OrderPlacer:
+    _resume_lock = threading.Lock()  # resume_pending() 동시 실행 방지
+
     def __init__(
         self,
         domaekkuk: DomaekkukAPI,
@@ -117,8 +121,12 @@ class OrderPlacer:
         # 2. 도매처 발주 (성공 건 to_confirm에 수집)
         to_confirm: list[str] = []
         if self._budget is None:
-            for order in new_orders:
-                result = self._place_one(order)
+            for i, order in enumerate(new_orders):
+                try:
+                    result = self._place_one(order)
+                except EmoneyShortageError as e:
+                    self._handle_emoney_shortage(new_orders[i:], stats, str(e))
+                    break
                 stats[result] += 1
                 if result == "ordered":
                     to_confirm.append(order["order_id"])
@@ -190,8 +198,15 @@ class OrderPlacer:
         )
 
         # 발주
+        placed_in_loop: set[str] = set()
         for order, mapping, cost in to_place:
-            result = self._place_one(order, mapping=mapping)
+            try:
+                result = self._place_one(order, mapping=mapping)
+            except EmoneyShortageError as e:
+                unplaced = [o for o, _, _ in to_place if o["order_id"] not in placed_in_loop]
+                self._handle_emoney_shortage(unplaced, stats, str(e))
+                break
+            placed_in_loop.add(order["order_id"])
             if result == "ordered":
                 stats["ordered"] += 1
                 to_confirm.append(order["order_id"])
@@ -246,13 +261,24 @@ class OrderPlacer:
 
     def resume_pending(self) -> dict:
         """예산 충전 후 대기 주문 재개 시도.
-        반환값: {"ordered": n, "still_pending": n, "error": n}
+        반환값: {"ordered": n, "still_pending": n, "error": n, "cancelled": n}
+
+        동시 실행 방지: _resume_lock으로 중복 호출 즉시 스킵.
         """
+        if not OrderPlacer._resume_lock.acquire(blocking=False):
+            logger.warning("resume_pending 이미 실행 중 — 스킵")
+            return {"ordered": 0, "still_pending": 0, "error": 0, "cancelled": 0}
+        try:
+            return self._resume_pending_inner()
+        finally:
+            OrderPlacer._resume_lock.release()
+
+    def _resume_pending_inner(self) -> dict:
         if self._pending is None or self._budget is None:
-            return {"ordered": 0, "still_pending": 0, "error": 0}
+            return {"ordered": 0, "still_pending": 0, "error": 0, "cancelled": 0}
 
         items = self._pending.all()
-        stats = {"ordered": 0, "still_pending": 0, "error": 0}
+        stats = {"ordered": 0, "still_pending": 0, "error": 0, "cancelled": 0}
 
         if not items:
             logger.info("재개할 대기 주문 없음")
@@ -264,6 +290,21 @@ class OrderPlacer:
         # 비용 오름차순 정렬
         items.sort(key=lambda x: x.get("estimated_cost", 0))
 
+        # 취소 요청 사전 조회 (24시간 이내)
+        cancel_ids: set[str] = set()
+        if self._ss_api:
+            try:
+                cancel_data = self._ss_api.get_cancellations(hours=24)
+                cancel_ids = {
+                    item.get("productOrder", {}).get("productOrderId", "")
+                    for item in cancel_data
+                    if item.get("productOrder", {}).get("productOrderId")
+                }
+                if cancel_ids:
+                    logger.info("대기 주문 재개: 취소 요청 %d건 감지", len(cancel_ids))
+            except Exception as e:
+                logger.warning("대기 주문 재개 시 취소 요청 확인 실패 — 취소 확인 없이 진행: %s", e)
+
         running    = 0
         placed_ids: set[str] = set()
 
@@ -272,6 +313,14 @@ class OrderPlacer:
             cost  = item.get("estimated_cost", 0)
             oid   = order["order_id"]
 
+            # 취소 요청 감지 → orders.json CANCELLED, pending 제거, cancel_monitor 위임
+            if oid in cancel_ids:
+                self._orders.update_status(oid, "CANCELLED")
+                placed_ids.add(oid)
+                stats["cancelled"] += 1
+                logger.info("대기 주문 취소 감지 → cancel_monitor 위임: order_id=%s", oid)
+                continue
+
             if running + cost > balance:
                 stats["still_pending"] += 1
                 continue
@@ -279,7 +328,16 @@ class OrderPlacer:
             # PENDING → NEW 로 되돌려서 _place_one이 정상 처리하도록
             self._orders.update_status(oid, "NEW")
 
-            result = self._place_one(order)
+            try:
+                result = self._place_one(order)
+            except EmoneyShortageError as e:
+                self._orders.update_status(oid, "PENDING")  # NEW로 바꿨던 것 원복
+                remaining = [it["order"] for it in items
+                             if it["order"]["order_id"] not in placed_ids]
+                logger.error("e머니 잔액 부족으로 대기 주문 재개 중단: %s", e)
+                self._notify_emoney_shortage(remaining, str(e))
+                break
+
             if result == "ordered":
                 stats["ordered"] += 1
                 running += cost
@@ -294,8 +352,8 @@ class OrderPlacer:
             self._pending.remove_many(placed_ids)
 
         logger.info(
-            "대기 주문 재개 완료: 발주 %d건 / 계속 대기 %d건 / 오류 %d건",
-            stats["ordered"], stats["still_pending"], stats["error"],
+            "대기 주문 재개 완료: 발주 %d건 / 취소 %d건 / 계속 대기 %d건 / 오류 %d건",
+            stats["ordered"], stats["cancelled"], stats["still_pending"], stats["error"],
         )
         return stats
 
@@ -430,6 +488,8 @@ class OrderPlacer:
                 mapping["supplier_product_id"], order["quantity"], shipping, **kwargs
             )
             supplier_order_no = _extract_supplier_order_no(result)
+        except EmoneyShortageError:
+            raise  # 호출자(run / resume_pending)가 일괄 대기 처리
         except Exception as e:
             self._handle_error(
                 order=order,
@@ -658,6 +718,43 @@ class OrderPlacer:
             self._notifier.send(subject=subject, body=body)
         except Exception as e:
             logger.error("발주실패 이메일 전송 오류: %s", e)
+
+    def _handle_emoney_shortage(self, orders: list[dict], stats: dict, error_msg: str):
+        """e머니 부족으로 발주 못 한 주문들을 PENDING으로 전환 후 알림."""
+        if not orders:
+            return
+        for order in orders:
+            self._orders.update_status(order["order_id"], "PENDING")
+        if self._pending:
+            self._pending.add_many([{"order": o, "estimated_cost": 0} for o in orders])
+        stats["deferred"] = stats.get("deferred", 0) + len(orders)
+        logger.error("e머니 잔액 부족 — %d건 발주 대기 전환: %s", len(orders), error_msg)
+        self._notify_emoney_shortage(orders, error_msg)
+
+    def _notify_emoney_shortage(self, orders: list[dict], error_msg: str):
+        """e머니 부족 이메일+로그 알림."""
+        count = len(orders)
+        logger.error("[긴급] e머니 잔액 부족 — %d건 발주 중단", count)
+        if not self._notifier:
+            return
+        subject = f"[긴급] 도매처 e머니 잔액 부족 — {count}건 발주 대기"
+        lines = [
+            f"■ 도매처 e머니 잔액 부족으로 {count}건의 발주가 중단되었습니다.",
+            f"■ 오류: {error_msg}",
+            "",
+            "■ 조치 방법",
+            "  도매꾹/도매매 사이트에서 e머니(도머니)를 충전하세요.",
+            "  충전 후 다음 발주 주기에 자동으로 재시도됩니다.",
+            "",
+            "■ 대기 전환된 주문 (최대 10건)",
+            *[f"  - {o.get('order_id','')} / {o.get('product_name','')}"
+              for o in orders[:10]],
+            *(["  … (이하 생략)"] if len(orders) > 10 else []),
+        ]
+        try:
+            self._notifier.send(subject=subject, body="\n".join(lines))
+        except Exception as e:
+            logger.error("e머니 부족 알림 전송 실패: %s", e)
 
     def _notify_budget_shortage(
         self,

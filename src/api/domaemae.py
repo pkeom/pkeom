@@ -297,6 +297,20 @@ class DomaemaeClient:
             data["item[0][option]"] = option_code
 
         root = self._post("setOrder", "4.3", data)
+
+        # e머니 부족 및 일반 에러 감지
+        from src.core.exceptions import EmoneyShortageError
+        errors = root.get("errors", {})
+        if isinstance(errors, dict):
+            dcode = errors.get("dcode", "")
+            if dcode == "LACK_MONEY":
+                raise EmoneyShortageError(
+                    f"도매매 e머니 잔액 부족 — 충전 후 재시도하세요. "
+                    f"(msg: {errors.get('msg', '')})"
+                )
+        err = root.get("error") or root.get("errCode") or root.get("errMsg")
+        if err:
+            raise RuntimeError(f"도매매 발주 실패: {err}")
         return str(root.get("orderNo", ""))
 
     def cancel_order(self, order_no: str) -> dict:
