@@ -154,8 +154,12 @@ def api_summary():
         or c.get("result") in _PENDING_CANCEL_STATES
     )
 
+    from src.core.budget_sale_guard import is_suspended as _budget_suspended
+    budget_suspended = _budget_suspended()
+
     return jsonify({
         "balance":           _budget.get_balance() if _budget else 0,
+        "budget_suspended":  budget_suspended,
         "today_orders":      len(today),
         "ordered_count":     counts.get("ORDERED", 0),
         "pending_count":     counts.get("PENDING", 0) + counts.get("STOCK_PENDING", 0),

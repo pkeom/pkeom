@@ -357,6 +357,19 @@ tbody tr:hover td { background: #FAFBFC; }
 
 <!-- ── 1. Dashboard ─────────────────────────────────────────── -->
 <div id="panel-dashboard" class="panel active">
+  <div id="budget-suspend-banner" style="display:none;
+    background:var(--red-bg); border:1px solid var(--red); border-radius:var(--r);
+    padding:14px 18px; margin-bottom:14px; display:none;
+    align-items:center; gap:10px;">
+    <span style="font-size:20px">⛔</span>
+    <div>
+      <div style="font-weight:700;color:var(--red);font-size:14px">예산 부족 — 전체 상품 판매중지 중</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">
+        예산을 충전하면 자동으로 판매가 재개됩니다.
+        <a href="#" onclick="switchTab('budget')" style="color:var(--blue);font-weight:700">→ 예산 충전하기</a>
+      </div>
+    </div>
+  </div>
   <div class="stats">
     <div class="stat"><div class="stat-label">예산 잔액</div><div class="stat-val blue" id="s-balance">-</div></div>
     <div class="stat"><div class="stat-label">오늘 주문</div><div class="stat-val" id="s-today">-</div></div>
@@ -877,6 +890,11 @@ function empty(msg) {
   return `<tr><td colspan="99"><div class="empty"><div class="empty-ico">📭</div>${msg}</div></td></tr>`;
 }
 
+function switchTab(name) {
+  const btn = document.querySelector(`.nav-tab[data-tab="${name}"]`);
+  if (btn) btn.click();
+}
+
 // ── 탭 전환 ───────────────────────────────────────────────────
 document.querySelectorAll('.nav-tab').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -915,6 +933,13 @@ async function loadDashboard() {
   $('s-stock').textContent    = fmtN(d.out_of_stock  || 0);
   $('s-cancels').textContent  = fmtN(d.cancel_count  || 0);
   $('s-returns').textContent  = fmtN(d.return_count  || 0);
+
+  // 예산 부족 판매중지 배너 + 예산 카드 색상
+  const suspended = !!d.budget_suspended;
+  const banner = $('budget-suspend-banner');
+  banner.style.display = suspended ? 'flex' : 'none';
+  const balCard = $('s-balance');
+  balCard.className = suspended ? 'stat-val red' : 'stat-val blue';
 
   const on = d.system_running;
   $('sysDot').className   = 'sys-dot' + (on ? ' on' : '');
