@@ -7,8 +7,8 @@ from src.core.order_repository import OrderRepository
 logger = logging.getLogger(__name__)
 
 
-def _parse_order_item(raw: dict) -> dict | None:
-    """Naver Commerce product-orders/query 응답 1건을 정규화.
+def _parse_order_item(raw) -> dict | None:
+    """Naver Commerce product-orders 응답 1건을 정규화.
 
     API는 중첩 구조를 반환:
       raw["productOrder"]     → 상품주문 정보
@@ -16,7 +16,13 @@ def _parse_order_item(raw: dict) -> dict | None:
       raw["shippingAddress"]  → 수령인/배송지
       raw["deliveryMemo"]     → 배송 메모
     """
+    if not isinstance(raw, dict):
+        logger.warning("파싱 불가 항목 스킵 (타입=%s): %s", type(raw).__name__, str(raw)[:200])
+        return None
+
     po   = raw.get("productOrder", raw)   # 중첩 또는 flat 모두 대응
+    if not isinstance(po, dict):
+        po = raw
     ord_ = raw.get("order", {})
     addr = raw.get("shippingAddress", {})
 
