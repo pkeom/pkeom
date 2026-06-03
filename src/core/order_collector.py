@@ -37,7 +37,12 @@ def _parse_order_item(raw) -> dict | None:
         logger.warning("productOrderId 없음 — 건너뜀. keys=%s", list(raw.keys()))
         return None
 
-    product_id = str(po.get("productId") or po.get("channelProductNo") or "")
+    # productId 우선, 없으면 channelProductNo (None/빈 문자열 모두 스킵)
+    _pid  = po.get("productId")
+    _cpno = po.get("channelProductNo")
+    product_id = str(_pid if _pid not in (None, "", 0) else (_cpno if _cpno not in (None, "", 0) else ""))
+    logger.info("product_id 추출: productId=%r channelProductNo=%r → product_id=%r",
+                _pid, _cpno, product_id)
 
     address = " ".join(filter(None, [
         dlv.get("baseAddress", ""),
