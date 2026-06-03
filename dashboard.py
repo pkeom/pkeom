@@ -356,7 +356,6 @@ def api_register_preview():
         return jsonify({"error": "도매매/도매꾹 API 미초기화"}), 500
     try:
         info = fetch_product_info(url, _dm_cli)
-        info["title"] = "가나다라마"
         cost = (info["supply_price"] or 0) + 3000
         if not selling_price:
             selling_price = cost

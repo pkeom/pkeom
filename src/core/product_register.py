@@ -1574,30 +1574,35 @@ def register_product(url: str, selling_price: int, smartstore_api,
                 }
         result     = resp.json()
         logger.info("스마트스토어 API 성공 응답: %s", _json_log.dumps(result, ensure_ascii=False)[:500])
-        ss_prod_id = str(
-            result.get("originProductNo") or
-            result.get("id") or
-            result.get("productNo") or ""
-        )
+        # originProductNo: API 호출용 (/v2/products/{id})
+        # smartstoreChannelProductNo: 주문 응답의 productId, 스마트스토어 화면 표시 ID
+        origin_prod_id  = str(result.get("originProductNo") or result.get("id") or result.get("productNo") or "")
+        channel_prod_id = str(result.get("smartstoreChannelProductNo") or "")
 
-        # 등록 직후 GET으로 실제 저장된 상품 ID 재확인
-        if ss_prod_id:
-            try:
-                confirmed = smartstore_api.get_product(ss_prod_id)
-                confirmed_id = str(
-                    confirmed.get("originProduct", {}).get("originProductNo") or
-                    confirmed.get("originProductNo") or
-                    ss_prod_id
-                )
-                if confirmed_id != ss_prod_id:
-                    logger.info("상품 ID 재확인: POST=%s → GET=%s", ss_prod_id, confirmed_id)
-                ss_prod_id = confirmed_id
-            except Exception as e:
-                logger.warning("상품 ID GET 재확인 실패, POST 응답 ID 사용 (%s): %s", ss_prod_id, e)
-        else:
+        if not origin_prod_id:
             logger.error("등록 응답에서 상품 ID를 추출하지 못했습니다: %s", result)
             return {"success": False, "error": "등록 응답에 상품 ID 없음", "detail": result,
                     "info": info, "selling_price": selling_price}
+
+        # 등록 직후 GET으로 두 ID 모두 재확인 (originProductNo 기준으로 조회)
+        try:
+            confirmed = smartstore_api.get_product(origin_prod_id)
+            confirmed_origin = str(
+                confirmed.get("originProduct", {}).get("originProductNo") or origin_prod_id
+            )
+            confirmed_channel = str(
+                confirmed.get("smartstoreChannelProduct", {}).get("channelProductNo") or channel_prod_id
+            )
+            if confirmed_origin != origin_prod_id or confirmed_channel != channel_prod_id:
+                logger.info("상품 ID 재확인: origin %s→%s, channel %s→%s",
+                            origin_prod_id, confirmed_origin, channel_prod_id, confirmed_channel)
+            origin_prod_id  = confirmed_origin
+            channel_prod_id = confirmed_channel or channel_prod_id
+        except Exception as e:
+            logger.warning("상품 ID GET 재확인 실패, POST 응답 ID 사용: %s", e)
+
+        # ss_product_id = channelProductNo (주문 매핑 기준 ID)
+        ss_prod_id = channel_prod_id or origin_prod_id
     except Exception as e:
         logger.error("스마트스토어 상품 등록 실패: %s", e)
         return {"success": False, "error": str(e), "info": info, "selling_price": selling_price}
@@ -1607,6 +1612,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
         price_margin_rate = round(selling_price / cost, 6) if cost else 1.0
         mapping_repo.add(
             ss_product_id      = ss_prod_id,
+            origin_product_no  = origin_prod_id,
             supplier           = info["supplier"],
             supplier_url_or_id = url,
             price_margin_rate  = price_margin_rate,

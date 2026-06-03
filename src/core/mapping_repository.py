@@ -95,6 +95,7 @@ class MappingRepository:
         supplier_option_id: str = "",
         price_margin_rate: float = 1.3,
         memo: str = "",
+        origin_product_no: str = "",
     ) -> dict:
         """매핑 추가 후 저장. 생성된 항목 반환."""
         supplier_product_id = extract_supplier_id(supplier_url_or_id)
@@ -113,6 +114,7 @@ class MappingRepository:
                 "id": new_id,
                 "ss_product_id": ss_product_id,
                 "ss_option_id": ss_option_id,
+                "origin_product_no": origin_product_no or ss_product_id,
                 "supplier": supplier,
                 "supplier_product_id": supplier_product_id,
                 "supplier_url": supplier_url,

@@ -545,9 +545,10 @@ class OrderPlacer:
         })
 
         # 스마트스토어 품절 처리
-        if self._ss_api and ss_product_id:
+        api_product_id = mapping.get("origin_product_no") or ss_product_id
+        if self._ss_api and api_product_id:
             try:
-                self._ss_api.set_product_sale_status(ss_product_id, on_sale=False)
+                self._ss_api.set_product_sale_status(api_product_id, on_sale=False)
                 logger.info("스마트스토어 품절 처리: ss_product=%s", ss_product_id)
             except Exception as e:
                 logger.error("스마트스토어 품절 처리 실패: ss_product=%s — %s", ss_product_id, e)

@@ -101,7 +101,8 @@ class InventorySync:
         """단건 재고 동기화. 반환값: 'paused' | 'resumed' | 'unchanged' | 'error'"""
         supplier      = mapping["supplier"]
         supplier_pid  = mapping["supplier_product_id"]
-        ss_product_id = mapping["ss_product_id"]
+        ss_product_id  = mapping["ss_product_id"]
+        api_product_id = mapping.get("origin_product_no") or ss_product_id
         supplier_url  = mapping.get("supplier_url", "")
         cache_key     = f"{supplier}:{supplier_pid}"
 
@@ -131,7 +132,7 @@ class InventorySync:
 
         # 4. 스마트스토어 판매 상태 변경
         try:
-            self.ss_api.set_product_sale_status(ss_product_id, on_sale=in_stock)
+            self.ss_api.set_product_sale_status(api_product_id, on_sale=in_stock)
         except Exception as e:
             logger.error("판매상태 변경 오류: ss_product=%s — %s", ss_product_id, e)
             self._notify_error(
