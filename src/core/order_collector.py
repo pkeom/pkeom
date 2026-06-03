@@ -1,5 +1,6 @@
 """스마트스토어 신규 주문 자동 수집 → data/orders.json 저장"""
 import logging
+import traceback
 from datetime import datetime
 from src.api.smartstore import SmartstoreAPI
 from src.core.order_repository import OrderRepository
@@ -79,15 +80,22 @@ class OrderCollector:
                 return 0
 
             parsed = []
-            for raw in raw_orders:
-                order = _parse_order_item(raw)
-                if order:
-                    parsed.append(order)
+            for idx, raw in enumerate(raw_orders):
+                try:
+                    order = _parse_order_item(raw)
+                    if order:
+                        parsed.append(order)
+                except Exception:
+                    logger.error(
+                        "주문 항목 파싱 예외 (index=%d) raw=%s\n%s",
+                        idx, str(raw)[:300], traceback.format_exc(),
+                    )
 
             added = self._repo.add_many(parsed)
-            logger.info("주문 수집 완료: API %d건 중 신규 %d건 저장", len(parsed), added)
+            logger.info("주문 수집 완료: API %d건 중 파싱성공 %d건 / 신규저장 %d건",
+                        len(raw_orders), len(parsed), added)
             return added
 
         except Exception as e:
-            logger.error("주문 수집 오류: %s", e, exc_info=True)
+            logger.error("주문 수집 오류: %s\n%s", e, traceback.format_exc())
             raise
