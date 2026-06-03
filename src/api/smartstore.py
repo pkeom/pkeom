@@ -340,52 +340,38 @@ class SmartstoreAPI:
 
         # 중복 제거 (순서 유지)
         product_order_ids = list(dict.fromkeys(product_order_ids))
-        logger.info("product-orders/query 조회 대상 ID %d건", len(product_order_ids))
+        logger.info("주문 개별 조회 대상 ID %d건", len(product_order_ids))
 
-        # 20건씩 배치 처리 (API 제한)
-        BATCH = 20
+        # GET /v1/pay-order/seller/product-orders/{productOrderId} 개별 조회
+        # POST query 대신 개별 GET 사용 — 권한 없는 ID(101009) 문제 회피
         all_orders: list = []
-        for i in range(0, len(product_order_ids), BATCH):
-            batch = product_order_ids[i : i + BATCH]
-            resp = requests.post(
-                f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
-                headers=self._headers(),
-                json={"productOrderIds": batch},
-                timeout=10,
-            )
-            if resp.ok:
-                all_orders.extend(resp.json().get("data", []))
-                continue
-
-            # 오류 응답 파싱
+        for oid in product_order_ids:
             try:
-                err_body = resp.json()
-            except Exception:
-                err_body = {"raw": resp.text}
-            err_code = err_body.get("code") if isinstance(err_body, dict) else None
-
-            # 권한 없는 ID 포함(101009): 1건씩 재시도하여 유효한 ID만 수집
-            if resp.status_code == 400 and err_code == 101009:
-                logger.warning(
-                    "권한 없는 주문 ID 포함 (code 101009) — %d건 개별 재시도", len(batch)
+                resp = requests.get(
+                    f"{self.BASE_URL}/v1/pay-order/seller/product-orders/{oid}",
+                    headers=self._headers(),
+                    timeout=10,
                 )
-                for oid in batch:
-                    r = requests.post(
-                        f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
-                        headers=self._headers(),
-                        json={"productOrderIds": [oid]},
-                        timeout=10,
-                    )
-                    if r.ok:
-                        all_orders.extend(r.json().get("data", []))
+                if resp.ok:
+                    data = resp.json()
+                    # 단건 응답: dict 또는 {"data": [...]} 형태 모두 대응
+                    if isinstance(data, list):
+                        all_orders.extend(data)
+                    elif isinstance(data, dict) and "data" in data:
+                        items = data["data"]
+                        if isinstance(items, list):
+                            all_orders.extend(items)
+                        else:
+                            all_orders.append(items)
                     else:
-                        logger.debug("권한 없는 주문 ID 스킵: %s", oid)
-            else:
-                logger.error(
-                    "product-orders/query 실패 [HTTP %s] — 응답: %s",
-                    resp.status_code, err_body,
-                )
-                resp.raise_for_status()
+                        all_orders.append(data)
+                elif resp.status_code in (400, 403, 404):
+                    logger.debug("주문 조회 스킵 [HTTP %s]: %s", resp.status_code, oid)
+                else:
+                    logger.warning("주문 조회 실패 [HTTP %s]: %s", resp.status_code, oid)
+            except Exception as e:
+                logger.warning("주문 조회 예외 (%s): %s", oid, e)
+            time.sleep(0.05)  # API 레이트 리밋 방지
 
         return all_orders
 
