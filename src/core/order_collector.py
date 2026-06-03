@@ -8,67 +8,51 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_order_item(raw) -> dict | None:
-    """Naver Commerce product-orders 응답 1건을 정규화.
+    """Naver Commerce GET /v1/pay-order/seller/product-orders 응답 1건 정규화.
 
-    API는 중첩 구조를 반환:
-      raw["productOrder"]     → 상품주문 정보
-      raw["order"]            → 구매자 정보
-      raw["shippingAddress"]  → 수령인/배송지
-      raw["deliveryMemo"]     → 배송 메모
+    실제 응답 구조:
+      raw["order"]         → orderId, orderDate
+      raw["productOrder"]  → productOrderId, productId, channelProductNo,
+                             productName, quantity, optionCode
+      raw["buyer"]         → buyerName, buyerTel1
+      raw["delivery"]      → receiverName, receiverTel1,
+                             baseAddress, detailAddress, zipCode
     """
     if not isinstance(raw, dict):
         logger.warning("파싱 불가 항목 스킵 (타입=%s): %s", type(raw).__name__, str(raw)[:200])
         return None
 
-    # 응답 구조 전체 로그 (필드명 확인용)
-    logger.info("주문 항목 원본 키: %s", list(raw.keys()))
-    po   = raw.get("productOrder", raw)   # 중첩 또는 flat 모두 대응
-    if not isinstance(po, dict):
-        po = raw
-    logger.info("productOrder 키: %s | 앞300자: %s", list(po.keys()), str(po)[:300])
+    order = raw.get("order", {})
+    po    = raw.get("productOrder", {})
+    buyer = raw.get("buyer", {})
+    dlv   = raw.get("delivery", {})
 
-    ord_ = raw.get("order", {})
-    addr = raw.get("shippingAddress", {})
-
-    order_id = (
-        po.get("productOrderId")
-        or po.get("orderId")
-        or raw.get("productOrderId")
-        or raw.get("orderId")
-    )
+    order_id = po.get("productOrderId") or order.get("orderId")
     if not order_id:
-        logger.warning("order_id를 찾을 수 없는 응답 항목 건너뜀: %s", list(raw.keys()))
+        logger.warning("productOrderId 없음 — 건너뜀. keys=%s", list(raw.keys()))
         return None
 
-    # product_id: 후보 필드 순서대로 시도
-    product_id = str(
-        po.get("productId")
-        or po.get("channelProductNo")
-        or po.get("goodsNo")
-        or po.get("itemNo")
-        or raw.get("productId")
-        or raw.get("channelProductNo")
-        or ""
-    )
-    logger.info("order_id=%s product_id=%s (productId=%s channelProductNo=%s)",
-                order_id, product_id,
-                po.get("productId"), po.get("channelProductNo"))
+    product_id = str(po.get("productId") or po.get("channelProductNo") or "")
+
+    address = " ".join(filter(None, [
+        dlv.get("baseAddress", ""),
+        dlv.get("detailAddress", ""),
+    ]))
 
     now = datetime.now().isoformat(timespec="seconds")
     return {
         "order_id":         str(order_id),
-        "ss_order_id":      str(po.get("orderId") or ord_.get("orderId") or order_id),
+        "ss_order_id":      str(order.get("orderId") or order_id),
         "product_id":       product_id,
         "product_name":     po.get("productName", ""),
         "option_code":      str(po.get("optionCode") or po.get("optionId") or ""),
         "quantity":         int(po.get("quantity", 1)),
-        "buyer_name":       ord_.get("ordererName") or raw.get("buyerName", ""),
-        "receiver_name":    addr.get("name") or raw.get("receiverName", ""),
-        "receiver_phone":   (addr.get("tel1") or addr.get("tel2")
-                             or raw.get("receiverTel", "")),
-        "receiver_address": addr.get("addressStr", "") or raw.get("receiverAddr", ""),
-        "receiver_zipcode": addr.get("zipCode", "") or raw.get("receiverZipcode", ""),
-        "delivery_memo":    raw.get("deliveryMemo", ""),
+        "buyer_name":       buyer.get("buyerName", ""),
+        "receiver_name":    dlv.get("receiverName", ""),
+        "receiver_phone":   dlv.get("receiverTel1") or dlv.get("receiverTel2", ""),
+        "receiver_address": address,
+        "receiver_zipcode": dlv.get("zipCode", ""),
+        "delivery_memo":    dlv.get("deliveryMemo") or raw.get("deliveryMemo", ""),
         "status":           "NEW",
         "collected_at":     now,
         "updated_at":       now,

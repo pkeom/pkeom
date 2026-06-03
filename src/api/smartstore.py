@@ -339,11 +339,16 @@ class SmartstoreAPI:
                     )
                     resp.raise_for_status()
 
-                body       = resp.json()
-                data_block = body.get("data", {})
-                contents   = data_block.get("contents", [])
-                pagination = data_block.get("pagination", {})
-                has_next   = pagination.get("hasNext", False)
+                body = resp.json()
+                # 실제 응답: {"data": [...]} — data가 배열 직접
+                data = body.get("data", [])
+                if isinstance(data, list):
+                    contents = data
+                    has_next = False  # 페이지네이션 없음
+                else:
+                    contents = data.get("contents", [])
+                    has_next = data.get("pagination", {}).get("hasNext", False)
+
                 logger.info("product-orders [%s~%s] page=%d — %d건 hasNext=%s",
                             from_str[:10], to_str[:10], page, len(contents), has_next)
 
