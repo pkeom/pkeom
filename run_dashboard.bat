@@ -1,16 +1,25 @@
 @echo off
 chcp 65001 > nul
+cd /d "%~dp0"
+setlocal enabledelayedexpansion
 
-:: Python 후보 경로를 순서대로 시도
+set SCRIPT=dashboard.py
 set PYTHON=
 
-:: 1) 가상환경 (프로젝트 내 .venv)
-if exist "%~dp0.venv\Scripts\python.exe" (
-    set PYTHON=%~dp0.venv\Scripts\python.exe
+:: 1) Python Launcher (py.exe) — 가장 신뢰할 수 있음
+where py >nul 2>&1
+if !ERRORLEVEL! == 0 (
+    set PYTHON=py
     goto :run
 )
 
-:: 2) 실제 설치된 Python (Microsoft Store placeholder 제외)
+:: 2) 가상환경 (.venv)
+if exist "%~dp0.venv\Scripts\python.exe" (
+    set PYTHON="%~dp0.venv\Scripts\python.exe"
+    goto :run
+)
+
+:: 3) 알려진 경로 순서대로 탐색
 for %%P in (
     "%LOCALAPPDATA%\Python\bin\python.exe"
     "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
@@ -22,15 +31,16 @@ for %%P in (
     "C:\Python311\python.exe"
 ) do (
     if exist %%P (
-        set PYTHON=%%~P
+        set PYTHON=%%P
         goto :run
     )
 )
 
-:: 3) PATH에서 python 검색 (WindowsApps placeholder인지 확인)
+:: 4) PATH에서 검색 (Microsoft Store placeholder 제외)
 for /f "tokens=*" %%P in ('where python 2^>nul') do (
-    echo %%P | findstr /i "WindowsApps" > nul || (
-        set PYTHON=%%P
+    echo %%P | findstr /i "WindowsApps" >nul
+    if !ERRORLEVEL! == 1 (
+        set PYTHON="%%P"
         goto :run
     )
 )
@@ -42,6 +52,5 @@ exit /b 1
 
 :run
 echo Python: %PYTHON%
-cd /d "%~dp0"
-"%PYTHON%" dashboard.py
+%PYTHON% %SCRIPT%
 pause
