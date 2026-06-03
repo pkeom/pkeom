@@ -527,6 +527,12 @@ def _setup_logging():
 
 
 if __name__ == "__main__":
+    import os
+    # cmd 어디서 실행하든 경로가 올바르도록 스크립트 위치로 작업 디렉토리 고정
+    os.chdir(Path(__file__).parent)
     _setup_logging()
-    print("대시보드: http://localhost:2713", flush=True)
-    run_dashboard()
+    print("대시보드 시작: http://localhost:2713  (종료: Ctrl+C)", flush=True)
+    try:
+        run_dashboard()
+    except KeyboardInterrupt:
+        print("\n대시보드 종료.", flush=True)
