@@ -22,12 +22,16 @@ def _parse_order_item(raw) -> dict | None:
         logger.warning("파싱 불가 항목 스킵 (타입=%s): %s", type(raw).__name__, str(raw)[:200])
         return None
 
-    order = raw.get("order", {})
-    po    = raw.get("productOrder", {})
-    buyer = raw.get("buyer", {})
-    dlv   = raw.get("delivery", {})
+    # 실제 응답: {"productOrderId": "...", "content": {"order":{}, "productOrder":{}, ...}}
+    inner = raw.get("content", raw)
+    order = inner.get("order", {})
+    po    = inner.get("productOrder", {})
+    buyer = inner.get("buyer", {})
+    dlv   = inner.get("delivery", {})
 
-    order_id = po.get("productOrderId") or order.get("orderId")
+    order_id = (po.get("productOrderId")
+                or raw.get("productOrderId")
+                or order.get("orderId"))
     if not order_id:
         logger.warning("productOrderId 없음 — 건너뜀. keys=%s", list(raw.keys()))
         return None
