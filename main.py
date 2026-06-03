@@ -12,6 +12,9 @@ import signal
 import sys
 import threading
 import time
+from pathlib import Path
+
+_ROOT = Path(__file__).parent
 
 # ── 단일 인스턴스 잠금 (PID 파일, 크로스 플랫폼) ─────────────────────
 _LOCKFILE = "data/.scheduler.lock"
@@ -168,11 +171,11 @@ def main():
     budget_amount = cfg.get("budget", 0)
     budget        = BudgetManager(initial_balance=budget_amount) if budget_amount > 0 else None
     pending       = PendingOrderRepository() if budget is not None else None
-    stock_pending = StockPendingRepository()
+    stock_pending = StockPendingRepository(_ROOT / "data" / "stock_pending.json")
 
-    order_repo = OrderRepository()  # placer / cancel_mon 공유 인스턴스
+    order_repo = OrderRepository(_ROOT / "data" / "orders.json")  # placer / cancel_mon 공유 인스턴스
 
-    collector = OrderCollector(ss_api)
+    collector = OrderCollector(ss_api, repo=OrderRepository(_ROOT / "data" / "orders.json"))
     placer    = OrderPlacer(
         dk_api, dm_cli,
         notifier=notifier, budget=budget, pending=pending,

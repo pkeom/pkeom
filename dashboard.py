@@ -31,11 +31,12 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
-# ── 전역 인스턴스 ─────────────────────────────────────────────────
-_order_repo    = OrderRepository()
-_mapping_repo  = MappingRepository()
-_price_alerts  = PriceAlertRepository()
-_stock_pending = StockPendingRepository()
+# ── 전역 인스턴스 (절대경로 — CWD에 무관하게 같은 파일 참조) ─────────
+_BASE_DIR      = Path(__file__).parent
+_order_repo    = OrderRepository(_BASE_DIR / "data" / "orders.json")
+_mapping_repo  = MappingRepository(_BASE_DIR / "data" / "mappings.json")
+_price_alerts  = PriceAlertRepository(_BASE_DIR / "data" / "price_alerts.json")
+_stock_pending = StockPendingRepository(_BASE_DIR / "data" / "stock_pending.json")
 _cfg     = None
 _ss_api  = None
 _dk_api  = None
