@@ -338,14 +338,35 @@ class SmartstoreAPI:
         if not product_order_ids:
             return []
 
-        resp = requests.post(
-            f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
-            headers=self._headers(),
-            json={"productOrderIds": product_order_ids},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        return resp.json().get("data", [])
+        # 중복 제거 (순서 유지)
+        product_order_ids = list(dict.fromkeys(product_order_ids))
+        logger.info("product-orders/query 조회 대상 ID %d건: %s",
+                    len(product_order_ids), product_order_ids)
+
+        # 20건씩 배치 처리 (API 제한)
+        BATCH = 20
+        all_orders: list = []
+        for i in range(0, len(product_order_ids), BATCH):
+            batch = product_order_ids[i : i + BATCH]
+            resp = requests.post(
+                f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
+                headers=self._headers(),
+                json={"productOrderIds": batch},
+                timeout=10,
+            )
+            if not resp.ok:
+                try:
+                    err_body = resp.json()
+                except Exception:
+                    err_body = resp.text
+                logger.error(
+                    "product-orders/query 실패 [HTTP %s] — 요청 IDs: %s / 응답: %s",
+                    resp.status_code, batch, err_body,
+                )
+            resp.raise_for_status()
+            all_orders.extend(resp.json().get("data", []))
+
+        return all_orders
 
     def dispatch_order(self, product_order_id: str, delivery_company_code: str, tracking_number: str) -> dict:
         """송장 등록 (발송 처리)
