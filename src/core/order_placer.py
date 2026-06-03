@@ -419,9 +419,18 @@ class OrderPlacer:
 
         # 1. 매핑 조회 (budget 경로에서는 이미 조회된 mapping 재사용)
         if mapping is None:
+            pid       = order["product_id"]
+            opt_code  = order.get("option_code", "")
+            all_maps  = self._mappings.all()
+            map_ids   = [m["ss_product_id"] for m in all_maps]
+            logger.info(
+                "매핑 조회: order_id=%s product_id=%r option_code=%r | "
+                "mappings.json 등록 상품(%d개): %s",
+                order_id, pid, opt_code, len(map_ids), map_ids,
+            )
             mapping = self._mappings.find(
-                ss_product_id=order["product_id"],
-                ss_option_id=order.get("option_code", ""),
+                ss_product_id=pid,
+                ss_option_id=opt_code,
             )
         if not mapping:
             self._handle_error(
@@ -500,11 +509,12 @@ class OrderPlacer:
         except EmoneyShortageError:
             raise  # 호출자(run / resume_pending)가 일괄 대기 처리
         except Exception as e:
+            import traceback
             self._handle_error(
                 order=order,
                 mapping=mapping,
                 reason="발주 API 오류",
-                detail=str(e),
+                detail=f"{e}\n{traceback.format_exc()}",
             )
             return "error"
 
