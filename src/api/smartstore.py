@@ -293,34 +293,38 @@ class SmartstoreAPI:
     def get_orders(self, status: str = "PAYED", days: int = 3) -> list:
         """주문 목록 직접 조회 — GET /v1/pay-order/seller/product-orders
 
-        from/to 최대 24시간 제한이 있으므로 24시간 단위로 분할 조회.
+        파라미터 스펙:
+          rangeType=PAYED_DATETIME, from/to KST(+09:00), page=1부터, pageSize=300
+          from/to 최대 24시간 제한 → 24h 단위로 분할 조회
         """
-        from datetime import datetime, timedelta, timezone
-        now    = datetime.now(timezone.utc)
-        size   = 100
+        from datetime import datetime, timedelta, timezone, timezone as tz
+        KST      = timezone(timedelta(hours=9))
+        now_kst  = datetime.now(KST)
+        page_size = 300
 
-        logger.info("주문 직접 조회 시작 — status=%s 최근 %d일 (24h 단위 분할)",
+        logger.info("주문 직접 조회 시작 — status=%s 최근 %d일 (24h 단위 분할, KST 기준)",
                     status, days)
 
         all_orders: list = []
 
         for day in range(days):
-            window_end   = now - timedelta(days=day)
-            window_start = now - timedelta(days=day + 1)
-            from_str = window_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-            to_str   = window_end.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            window_end   = now_kst - timedelta(days=day)
+            window_start = now_kst - timedelta(days=day + 1)
+            from_str = window_start.strftime("%Y-%m-%dT%H:%M:%S.000+09:00")
+            to_str   = window_end.strftime("%Y-%m-%dT%H:%M:%S.000+09:00")
 
-            page = 0
+            page = 1
             while True:
                 resp = requests.get(
                     f"{self.BASE_URL}/v1/pay-order/seller/product-orders",
                     headers=self._headers(),
                     params={
+                        "rangeType":            "PAYED_DATETIME",
                         "productOrderStatuses": status,
                         "from":                 from_str,
                         "to":                   to_str,
                         "page":                 page,
-                        "size":                 size,
+                        "pageSize":             page_size,
                     },
                     timeout=10,
                 )
@@ -343,7 +347,7 @@ class SmartstoreAPI:
 
                 all_orders.extend(contents)
 
-                if not contents or page + 1 >= pages:
+                if not contents or page >= pages:
                     break
                 page += 1
                 time.sleep(0.2)
