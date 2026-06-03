@@ -531,6 +531,10 @@ if __name__ == "__main__":
     # cmd 어디서 실행하든 경로가 올바르도록 스크립트 위치로 작업 디렉토리 고정
     os.chdir(Path(__file__).parent)
     _setup_logging()
+    # 경로 검증 로그 — 실제 해석 경로 확인용
+    _orders_path = (_BASE_DIR / "data" / "orders.json").resolve()
+    logger.info("[경로확인] orders.json 읽기 경로: %s (존재: %s)", _orders_path, _orders_path.exists())
+    print(f"[경로확인] orders.json 읽기 경로: {_orders_path}", flush=True)
     print("대시보드 시작: http://localhost:2713  (종료: Ctrl+C)", flush=True)
     try:
         run_dashboard()

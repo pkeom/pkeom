@@ -154,6 +154,13 @@ def main():
     cfg = load_config()
     setup_logging(**cfg["logging"])
 
+    # 경로 검증 로그 — 실제 해석 경로 확인용
+    _orders_path = (_ROOT / "data" / "orders.json").resolve()
+    logging.getLogger(__name__).info(
+        "[경로확인] orders.json 저장 경로: %s (존재: %s)", _orders_path, _orders_path.exists()
+    )
+    print(f"[경로확인] orders.json 저장 경로: {_orders_path}", flush=True)
+
     init_db(cfg["database"]["path"])
 
     ss_cfg = {k: v for k, v in cfg["smartstore"].items()
