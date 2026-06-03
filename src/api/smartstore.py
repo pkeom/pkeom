@@ -339,23 +339,17 @@ class SmartstoreAPI:
                     )
                     resp.raise_for_status()
 
-                body     = resp.json()
-                # 응답 구조 디버그 로그 (최초 페이지만)
-                if page == 1:
-                    logger.info(
-                        "product-orders 응답 최상위 키: %s | 앞500자: %s",
-                        list(body.keys()) if isinstance(body, dict) else type(body).__name__,
-                        str(body)[:500],
-                    )
-                contents = body.get("contents", body.get("data", []))
-                pages    = body.get("totalPages", 1)
-                logger.info("product-orders [%s~%s] page=%d/%s — %d건 (contents 타입: %s)",
-                            from_str[:10], to_str[:10], page, pages, len(contents),
-                            type(contents[0]).__name__ if contents else "없음")
+                body       = resp.json()
+                data_block = body.get("data", {})
+                contents   = data_block.get("contents", [])
+                pagination = data_block.get("pagination", {})
+                has_next   = pagination.get("hasNext", False)
+                logger.info("product-orders [%s~%s] page=%d — %d건 hasNext=%s",
+                            from_str[:10], to_str[:10], page, len(contents), has_next)
 
                 all_orders.extend(contents)
 
-                if not contents or page >= pages:
+                if not has_next:
                     break
                 page += 1
                 time.sleep(0.2)
