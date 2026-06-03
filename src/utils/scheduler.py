@@ -12,17 +12,19 @@ class AutomationScheduler:
         self.scheduler = BackgroundScheduler(timezone="Asia/Seoul")
         self._run_now_time: datetime | None = None  # 모든 즉시 실행 job이 공유하는 시각
 
-    def add_job(self, func, interval_minutes: int, job_id: str, run_now: bool = True):
+    def add_job(self, func, interval_minutes: int, job_id: str,
+                run_now: bool = True, start_delay_seconds: int = 0):
         """
-        run_now=True: start() 직후 모든 job이 동시에 첫 실행 후 interval마다 반복.
-                      add_job 첫 호출 시 시각을 고정해 모든 job이 동일한 next_run_time을 갖도록 한다.
+        run_now=True: start() 직후 첫 실행 후 interval마다 반복.
+        start_delay_seconds: 첫 실행을 N초 뒤로 지연 (collector 완료 후 placer 실행 등).
         run_now=False: 첫 interval 경과 후 실행 (기본 APScheduler 동작).
         """
+        from datetime import timedelta
         kwargs = {}
         if run_now:
             if self._run_now_time is None:
                 self._run_now_time = datetime.now(timezone.utc)
-            kwargs["next_run_time"] = self._run_now_time
+            kwargs["next_run_time"] = self._run_now_time + timedelta(seconds=start_delay_seconds)
         # run_now=False: next_run_time 생략 → APScheduler가 trigger로 첫 실행 시각 계산
         # next_run_time=None을 명시하면 job이 영구 paused 상태가 되므로 절대 넘기지 않음.
         self.scheduler.add_job(

@@ -100,6 +100,15 @@ class OrderPlacer:
         반환값: {total, ordered, error, deferred, stock_pending,
                  cancelled, ss_confirmed, ss_confirm_failed}
         """
+        # 진단 로그: 파일 경로 · 전체 건수 · 상태별 건수
+        all_orders   = self._orders.all()
+        status_count = {}
+        for o in all_orders:
+            s = o.get("status", "?")
+            status_count[s] = status_count.get(s, 0) + 1
+        logger.info("orders.json 경로: %s | 전체 %d건 | 상태별: %s",
+                    getattr(self._orders, '_path', '?'), len(all_orders), status_count)
+
         new_orders = self._orders.find_by_status("NEW")
         stats = {
             "total": len(new_orders), "ordered": 0, "error": 0,
@@ -110,7 +119,7 @@ class OrderPlacer:
         }
 
         if not new_orders:
-            logger.info("발주 대상 주문 없음")
+            logger.info("발주 대상 주문 없음 (NEW 상태 0건)")
             return stats
 
         logger.info("자동 발주 시작: %d건", stats["total"])

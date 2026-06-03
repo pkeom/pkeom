@@ -84,6 +84,7 @@ from src.core.return_monitor import ReturnMonitor
 from src.core.cancel_monitor import CancelMonitor
 from src.core.budget_manager import BudgetManager
 from src.core.order_repository import OrderRepository
+from src.core.mapping_repository import MappingRepository
 from src.core.pending_order_repository import PendingOrderRepository
 from src.core.stock_pending_repository import StockPendingRepository
 
@@ -180,7 +181,8 @@ def main():
     pending       = PendingOrderRepository() if budget is not None else None
     stock_pending = StockPendingRepository(_ROOT / "data" / "stock_pending.json")
 
-    order_repo = OrderRepository(_ROOT / "data" / "orders.json")  # placer / cancel_mon 공유 인스턴스
+    order_repo   = OrderRepository(_ROOT / "data" / "orders.json")
+    mapping_repo = MappingRepository(_ROOT / "data" / "mappings.json")
 
     collector = OrderCollector(ss_api, repo=OrderRepository(_ROOT / "data" / "orders.json"))
     placer    = OrderPlacer(
@@ -188,6 +190,7 @@ def main():
         notifier=notifier, budget=budget, pending=pending,
         ss_api=ss_api, stock_pending=stock_pending,
         order_repo=order_repo,
+        mapping_repo=mapping_repo,
     )
     invoicer  = InvoiceManager(ss_api, dk_api, dm_cli, notifier=notifier)
     inventory = InventorySync(ss_api, dk_api, dm_cli, notifier=notifier, order_placer=placer)
@@ -202,7 +205,8 @@ def main():
 
     # run_now=True: start() 직후 각 작업을 즉시 1회 실행 후 interval 반복
     scheduler.add_job(collector.run,   sched_cfg["order_collect_interval"],               "order_collect",  run_now=True)
-    scheduler.add_job(placer.run,      sched_cfg.get("order_place_interval", 10),         "order_place",    run_now=True)
+    # collector 완료 후 placer가 실행되도록 60초 지연 (동시 실행 시 NEW 주문 0건 문제 방지)
+    scheduler.add_job(placer.run,      sched_cfg.get("order_place_interval", 10),         "order_place",    run_now=True, start_delay_seconds=60)
     scheduler.add_job(invoicer.run,    sched_cfg["invoice_sync_interval"],   "invoice_sync",   run_now=True)
     scheduler.add_job(inventory.run,   sched_cfg["inventory_sync_interval"], "inventory_sync", run_now=True)
     scheduler.add_job(price_mon.run,    sched_cfg["price_monitor_interval"],   "price_monitor",  run_now=True)
