@@ -293,56 +293,63 @@ class SmartstoreAPI:
     def get_orders(self, status: str = "PAYED", days: int = 3) -> list:
         """주문 목록 직접 조회 — GET /v1/pay-order/seller/product-orders
 
-        last-changed-statuses 대신 결제일 기준 직접 조회.
-        페이지네이션(page/size)으로 전체 수집.
+        from/to 최대 24시간 제한이 있으므로 24시간 단위로 분할 조회.
         """
         from datetime import datetime, timedelta, timezone
-        now     = datetime.now(timezone.utc)
-        from_dt = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        to_dt   = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        now    = datetime.now(timezone.utc)
+        size   = 100
 
-        logger.info("주문 직접 조회 시작 — status=%s from=%s to=%s",
-                    status, from_dt[:10], to_dt[:10])
+        logger.info("주문 직접 조회 시작 — status=%s 최근 %d일 (24h 단위 분할)",
+                    status, days)
 
         all_orders: list = []
-        page = 0
-        size = 100
 
-        while True:
-            resp = requests.get(
-                f"{self.BASE_URL}/v1/pay-order/seller/product-orders",
-                headers=self._headers(),
-                params={
-                    "productOrderStatuses": status,
-                    "from":                 from_dt,
-                    "to":                   to_dt,
-                    "page":                 page,
-                    "size":                 size,
-                },
-                timeout=10,
-            )
-            if not resp.ok:
-                try:
-                    err_body = resp.json()
-                except Exception:
-                    err_body = resp.text
-                logger.error("product-orders 조회 실패 [HTTP %s] page=%d | 응답: %s",
-                             resp.status_code, page, err_body)
-                resp.raise_for_status()
+        for day in range(days):
+            window_end   = now - timedelta(days=day)
+            window_start = now - timedelta(days=day + 1)
+            from_str = window_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            to_str   = window_end.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-            body     = resp.json()
-            contents = body.get("contents", body.get("data", []))
-            total    = body.get("totalElements", "?")
-            pages    = body.get("totalPages", 1)
-            logger.info("product-orders page=%d/%s — %d건 (누적 전체 %s건)",
-                        page, pages, len(contents), total)
+            page = 0
+            while True:
+                resp = requests.get(
+                    f"{self.BASE_URL}/v1/pay-order/seller/product-orders",
+                    headers=self._headers(),
+                    params={
+                        "productOrderStatuses": status,
+                        "from":                 from_str,
+                        "to":                   to_str,
+                        "page":                 page,
+                        "size":                 size,
+                    },
+                    timeout=10,
+                )
+                if not resp.ok:
+                    try:
+                        err_body = resp.json()
+                    except Exception:
+                        err_body = resp.text
+                    logger.error(
+                        "product-orders 조회 실패 [HTTP %s] from=%s to=%s page=%d | 응답: %s",
+                        resp.status_code, from_str[:10], to_str[:10], page, err_body,
+                    )
+                    resp.raise_for_status()
 
-            all_orders.extend(contents)
+                body     = resp.json()
+                contents = body.get("contents", body.get("data", []))
+                pages    = body.get("totalPages", 1)
+                logger.info("product-orders [%s~%s] page=%d/%s — %d건",
+                            from_str[:10], to_str[:10], page, pages, len(contents))
 
-            if not contents or page + 1 >= pages:
-                break
-            page += 1
-            time.sleep(0.2)
+                all_orders.extend(contents)
+
+                if not contents or page + 1 >= pages:
+                    break
+                page += 1
+                time.sleep(0.2)
+
+            if day < days - 1:
+                time.sleep(0.3)
 
         logger.info("주문 직접 조회 완료: 총 %d건", len(all_orders))
         return all_orders
