@@ -290,117 +290,61 @@ class SmartstoreAPI:
             return resp.json()["images"][0]["url"]
         raise requests.HTTPError(f"이미지 업로드 Rate Limit — 3회 재시도 후 실패: {filename}")
 
-    def get_orders(self, status: str = "PAYED", days: int = 1) -> list:
-        """주문 목록 조회 (days: 최근 몇 일치)
-        last-changed-statuses API 최대 조회 범위: 24시간
-        days > 1 이면 24시간 단위로 분할 조회 후 합산
+    def get_orders(self, status: str = "PAYED", days: int = 3) -> list:
+        """주문 목록 직접 조회 — GET /v1/pay-order/seller/product-orders
+
+        last-changed-statuses 대신 결제일 기준 직접 조회.
+        페이지네이션(page/size)으로 전체 수집.
         """
         from datetime import datetime, timedelta, timezone
-        now = datetime.now(timezone.utc)
-        window = timedelta(hours=24)
+        now     = datetime.now(timezone.utc)
+        from_dt = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        to_dt   = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-        logger.info("주문 조회 기준 시각(UTC): %s | 조회 범위: 최근 %d일",
-                    now.strftime("%Y-%m-%d %H:%M:%S"), days)
+        logger.info("주문 직접 조회 시작 — status=%s from=%s to=%s",
+                    status, from_dt[:10], to_dt[:10])
 
-        product_order_ids = []
-        window_end = now
-        remaining = timedelta(days=days)
-
-        first = True
-        while remaining.total_seconds() > 0:
-            if not first:
-                time.sleep(0.3)
-            first = False
-            window_start = window_end - min(window, remaining)
-            from_str = window_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-            to_str   = window_end.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-            try:
-                resp = requests.get(
-                    f"{self.BASE_URL}/v1/pay-order/seller/product-orders/last-changed-statuses",
-                    headers=self._headers(),
-                    params={
-                        "lastChangedFrom":       from_str,
-                        "lastChangedTo":         to_str,
-                        "productOrderStatuses":  status,
-                        "limitCount":            100,
-                    },
-                    timeout=10,
-                )
-                if not resp.ok:
-                    try:
-                        err_body = resp.json()
-                    except Exception:
-                        err_body = resp.text
-                    logger.warning(
-                        "last-changed-statuses 실패 [HTTP %s] from=%s to=%s status=%s | 응답: %s",
-                        resp.status_code, from_str, to_str, status, err_body,
-                    )
-                    window_end = window_start
-                    remaining -= window
-                    continue
-                body    = resp.json()
-                changed = body.get("data", body.get("lastChangeStatuses", []))
-                logger.info("last-changed-statuses [%s~%s] %d건", from_str[:10], to_str[:10], len(changed))
-                for item in changed:
-                    if isinstance(item, dict):
-                        oid = item.get("productOrderId") or item.get("orderId", "")
-                    elif isinstance(item, str):
-                        oid = item
-                    else:
-                        continue
-                    if oid:
-                        product_order_ids.append(oid)
-            except Exception as e:
-                logger.warning("last-changed-statuses 예외 from=%s to=%s: %s", from_str, to_str, e)
-            window_end = window_start
-            remaining -= window
-
-        if not product_order_ids:
-            return []
-
-        # 중복 제거 (순서 유지)
-        product_order_ids = list(dict.fromkeys(product_order_ids))
-        logger.info("주문 개별 조회 대상 ID %d건", len(product_order_ids))
-
-        # GET /v1/pay-order/seller/product-orders/{productOrderId} 개별 조회
-        # POST query 대신 개별 GET 사용 — 권한 없는 ID(101009) 문제 회피
         all_orders: list = []
-        for oid in product_order_ids:
-            try:
-                resp = requests.get(
-                    f"{self.BASE_URL}/v1/pay-order/seller/product-orders/{oid}",
-                    headers=self._headers(),
-                    timeout=10,
-                )
-                logger.info("주문 GET [%s] HTTP %s", oid, resp.status_code)
-                if resp.ok:
-                    data = resp.json()
-                    logger.info("주문 GET 응답 최상위 키: %s | 내용(앞300자): %s",
-                                list(data.keys()) if isinstance(data, dict) else type(data).__name__,
-                                str(data)[:300])
-                    # 단건 응답: dict 또는 {"data": [...]} 형태 모두 대응
-                    if isinstance(data, list):
-                        all_orders.extend(data)
-                    elif isinstance(data, dict) and "data" in data:
-                        items = data["data"]
-                        if isinstance(items, list):
-                            all_orders.extend(items)
-                        else:
-                            all_orders.append(items)
-                    else:
-                        all_orders.append(data)
-                else:
-                    try:
-                        err_body = resp.json()
-                    except Exception:
-                        err_body = resp.text
-                    logger.warning("주문 GET 실패 [HTTP %s] ID=%s 응답: %s",
-                                   resp.status_code, oid, err_body)
-            except Exception as e:
-                logger.warning("주문 GET 예외 (%s): %s", oid, e)
-            time.sleep(0.05)  # API 레이트 리밋 방지
+        page = 0
+        size = 100
 
-        logger.info("주문 GET 수집 결과: %d건", len(all_orders))
+        while True:
+            resp = requests.get(
+                f"{self.BASE_URL}/v1/pay-order/seller/product-orders",
+                headers=self._headers(),
+                params={
+                    "productOrderStatuses": status,
+                    "paymentDateFrom":      from_dt,
+                    "paymentDateTo":        to_dt,
+                    "page":                 page,
+                    "size":                 size,
+                },
+                timeout=10,
+            )
+            if not resp.ok:
+                try:
+                    err_body = resp.json()
+                except Exception:
+                    err_body = resp.text
+                logger.error("product-orders 조회 실패 [HTTP %s] page=%d | 응답: %s",
+                             resp.status_code, page, err_body)
+                resp.raise_for_status()
+
+            body     = resp.json()
+            contents = body.get("contents", body.get("data", []))
+            total    = body.get("totalElements", "?")
+            pages    = body.get("totalPages", 1)
+            logger.info("product-orders page=%d/%s — %d건 (누적 전체 %s건)",
+                        page, pages, len(contents), total)
+
+            all_orders.extend(contents)
+
+            if not contents or page + 1 >= pages:
+                break
+            page += 1
+            time.sleep(0.2)
+
+        logger.info("주문 직접 조회 완료: 총 %d건", len(all_orders))
         return all_orders
 
     def dispatch_order(self, product_order_id: str, delivery_company_code: str, tracking_number: str) -> dict:
