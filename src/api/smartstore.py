@@ -352,8 +352,12 @@ class SmartstoreAPI:
                     headers=self._headers(),
                     timeout=10,
                 )
+                logger.info("주문 GET [%s] HTTP %s", oid, resp.status_code)
                 if resp.ok:
                     data = resp.json()
+                    logger.info("주문 GET 응답 최상위 키: %s | 내용(앞300자): %s",
+                                list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+                                str(data)[:300])
                     # 단건 응답: dict 또는 {"data": [...]} 형태 모두 대응
                     if isinstance(data, list):
                         all_orders.extend(data)
@@ -365,14 +369,18 @@ class SmartstoreAPI:
                             all_orders.append(items)
                     else:
                         all_orders.append(data)
-                elif resp.status_code in (400, 403, 404):
-                    logger.debug("주문 조회 스킵 [HTTP %s]: %s", resp.status_code, oid)
                 else:
-                    logger.warning("주문 조회 실패 [HTTP %s]: %s", resp.status_code, oid)
+                    try:
+                        err_body = resp.json()
+                    except Exception:
+                        err_body = resp.text
+                    logger.warning("주문 GET 실패 [HTTP %s] ID=%s 응답: %s",
+                                   resp.status_code, oid, err_body)
             except Exception as e:
-                logger.warning("주문 조회 예외 (%s): %s", oid, e)
+                logger.warning("주문 GET 예외 (%s): %s", oid, e)
             time.sleep(0.05)  # API 레이트 리밋 방지
 
+        logger.info("주문 GET 수집 결과: %d건", len(all_orders))
         return all_orders
 
     def dispatch_order(self, product_order_id: str, delivery_company_code: str, tracking_number: str) -> dict:
