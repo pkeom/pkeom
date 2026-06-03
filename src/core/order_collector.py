@@ -20,9 +20,13 @@ def _parse_order_item(raw) -> dict | None:
         logger.warning("파싱 불가 항목 스킵 (타입=%s): %s", type(raw).__name__, str(raw)[:200])
         return None
 
+    # 응답 구조 전체 로그 (필드명 확인용)
+    logger.info("주문 항목 원본 키: %s", list(raw.keys()))
     po   = raw.get("productOrder", raw)   # 중첩 또는 flat 모두 대응
     if not isinstance(po, dict):
         po = raw
+    logger.info("productOrder 키: %s | 앞300자: %s", list(po.keys()), str(po)[:300])
+
     ord_ = raw.get("order", {})
     addr = raw.get("shippingAddress", {})
 
@@ -36,11 +40,25 @@ def _parse_order_item(raw) -> dict | None:
         logger.warning("order_id를 찾을 수 없는 응답 항목 건너뜀: %s", list(raw.keys()))
         return None
 
+    # product_id: 후보 필드 순서대로 시도
+    product_id = str(
+        po.get("productId")
+        or po.get("channelProductNo")
+        or po.get("goodsNo")
+        or po.get("itemNo")
+        or raw.get("productId")
+        or raw.get("channelProductNo")
+        or ""
+    )
+    logger.info("order_id=%s product_id=%s (productId=%s channelProductNo=%s)",
+                order_id, product_id,
+                po.get("productId"), po.get("channelProductNo"))
+
     now = datetime.now().isoformat(timespec="seconds")
     return {
         "order_id":         str(order_id),
         "ss_order_id":      str(po.get("orderId") or ord_.get("orderId") or order_id),
-        "product_id":       str(po.get("productId", "")),
+        "product_id":       product_id,
         "product_name":     po.get("productName", ""),
         "option_code":      str(po.get("optionCode") or po.get("optionId") or ""),
         "quantity":         int(po.get("quantity", 1)),
