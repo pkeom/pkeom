@@ -299,6 +299,9 @@ class SmartstoreAPI:
         now = datetime.now(timezone.utc)
         window = timedelta(hours=24)
 
+        logger.info("주문 조회 기준 시각(UTC): %s | 조회 범위: 최근 %d일",
+                    now.strftime("%Y-%m-%d %H:%M:%S"), days)
+
         product_order_ids = []
         window_end = now
         remaining = timedelta(days=days)
