@@ -314,8 +314,8 @@ class SmartstoreAPI:
                 headers=self._headers(),
                 params={
                     "productOrderStatuses": status,
-                    "paymentDateFrom":      from_dt,
-                    "paymentDateTo":        to_dt,
+                    "from":                 from_dt,
+                    "to":                   to_dt,
                     "page":                 page,
                     "size":                 size,
                 },
