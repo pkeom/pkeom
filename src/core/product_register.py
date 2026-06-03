@@ -1579,6 +1579,25 @@ def register_product(url: str, selling_price: int, smartstore_api,
             result.get("id") or
             result.get("productNo") or ""
         )
+
+        # 등록 직후 GET으로 실제 저장된 상품 ID 재확인
+        if ss_prod_id:
+            try:
+                confirmed = smartstore_api.get_product(ss_prod_id)
+                confirmed_id = str(
+                    confirmed.get("originProduct", {}).get("originProductNo") or
+                    confirmed.get("originProductNo") or
+                    ss_prod_id
+                )
+                if confirmed_id != ss_prod_id:
+                    logger.info("상품 ID 재확인: POST=%s → GET=%s", ss_prod_id, confirmed_id)
+                ss_prod_id = confirmed_id
+            except Exception as e:
+                logger.warning("상품 ID GET 재확인 실패, POST 응답 ID 사용 (%s): %s", ss_prod_id, e)
+        else:
+            logger.error("등록 응답에서 상품 ID를 추출하지 못했습니다: %s", result)
+            return {"success": False, "error": "등록 응답에 상품 ID 없음", "detail": result,
+                    "info": info, "selling_price": selling_price}
     except Exception as e:
         logger.error("스마트스토어 상품 등록 실패: %s", e)
         return {"success": False, "error": str(e), "info": info, "selling_price": selling_price}
