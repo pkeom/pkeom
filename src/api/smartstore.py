@@ -309,29 +309,46 @@ class SmartstoreAPI:
                 time.sleep(0.3)
             first = False
             window_start = window_end - min(window, remaining)
-            resp = requests.get(
-                f"{self.BASE_URL}/v1/pay-order/seller/product-orders/last-changed-statuses",
-                headers=self._headers(),
-                params={
-                    "lastChangedFrom": window_start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                    "lastChangedTo":   window_end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                    "productOrderStatuses": status,
-                    "limitCount": 100,
-                },
-                timeout=10,
-            )
-            resp.raise_for_status()
-            body    = resp.json()
-            changed = body.get("data", body.get("lastChangeStatuses", []))
-            for item in changed:
-                if isinstance(item, dict):
-                    oid = item.get("productOrderId") or item.get("orderId", "")
-                elif isinstance(item, str):
-                    oid = item
-                else:
+            from_str = window_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            to_str   = window_end.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            try:
+                resp = requests.get(
+                    f"{self.BASE_URL}/v1/pay-order/seller/product-orders/last-changed-statuses",
+                    headers=self._headers(),
+                    params={
+                        "lastChangedFrom":       from_str,
+                        "lastChangedTo":         to_str,
+                        "productOrderStatuses":  status,
+                        "limitCount":            100,
+                    },
+                    timeout=10,
+                )
+                if not resp.ok:
+                    try:
+                        err_body = resp.json()
+                    except Exception:
+                        err_body = resp.text
+                    logger.warning(
+                        "last-changed-statuses 실패 [HTTP %s] from=%s to=%s status=%s | 응답: %s",
+                        resp.status_code, from_str, to_str, status, err_body,
+                    )
+                    window_end = window_start
+                    remaining -= window
                     continue
-                if oid:
-                    product_order_ids.append(oid)
+                body    = resp.json()
+                changed = body.get("data", body.get("lastChangeStatuses", []))
+                logger.info("last-changed-statuses [%s~%s] %d건", from_str[:10], to_str[:10], len(changed))
+                for item in changed:
+                    if isinstance(item, dict):
+                        oid = item.get("productOrderId") or item.get("orderId", "")
+                    elif isinstance(item, str):
+                        oid = item
+                    else:
+                        continue
+                    if oid:
+                        product_order_ids.append(oid)
+            except Exception as e:
+                logger.warning("last-changed-statuses 예외 from=%s to=%s: %s", from_str, to_str, e)
             window_end = window_start
             remaining -= window
 
