@@ -6,15 +6,32 @@
 """
 import json
 import logging
+import os
 import sys
 import threading
 import uuid
 from datetime import datetime, date
 from pathlib import Path
 
+import requests as _req
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 sys.path.insert(0, str(Path(__file__).parent))
+
+# ── .env 로드 (python-dotenv 없이 직접 파싱) ─────────────────────────
+def _load_dotenv(path: Path) -> None:
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
+    except FileNotFoundError:
+        pass
+
+_load_dotenv(Path(__file__).parent / ".env")
+_TABLET_API = os.getenv("TABLET_API_URL", "").rstrip("/")
 
 from src.utils.config_loader import load_config
 from src.core.order_repository import OrderRepository
@@ -30,6 +47,25 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+# ── 태블릿 API 프록시 ─────────────────────────────────────────────────
+# TABLET_API_URL이 .env에 설정된 경우: GET /api/* 요청을 태블릿으로 전달
+# 설정 없으면: 로컬 orders.json / 각 엔드포인트 직접 처리
+@app.before_request
+def _tablet_proxy():
+    if not _TABLET_API:
+        return None
+    if not request.path.startswith("/api/"):
+        return None
+    if request.method != "GET":
+        return None
+    url = f"{_TABLET_API}{request.path}"
+    try:
+        r = _req.get(url, params=request.args, timeout=10)
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        logger.warning("태블릿 API 프록시 실패 (%s): %s", url, e)
+        return jsonify({"error": f"태블릿 연결 실패: {e}"}), 502
 
 # ── 전역 인스턴스 (절대경로 — CWD에 무관하게 같은 파일 참조) ─────────
 _BASE_DIR      = Path(__file__).parent
@@ -535,6 +571,11 @@ if __name__ == "__main__":
     _orders_path = (_BASE_DIR / "data" / "orders.json").resolve()
     logger.info("[경로확인] orders.json 읽기 경로: %s (존재: %s)", _orders_path, _orders_path.exists())
     print(f"[경로확인] orders.json 읽기 경로: {_orders_path}", flush=True)
+    if _TABLET_API:
+        print(f"[태블릿 연동] GET /api/* → {_TABLET_API}", flush=True)
+        logger.info("[태블릿 연동] GET /api/* → %s", _TABLET_API)
+    else:
+        print("[로컬 모드] TABLET_API_URL 미설정 — 로컬 데이터 사용", flush=True)
     print("대시보드 시작: http://localhost:2713  (종료: Ctrl+C)", flush=True)
     try:
         run_dashboard()
