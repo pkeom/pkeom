@@ -340,8 +340,7 @@ class SmartstoreAPI:
 
         # 중복 제거 (순서 유지)
         product_order_ids = list(dict.fromkeys(product_order_ids))
-        logger.info("product-orders/query 조회 대상 ID %d건: %s",
-                    len(product_order_ids), product_order_ids)
+        logger.info("product-orders/query 조회 대상 ID %d건", len(product_order_ids))
 
         # 20건씩 배치 처리 (API 제한)
         BATCH = 20
@@ -354,17 +353,39 @@ class SmartstoreAPI:
                 json={"productOrderIds": batch},
                 timeout=10,
             )
-            if not resp.ok:
-                try:
-                    err_body = resp.json()
-                except Exception:
-                    err_body = resp.text
-                logger.error(
-                    "product-orders/query 실패 [HTTP %s] — 요청 IDs: %s / 응답: %s",
-                    resp.status_code, batch, err_body,
+            if resp.ok:
+                all_orders.extend(resp.json().get("data", []))
+                continue
+
+            # 오류 응답 파싱
+            try:
+                err_body = resp.json()
+            except Exception:
+                err_body = {"raw": resp.text}
+            err_code = err_body.get("code") if isinstance(err_body, dict) else None
+
+            # 권한 없는 ID 포함(101009): 1건씩 재시도하여 유효한 ID만 수집
+            if resp.status_code == 400 and err_code == 101009:
+                logger.warning(
+                    "권한 없는 주문 ID 포함 (code 101009) — %d건 개별 재시도", len(batch)
                 )
-            resp.raise_for_status()
-            all_orders.extend(resp.json().get("data", []))
+                for oid in batch:
+                    r = requests.post(
+                        f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
+                        headers=self._headers(),
+                        json={"productOrderIds": [oid]},
+                        timeout=10,
+                    )
+                    if r.ok:
+                        all_orders.extend(r.json().get("data", []))
+                    else:
+                        logger.debug("권한 없는 주문 ID 스킵: %s", oid)
+            else:
+                logger.error(
+                    "product-orders/query 실패 [HTTP %s] — 응답: %s",
+                    resp.status_code, err_body,
+                )
+                resp.raise_for_status()
 
         return all_orders
 
