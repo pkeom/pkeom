@@ -61,7 +61,7 @@ class OrderCollector:
         """신규 주문 수집. 반환값: 추가된 건수."""
         logger.info("주문 수집 시작")
         try:
-            raw_orders = self.api.get_orders(status="PAYED", days=1)
+            raw_orders = self.api.get_orders(status="PAYED", days=7)
             if not raw_orders:
                 logger.info("신규 주문 없음")
                 return 0

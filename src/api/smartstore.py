@@ -321,7 +321,8 @@ class SmartstoreAPI:
                 timeout=10,
             )
             resp.raise_for_status()
-            changed = resp.json().get("lastChangeStatuses", [])
+            body    = resp.json()
+            changed = body.get("data", body.get("lastChangeStatuses", []))
             product_order_ids.extend(item["productOrderId"] for item in changed)
             window_end = window_start
             remaining -= window
