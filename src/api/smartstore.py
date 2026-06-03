@@ -323,7 +323,15 @@ class SmartstoreAPI:
             resp.raise_for_status()
             body    = resp.json()
             changed = body.get("data", body.get("lastChangeStatuses", []))
-            product_order_ids.extend(item["productOrderId"] for item in changed)
+            for item in changed:
+                if isinstance(item, dict):
+                    oid = item.get("productOrderId") or item.get("orderId", "")
+                elif isinstance(item, str):
+                    oid = item
+                else:
+                    continue
+                if oid:
+                    product_order_ids.append(oid)
             window_end = window_start
             remaining -= window
 
