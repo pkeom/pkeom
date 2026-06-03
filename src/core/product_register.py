@@ -1389,7 +1389,6 @@ def register_product(url: str, selling_price: int, smartstore_api,
 
     if not info.get("title"):
         return {"success": False, "error": "상품명을 가져오지 못했습니다.", "info": info}
-    info["title"] = "가나다라마"
     if not info.get("supply_price"):
         return {"success": False, "error": "공급가를 가져오지 못했습니다.", "info": info}
 

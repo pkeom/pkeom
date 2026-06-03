@@ -99,7 +99,10 @@ class MappingRepository:
         """매핑 추가 후 저장. 생성된 항목 반환."""
         supplier_product_id = extract_supplier_id(supplier_url_or_id)
         if supplier_product_id.isdigit():
-            supplier_url = f"https://domeggook.com/{supplier_product_id}"
+            if supplier == "domaemae":
+                supplier_url = f"https://domeme.domeggook.com/s/{supplier_product_id}"
+            else:
+                supplier_url = f"https://domeggook.com/{supplier_product_id}"
         else:
             supplier_url = supplier_url_or_id.strip()
 
