@@ -463,6 +463,8 @@ def api_register_submit():
             mapping_repo    = _mapping_repo,
             category_id     = category_id,
         )
+        if result.get("success"):
+            _git_push_mappings()
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e), "success": False}), 500
