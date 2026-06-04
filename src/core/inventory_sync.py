@@ -20,6 +20,7 @@ import logging
 import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+import requests
 from src.api.smartstore import SmartstoreAPI
 from src.api.domaekkuk import DomaekkukAPI
 from src.api.domaemae import DomaemaeClient
@@ -112,6 +113,13 @@ class InventorySync:
             stock        = int(product.get("stock", 0))
             product_name = product.get("title", "") or mapping.get("memo", "") or ss_product_id
             in_stock     = stock > 0
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                logger.warning("재고 조회 404 — 건너뜀: %s/%s", supplier, supplier_pid)
+                return "unchanged"
+            logger.error("재고 조회 오류: %s/%s — %s", supplier, supplier_pid, e)
+            self._notify_error(ss_product_id, supplier, supplier_pid, "재고 조회 오류", str(e))
+            return "error"
         except Exception as e:
             logger.error("재고 조회 오류: %s/%s — %s", supplier, supplier_pid, e)
             self._notify_error(ss_product_id, supplier, supplier_pid, "재고 조회 오류", str(e))

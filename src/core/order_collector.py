@@ -109,15 +109,14 @@ class OrderCollector:
                         idx, str(raw)[:300], traceback.format_exc(),
                     )
 
-            # ERROR 상태 주문 재시도: API에서 다시 받아온 주문이 ERROR면 NEW로 복구
-            parsed_ids = {o["order_id"] for o in parsed}
+            # ERROR 상태 주문 재시도: 매 회차마다 무조건 NEW로 전환
+            # (API 반환 여부 무관 — 이전 로직은 parsed_ids 조건으로 오래된 ERROR 주문이 영구 고착됨)
             error_orders = self._repo.find_by_status("ERROR")
             retried = 0
             for err_order in error_orders:
-                if err_order["order_id"] in parsed_ids:
-                    self._repo.update_status(err_order["order_id"], "NEW")
-                    retried += 1
-                    logger.info("ERROR → NEW 재시도: order_id=%s", err_order["order_id"])
+                self._repo.update_status(err_order["order_id"], "NEW")
+                retried += 1
+                logger.info("ERROR → NEW 재시도: order_id=%s", err_order["order_id"])
 
             added = self._repo.add_many(parsed)
             logger.info(
