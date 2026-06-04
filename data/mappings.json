@@ -1,3 +1,18 @@
 {
-  "mappings": []
+  "mappings": [
+    {
+      "id": 1,
+      "ss_product_id": "13622916122",
+      "ss_option_id": "",
+      "origin_product_no": "13563352974",
+      "supplier": "domaemae",
+      "supplier_product_id": "https://domeme.domeggook.com/s/63641452",
+      "supplier_url": "https://domeme.domeggook.com/s/63641452",
+      "supplier_option_id": "",
+      "price_margin_rate": 0.552239,
+      "is_active": true,
+      "memo": "자동등록 차량용 주차번호판 흡착식 슬라이딩 번호 숨기기 알림판",
+      "created_at": "2026-06-04T23:14:28"
+    }
+  ]
 }
