@@ -391,7 +391,7 @@ class SmartstoreAPI:
     def set_product_sale_status(self, product_id: str, on_sale: bool):
         """상품 판매 상태 변경 (품절 시 판매중지)"""
         resp = requests.put(
-            f"{self.BASE_URL}/v2/products/{product_id}",
+            f"{self.BASE_URL}/v2/products/origin-products/{product_id}",
             headers=self._headers(),
             json={"saleStatus": "ON_SALE" if on_sale else "SUSPENSION"},
             timeout=10,
@@ -400,9 +400,9 @@ class SmartstoreAPI:
         return resp.json()
 
     def get_product(self, product_id: str) -> dict:
-        """상품 정보 조회"""
+        """상품 정보 조회 — GET /v2/products/origin-products/{originProductNo}"""
         resp = requests.get(
-            f"{self.BASE_URL}/v2/products/{product_id}",
+            f"{self.BASE_URL}/v2/products/origin-products/{product_id}",
             headers=self._headers(),
             timeout=10,
         )
