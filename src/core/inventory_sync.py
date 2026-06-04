@@ -102,7 +102,13 @@ class InventorySync:
         supplier      = mapping["supplier"]
         supplier_pid  = mapping["supplier_product_id"]
         ss_product_id  = mapping["ss_product_id"]
-        api_product_id = mapping.get("origin_product_no") or ss_product_id
+        api_product_id = mapping.get("origin_product_no") or ""
+        if not api_product_id:
+            logger.warning(
+                "origin_product_no 없음 — SS 판매상태 변경 건너뜀 (ss_product=%s). "
+                "mappings.json에 origin_product_no(originProductNo)를 등록하세요.",
+                ss_product_id,
+            )
         supplier_url  = mapping.get("supplier_url", "")
         cache_key     = f"{supplier}:{supplier_pid}"
 

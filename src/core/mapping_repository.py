@@ -114,7 +114,7 @@ class MappingRepository:
                 "id": new_id,
                 "ss_product_id": ss_product_id,
                 "ss_option_id": ss_option_id,
-                "origin_product_no": origin_product_no or ss_product_id,
+                "origin_product_no": origin_product_no,
                 "supplier": supplier,
                 "supplier_product_id": supplier_product_id,
                 "supplier_url": supplier_url,
