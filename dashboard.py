@@ -59,6 +59,9 @@ def _tablet_proxy():
         return None
     if request.method != "GET":
         return None
+    # 매핑은 git으로 동기화 — 로컬 파일 직접 읽기
+    if request.path.startswith("/api/mappings"):
+        return None
     url = f"{_TABLET_API}{request.path}"
     try:
         r = _req.get(url, params=request.args, timeout=10)
