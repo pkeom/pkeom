@@ -37,12 +37,25 @@ def _parse_order_item(raw) -> dict | None:
         logger.warning("productOrderId 없음 — 건너뜀. keys=%s", list(raw.keys()))
         return None
 
-    # productId 우선, 없으면 channelProductNo (None/빈 문자열 모두 스킵)
-    _pid  = po.get("productId")
-    _cpno = po.get("channelProductNo")
-    product_id = str(_pid if _pid not in (None, "", 0) else (_cpno if _cpno not in (None, "", 0) else ""))
-    logger.info("product_id 추출: productId=%r channelProductNo=%r → product_id=%r",
-                _pid, _cpno, product_id)
+    # channelProductNo 우선 (mappings.json의 ss_product_id와 동일 체계)
+    # → productId → originProductNo 순으로 fallback
+    # nested(productOrder) 와 flat(raw 최상위) 양쪽을 모두 시도
+    def _first_valid(*vals):
+        for v in vals:
+            if v not in (None, "", 0):
+                return v
+        return None
+
+    _cpno   = _first_valid(po.get("channelProductNo"), raw.get("channelProductNo"))
+    _pid    = _first_valid(po.get("productId"),        raw.get("productId"))
+    _origno = _first_valid(po.get("originProductNo"),  raw.get("originProductNo"))
+    product_id = str(_cpno if _cpno is not None else
+                     _pid  if _pid  is not None else
+                     _origno if _origno is not None else "")
+    logger.info(
+        "product_id 추출: channelProductNo=%r productId=%r originProductNo=%r → product_id=%r",
+        _cpno, _pid, _origno, product_id,
+    )
 
     address = " ".join(filter(None, [
         dlv.get("baseAddress", ""),

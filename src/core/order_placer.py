@@ -419,8 +419,23 @@ class OrderPlacer:
 
         # 1. 매핑 조회 (budget 경로에서는 이미 조회된 mapping 재사용)
         if mapping is None:
-            pid       = order["product_id"]
+            pid       = order.get("product_id", "")
             opt_code  = order.get("option_code", "")
+            if not pid:
+                logger.error(
+                    "product_id 없음 — order_id=%s orders.json 저장 당시 "
+                    "channelProductNo/productId 모두 빈 값. 주문 재수집 필요.",
+                    order_id,
+                )
+                self._handle_error(
+                    order=order, mapping=None,
+                    reason="product_id 없음",
+                    detail=(
+                        f"order_id '{order_id}' 의 product_id 가 비어 있습니다.\n"
+                        "주문 재수집 후 channelProductNo/productId 가 올바르게 저장되는지 확인하세요."
+                    ),
+                )
+                return "error"
             all_maps  = self._mappings.all()
             map_ids   = [m["ss_product_id"] for m in all_maps]
             logger.info(
