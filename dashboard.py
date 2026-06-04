@@ -67,6 +67,18 @@ def _tablet_proxy():
         logger.warning("태블릿 API 프록시 실패 (%s): %s", url, e)
         return jsonify({"error": f"태블릿 연결 실패: {e}"}), 502
 
+
+def _sync_to_tablet(method: str, path: str, json_body=None) -> None:
+    """매핑 변경을 태블릿에 동기화. 실패해도 로컬 변경은 유지."""
+    if not _TABLET_API:
+        return
+    url = f"{_TABLET_API}{path}"
+    try:
+        resp = getattr(_req, method.lower())(url, json=json_body, timeout=10)
+        logger.info("태블릿 매핑 동기화 완료: %s %s → HTTP %d", method, url, resp.status_code)
+    except Exception as e:
+        logger.warning("태블릿 매핑 동기화 실패 (%s %s): %s", method, url, e)
+
 # ── 전역 인스턴스 (절대경로 — CWD에 무관하게 같은 파일 참조) ─────────
 _BASE_DIR      = Path(__file__).parent
 _order_repo    = OrderRepository(_BASE_DIR / "data" / "orders.json")
@@ -242,6 +254,7 @@ def api_add_mapping():
             price_margin_rate  = float(d.get("price_margin_rate", 1.3)),
             memo               = d.get("memo", ""),
         )
+        _sync_to_tablet("POST", "/api/mappings", d)
         return jsonify(entry), 201
     except KeyError as e:
         return jsonify({"error": f"필수 항목 누락: {e}"}), 400
@@ -251,18 +264,24 @@ def api_add_mapping():
 
 @app.route("/api/mappings/<int:mid>", methods=["DELETE"])
 def api_delete_mapping(mid):
-    return jsonify({"ok": _mapping_repo.remove(mid)})
+    ok = _mapping_repo.remove(mid)
+    _sync_to_tablet("DELETE", f"/api/mappings/{mid}")
+    return jsonify({"ok": ok})
 
 
 @app.route("/api/mappings/<int:mid>/toggle", methods=["PATCH"])
 def api_toggle_mapping(mid):
-    _mapping_repo.set_active(mid, bool((request.json or {}).get("is_active", True)))
+    d = request.json or {}
+    _mapping_repo.set_active(mid, bool(d.get("is_active", True)))
+    _sync_to_tablet("PATCH", f"/api/mappings/{mid}/toggle", d)
     return jsonify({"ok": True})
 
 
 @app.route("/api/mappings/<int:mid>/memo", methods=["PATCH"])
 def api_mapping_memo(mid):
-    _mapping_repo.update_memo(mid, (request.json or {}).get("memo", ""))
+    d = request.json or {}
+    _mapping_repo.update_memo(mid, d.get("memo", ""))
+    _sync_to_tablet("PATCH", f"/api/mappings/{mid}/memo", d)
     return jsonify({"ok": True})
 
 
