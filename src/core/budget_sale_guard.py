@@ -51,10 +51,11 @@ def suspend_all(ss_api, mapping_repo, notifier=None) -> int:
         return 0
 
     mappings = mapping_repo.all()
-    # ss_product_id = channelProductNo → /v2/channels/products/{channelProductNo}
+    # originProductNo 기준으로 중복 제거 — PUT /v2/products/{originProductNo}
     api_ids = list({
-        m["ss_product_id"]
-        for m in mappings if m.get("is_active", True) and m.get("ss_product_id")
+        m["origin_product_no"]
+        for m in mappings
+        if m.get("is_active", True) and m.get("origin_product_no")
     })
     if not api_ids:
         logger.info("판매중지 대상 상품 없음")
@@ -95,12 +96,12 @@ def restore_all(ss_api, mapping_repo, notifier=None) -> int:
 
     suspended_ids: list[str] = state.get("suspended_ids", [])
     if not suspended_ids:
-        # 혹시 목록이 없으면 현재 활성 매핑으로 재구성 (ss_product_id = channelProductNo)
+        # 혹시 목록이 없으면 현재 활성 매핑으로 재구성 (originProductNo 기준)
         mappings = mapping_repo.all()
         suspended_ids = list({
-            m["ss_product_id"]
+            m["origin_product_no"]
             for m in mappings
-            if m.get("is_active", True) and m.get("ss_product_id")
+            if m.get("is_active", True) and m.get("origin_product_no")
         })
 
     success_ids: list[str] = []

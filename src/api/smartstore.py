@@ -388,10 +388,10 @@ class SmartstoreAPI:
         resp.raise_for_status()
         return resp.json()
 
-    def set_product_sale_status(self, channel_product_no: str, on_sale: bool):
-        """채널상품 판매 상태 변경 — PUT /v2/channels/products/{channelProductNo}"""
+    def set_product_sale_status(self, origin_product_no: str, on_sale: bool):
+        """상품 판매 상태 변경 — PUT /v2/products/{originProductNo}"""
         resp = requests.put(
-            f"{self.BASE_URL}/v2/channels/products/{channel_product_no}",
+            f"{self.BASE_URL}/v2/products/{origin_product_no}",
             headers=self._headers(),
             json={"saleStatus": "ON_SALE" if on_sale else "SUSPENSION"},
             timeout=10,
