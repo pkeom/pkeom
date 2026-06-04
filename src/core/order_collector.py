@@ -68,7 +68,7 @@ def _parse_order_item(raw) -> dict | None:
         "ss_order_id":      str(order.get("orderId") or order_id),
         "product_id":       product_id,
         "product_name":     po.get("productName", ""),
-        "option_code":      str(po.get("optionCode") or po.get("optionId") or ""),
+        "option_code":      str(po.get("optionCode") or raw.get("optionCode") or ""),
         "quantity":         int(po.get("quantity", 1)),
         "buyer_name":       buyer.get("buyerName", ""),
         "receiver_name":    dlv.get("receiverName", ""),
