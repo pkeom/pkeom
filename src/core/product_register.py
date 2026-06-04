@@ -1376,6 +1376,87 @@ def build_smartstore_payload(info: dict, selling_price: int,
     return payload
 
 
+# ── 옵션 매핑 저장 헬퍼 ───────────────────────────────────────────
+
+def _save_option_mappings(
+    confirmed: dict,
+    ss_prod_id: str,
+    origin_prod_id: str,
+    info: dict,
+    url: str,
+    price_margin_rate: float,
+    mapping_repo,
+) -> int:
+    """등록된 상품의 옵션별 매핑 저장.
+
+    GET /v2/products 응답의 smartstoreChannelProduct.channelProductOptions 에서
+    channelProductOptionId(주문의 optionCode와 동일)를 추출해 ss_option_id로 저장.
+
+    반환값: 저장된 옵션 매핑 수 (0 = 옵션 없음 or channelProductOptions 미포함)
+    """
+    opt_info = (
+        confirmed.get("originProduct", {})
+                 .get("detailAttribute", {})
+                 .get("optionInfo", {})
+    )
+    combinations = opt_info.get("optionCombinations", [])
+    if not combinations:
+        return 0
+
+    ch_options = (
+        confirmed.get("smartstoreChannelProduct", {})
+                 .get("channelProductOptions", [])
+    )
+    if not ch_options:
+        logger.warning(
+            "channelProductOptions 없음 — 옵션 ss_option_id 저장 불가 (ss_product_id=%s)",
+            ss_prod_id,
+        )
+        return 0
+
+    # optionCombinationId → channelProductOptionId
+    combo_to_ch: dict[int, str] = {
+        opt["optionCombinationId"]: str(opt.get("id") or opt.get("channelProductOptionId") or "")
+        for opt in ch_options
+        if opt.get("optionCombinationId") and (opt.get("id") or opt.get("channelProductOptionId"))
+    }
+
+    title_short = info.get("title", "")[:30]
+    saved = 0
+    for combo in combinations:
+        if not combo.get("usable", True):
+            continue
+        combo_id   = combo.get("id")
+        ch_opt_id  = combo_to_ch.get(combo_id, "")
+        if not ch_opt_id:
+            logger.warning("optionCombinationId=%s에 매칭되는 channelProductOptionId 없음", combo_id)
+            continue
+
+        name_parts = [
+            str(combo.get(f"optionName{i}", "")).strip()
+            for i in range(1, 5)
+            if combo.get(f"optionName{i}", "").strip()
+        ]
+        option_label = "/".join(name_parts) or ch_opt_id
+
+        try:
+            mapping_repo.add(
+                ss_product_id      = ss_prod_id,
+                origin_product_no  = origin_prod_id,
+                supplier           = info["supplier"],
+                supplier_url_or_id = url,
+                ss_option_id       = ch_opt_id,
+                price_margin_rate  = price_margin_rate,
+                memo               = f"자동등록 {title_short} [{option_label}]",
+            )
+            saved += 1
+        except Exception as e:
+            logger.warning("옵션 매핑 저장 실패 (ch_opt_id=%s): %s", ch_opt_id, e)
+
+    logger.info("옵션 매핑 저장 완료: ss_product_id=%s — %d건", ss_prod_id, saved)
+    return saved
+
+
 # ── 메인 등록 함수 ─────────────────────────────────────────────────
 
 def register_product(url: str, selling_price: int, smartstore_api,
@@ -1584,7 +1665,8 @@ def register_product(url: str, selling_price: int, smartstore_api,
             return {"success": False, "error": "등록 응답에 상품 ID 없음", "detail": result,
                     "info": info, "selling_price": selling_price}
 
-        # 등록 직후 GET으로 두 ID 모두 재확인 (originProductNo 기준으로 조회)
+        # 등록 직후 GET으로 두 ID + 옵션 목록 재확인 (originProductNo 기준으로 조회)
+        confirmed = {}
         try:
             confirmed = smartstore_api.get_product(origin_prod_id)
             confirmed_origin = str(
@@ -1610,14 +1692,21 @@ def register_product(url: str, selling_price: int, smartstore_api,
     try:
         cost              = (info["supply_price"] or 0) + 3000
         price_margin_rate = round(selling_price / cost, 6) if cost else 1.0
-        mapping_repo.add(
-            ss_product_id      = ss_prod_id,
-            origin_product_no  = origin_prod_id,
-            supplier           = info["supplier"],
-            supplier_url_or_id = url,
-            price_margin_rate  = price_margin_rate,
-            memo               = f"자동등록 {info['title'][:40]}",
+        # 옵션 있는 상품: channelProductOptionId별로 각각 저장
+        # 옵션 없는 상품 or channelProductOptions 미포함: 단일 매핑(ss_option_id='') 저장
+        saved = _save_option_mappings(
+            confirmed, ss_prod_id, origin_prod_id,
+            info, url, price_margin_rate, mapping_repo,
         )
+        if saved == 0:
+            mapping_repo.add(
+                ss_product_id      = ss_prod_id,
+                origin_product_no  = origin_prod_id,
+                supplier           = info["supplier"],
+                supplier_url_or_id = url,
+                price_margin_rate  = price_margin_rate,
+                memo               = f"자동등록 {info['title'][:40]}",
+            )
     except Exception as e:
         logger.warning("매핑 저장 실패 (등록은 성공): %s", e)
 
