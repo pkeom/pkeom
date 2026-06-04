@@ -68,16 +68,36 @@ def _tablet_proxy():
         return jsonify({"error": f"태블릿 연결 실패: {e}"}), 502
 
 
-def _sync_to_tablet(method: str, path: str, json_body=None) -> None:
-    """매핑 변경을 태블릿에 동기화. 실패해도 로컬 변경은 유지."""
-    if not _TABLET_API:
-        return
-    url = f"{_TABLET_API}{path}"
+def _git_push_mappings() -> None:
+    """mappings.json 변경을 백그라운드 스레드에서 git add/commit/push."""
+    threading.Thread(target=_do_git_push, daemon=True).start()
+
+
+def _do_git_push() -> None:
+    import subprocess
+    from datetime import datetime as _dt
+    repo = str(_BASE_DIR)
     try:
-        resp = getattr(_req, method.lower())(url, json=json_body, timeout=10)
-        logger.info("태블릿 매핑 동기화 완료: %s %s → HTTP %d", method, url, resp.status_code)
+        subprocess.run(["git", "add", "data/mappings.json"],
+                       cwd=repo, check=True, capture_output=True, timeout=30)
+        # 스테이징 변경 없으면 커밋·푸시 스킵
+        diff = subprocess.run(["git", "diff", "--staged", "--quiet"],
+                              cwd=repo, capture_output=True, timeout=10)
+        if diff.returncode == 0:
+            logger.info("mappings.json: 변경 없음, 푸시 스킵")
+            return
+        msg = f"chore: 매핑 업데이트 {_dt.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        subprocess.run(["git", "commit", "-m", msg],
+                       cwd=repo, check=True, capture_output=True, timeout=30)
+        subprocess.run(["git", "push"],
+                       cwd=repo, check=True, capture_output=True, timeout=60)
+        logger.info("mappings.json GitHub 푸시 완료")
+    except subprocess.CalledProcessError as e:
+        stderr = (e.stderr or b"").decode("utf-8", errors="replace")
+        stdout = (e.stdout or b"").decode("utf-8", errors="replace")
+        logger.warning("mappings.json 푸시 실패: %s%s", stderr, stdout)
     except Exception as e:
-        logger.warning("태블릿 매핑 동기화 실패 (%s %s): %s", method, url, e)
+        logger.warning("mappings.json 푸시 오류: %s", e)
 
 # ── 전역 인스턴스 (절대경로 — CWD에 무관하게 같은 파일 참조) ─────────
 _BASE_DIR      = Path(__file__).parent
@@ -254,7 +274,7 @@ def api_add_mapping():
             price_margin_rate  = float(d.get("price_margin_rate", 1.3)),
             memo               = d.get("memo", ""),
         )
-        _sync_to_tablet("POST", "/api/mappings", d)
+        _git_push_mappings()
         return jsonify(entry), 201
     except KeyError as e:
         return jsonify({"error": f"필수 항목 누락: {e}"}), 400
@@ -265,7 +285,7 @@ def api_add_mapping():
 @app.route("/api/mappings/<int:mid>", methods=["DELETE"])
 def api_delete_mapping(mid):
     ok = _mapping_repo.remove(mid)
-    _sync_to_tablet("DELETE", f"/api/mappings/{mid}")
+    _git_push_mappings()
     return jsonify({"ok": ok})
 
 
@@ -273,7 +293,7 @@ def api_delete_mapping(mid):
 def api_toggle_mapping(mid):
     d = request.json or {}
     _mapping_repo.set_active(mid, bool(d.get("is_active", True)))
-    _sync_to_tablet("PATCH", f"/api/mappings/{mid}/toggle", d)
+    _git_push_mappings()
     return jsonify({"ok": True})
 
 
@@ -281,7 +301,7 @@ def api_toggle_mapping(mid):
 def api_mapping_memo(mid):
     d = request.json or {}
     _mapping_repo.update_memo(mid, d.get("memo", ""))
-    _sync_to_tablet("PATCH", f"/api/mappings/{mid}/memo", d)
+    _git_push_mappings()
     return jsonify({"ok": True})
 
 

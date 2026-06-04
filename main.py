@@ -98,7 +98,28 @@ _SCHEDULE_LABELS = {
     "price_monitor":  ("가격 모니터링", "price_monitor_interval"),
     "return_monitor": ("반품 감지",     "return_monitor_interval"),
     "cancel_monitor": ("취소 처리",     "cancel_monitor_interval"),
+    "git_pull":       ("매핑 동기화",   None),
 }
+
+
+def _git_pull():
+    """GitHub에서 최신 mappings.json을 가져온다 (태블릿 전용)."""
+    import subprocess
+    try:
+        subprocess.run(
+            ["git", "fetch", "origin"],
+            cwd=str(_ROOT), check=True, capture_output=True, timeout=60,
+        )
+        subprocess.run(
+            ["git", "checkout", "origin/master", "--", "data/mappings.json"],
+            cwd=str(_ROOT), check=True, capture_output=True, timeout=30,
+        )
+        logger.info("mappings.json GitHub에서 업데이트 완료")
+    except subprocess.CalledProcessError as e:
+        stderr = (e.stderr or b"").decode("utf-8", errors="replace")
+        logger.warning("mappings.json git pull 실패: %s", stderr)
+    except Exception as e:
+        logger.warning("mappings.json git pull 오류: %s", e)
 
 
 def _build_notifier(cfg: dict):
@@ -126,6 +147,7 @@ def _print_schedule(sched_cfg: dict):
         f"  │  가격 모니터링    매 {sched_cfg['price_monitor_interval']:>3d}분              │",
         f"  │  반품 감지        매 {sched_cfg.get('return_monitor_interval', 10):>3d}분              │",
         f"  │  취소 처리        매 {sched_cfg.get('cancel_monitor_interval', 10):>3d}분              │",
+        f"  │  매핑 동기화      매  10분              │",
         "  ├─────────────────────────────────────────┤",
         "  │  Ctrl+C 로 종료                          │",
         "  └─────────────────────────────────────────┘",
@@ -212,6 +234,7 @@ def main():
     scheduler.add_job(price_mon.run,    sched_cfg["price_monitor_interval"],   "price_monitor",  run_now=True)
     scheduler.add_job(return_mon.run,   sched_cfg.get("return_monitor_interval", 60), "return_monitor", run_now=True)
     scheduler.add_job(cancel_mon.run,   sched_cfg.get("cancel_monitor_interval", 10), "cancel_monitor", run_now=True)
+    scheduler.add_job(_git_pull, 10, "git_pull", run_now=False)
 
     _print_schedule(sched_cfg)
     scheduler.start()
