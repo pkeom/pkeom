@@ -92,6 +92,25 @@ class OrderPlacer:
         self._stock_pending = stock_pending
         self._dry_run       = dry_run
 
+    # ── 매핑 조회 헬퍼 ──────────────────────────────────────────
+
+    def _find_mapping(self, product_id: str, option_code: str) -> dict | None:
+        """매핑 조회: option_code로 먼저 찾고, 없으면 ss_option_id=''로 재시도.
+
+        단일 상품(옵션 없음)의 경우 Naver API가 optionCode=productId 값을 내려보내
+        orders.json에 option_code가 비어있지 않을 수 있음.
+        매핑은 ss_option_id=''로 등록되어 있으므로 fallback이 필요.
+        """
+        mapping = self._mappings.find(ss_product_id=product_id, ss_option_id=option_code)
+        if mapping is None and option_code:
+            mapping = self._mappings.find(ss_product_id=product_id, ss_option_id="")
+            if mapping:
+                logger.info(
+                    "매핑 fallback 성공: product_id=%r option_code=%r → ss_option_id='' 매핑 사용",
+                    product_id, option_code,
+                )
+        return mapping
+
     # ── 진입점 ───────────────────────────────────────────────
 
     def run(self) -> dict:
@@ -169,9 +188,9 @@ class OrderPlacer:
         # 매핑 조회 + 비용 추정
         costed: list[tuple[dict, dict, int]] = []  # (order, mapping, cost)
         for order in orders:
-            mapping = self._mappings.find(
-                ss_product_id=order["product_id"],
-                ss_option_id=order.get("option_code", ""),
+            mapping = self._find_mapping(
+                product_id=order["product_id"],
+                option_code=order.get("option_code", ""),
             )
             if not mapping:
                 self._handle_error(
@@ -443,9 +462,9 @@ class OrderPlacer:
                 "mappings.json 등록 상품(%d개): %s",
                 order_id, pid, opt_code, len(map_ids), map_ids,
             )
-            mapping = self._mappings.find(
-                ss_product_id=pid,
-                ss_option_id=opt_code,
+            mapping = self._find_mapping(
+                product_id=pid,
+                option_code=opt_code,
             )
         if not mapping:
             self._handle_error(
