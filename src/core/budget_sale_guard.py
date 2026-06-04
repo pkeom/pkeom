@@ -51,20 +51,11 @@ def suspend_all(ss_api, mapping_repo, notifier=None) -> int:
         return 0
 
     mappings = mapping_repo.all()
-    # API 호출용 ID(originProductNo) 기준으로 중복 제거
-    # ss_product_id는 channelProductNo이므로 origin-products 엔드포인트에 사용 불가
+    # ss_product_id = channelProductNo → /v2/channels/products/{channelProductNo}
     api_ids = list({
-        m["origin_product_no"]
-        for m in mappings
-        if m.get("is_active", True) and m.get("origin_product_no")
+        m["ss_product_id"]
+        for m in mappings if m.get("is_active", True) and m.get("ss_product_id")
     })
-    missing = [m["ss_product_id"] for m in mappings
-               if m.get("is_active", True) and not m.get("origin_product_no")]
-    if missing:
-        logger.warning(
-            "origin_product_no 없는 활성 매핑 %d건 — 판매중지 건너뜀: %s",
-            len(missing), missing[:5],
-        )
     if not api_ids:
         logger.info("판매중지 대상 상품 없음")
         return 0
@@ -104,12 +95,12 @@ def restore_all(ss_api, mapping_repo, notifier=None) -> int:
 
     suspended_ids: list[str] = state.get("suspended_ids", [])
     if not suspended_ids:
-        # 혹시 목록이 없으면 현재 활성 매핑으로 재구성 (originProductNo 기준)
+        # 혹시 목록이 없으면 현재 활성 매핑으로 재구성 (ss_product_id = channelProductNo)
         mappings = mapping_repo.all()
         suspended_ids = list({
-            m["origin_product_no"]
+            m["ss_product_id"]
             for m in mappings
-            if m.get("is_active", True) and m.get("origin_product_no")
+            if m.get("is_active", True) and m.get("ss_product_id")
         })
 
     success_ids: list[str] = []
