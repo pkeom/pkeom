@@ -357,8 +357,10 @@ class DomaemaeClient:
         }
 
         logger.debug("도매매 setOrder 요청 파라미터: %s", data)
+        print("[setOrder 요청]", data, flush=True)
         root = self._post("setOrder", "4.3", data)
         logger.debug("도매매 setOrder 응답: %s", root)
+        print("[setOrder 응답]", root, flush=True)
 
         # 에러 감지 — errors.dcode 우선, 이후 루트 레벨 오류 필드 확인
         from src.core.exceptions import EmoneyShortageError
