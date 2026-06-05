@@ -345,7 +345,7 @@ class DomaemaeClient:
             logger.debug("도매매 발주 옵션 없음: product=%s", product_id)
 
         # item[상품번호] = "dome||P||옵션코드|수량||||"
-        item_value = f"dome||P||{option_code or ''}|{quantity}||||"
+        item_value = f"dome||P||{option_code or ''}|{quantity}||0||||"
         data: dict = {
             f"item[{product_id}]":  item_value,
             "deliinfo[name]":       shipping_info["name"],
