@@ -18,7 +18,7 @@ def _parse_order_item(raw) -> dict | None:
       raw["order"]        → orderId
       raw["productOrder"] → productOrderId, channelProductNo, productName,
                             quantity, optionCode,
-                            name, tel, zipCode, baseAddress, detailAddress  ← 배송지 직접 포함
+                            takingAddress.name/tel/zipCode/baseAddress/detailAddress  ← 배송지
       raw["buyer"]        → buyerName
     """
     global _raw_logged
@@ -69,12 +69,13 @@ def _parse_order_item(raw) -> dict | None:
         _cpno, _pid, _origno, product_id,
     )
 
-    # 배송지: productOrder 안에 직접 포함된 필드에서 읽음
-    receiver_name    = str(po.get("name",        "") or "")
-    receiver_phone   = str(po.get("tel",         "") or "")
-    receiver_zipcode = str(po.get("zipCode",     "") or "")
-    base             = str(po.get("baseAddress",   "") or "")
-    detail           = str(po.get("detailAddress", "") or "")
+    # 배송지: productOrder.takingAddress 하위 필드에서 읽음
+    addr             = po.get("takingAddress", {})
+    receiver_name    = str(addr.get("name",          "") or "")
+    receiver_phone   = str(addr.get("tel",           "") or "")
+    receiver_zipcode = str(addr.get("zipCode",       "") or "")
+    base             = str(addr.get("baseAddress",   "") or "")
+    detail           = str(addr.get("detailAddress", "") or "")
     receiver_address = " ".join(filter(None, [base, detail]))
     delivery_memo    = str(po.get("deliveryMemo", "") or raw.get("deliveryMemo", "") or "")
 
