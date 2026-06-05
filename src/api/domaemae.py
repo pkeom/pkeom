@@ -235,6 +235,22 @@ class DomaemaeClient:
     def get_stock(self, product_id: str) -> int | None:
         return self.get_product(product_id)["stock"]
 
+    def get_option_stock(self, product_id: str, option_id: str) -> int | None:
+        """특정 옵션의 재고 조회. selectOpt[option_id].sup 사용."""
+        root = self._get("getItemView", "4.5", {"no": product_id})
+        select_opt = root.get("selectOpt") or {}
+        if not isinstance(select_opt, dict):
+            logger.warning("도매매 selectOpt 없음: product=%s", product_id)
+            return None
+        opt_info = select_opt.get(str(option_id))
+        if not isinstance(opt_info, dict):
+            logger.warning("도매매 옵션 코드 없음: product=%s, option=%s", product_id, option_id)
+            return None
+        try:
+            return int(opt_info.get("sup", 0))
+        except (TypeError, ValueError):
+            return None
+
     def get_options(self, product_id: str) -> list[dict]:
         """상품 옵션 목록. [{"id": str, "name": str}]"""
         root = self._get("getItemView", "4.5", {"no": product_id})

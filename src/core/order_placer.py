@@ -482,12 +482,21 @@ class OrderPlacer:
 
         # 2. 재고 확인 (stock_pending 활성화 시, skip_stock_check=False 일 때만)
         if self._stock_pending is not None and not skip_stock_check:
-            supplier     = mapping["supplier"]
-            supplier_pid = mapping["supplier_product_id"]
+            supplier           = mapping["supplier"]
+            supplier_pid       = mapping["supplier_product_id"]
+            supplier_option_id = mapping.get("supplier_option_id", "")
             try:
-                client  = self.clients[supplier]
-                product = client.get_product(supplier_pid)
-                stock   = product.get("stock")
+                client = self.clients[supplier]
+                if supplier == "domaemae" and supplier_option_id:
+                    # 옵션 있는 도매매 상품: 해당 옵션의 재고(selectOpt.sup)만 조회
+                    stock = client.get_option_stock(supplier_pid, supplier_option_id)
+                    logger.debug(
+                        "도매매 옵션 재고 조회: %s opt=%s → stock=%s",
+                        supplier_pid, supplier_option_id, stock,
+                    )
+                else:
+                    product = client.get_product(supplier_pid)
+                    stock   = product.get("stock")
                 if stock is None:
                     logger.warning(
                         "재고 조회 None — 발주 계속 진행: %s/%s", supplier, supplier_pid,
