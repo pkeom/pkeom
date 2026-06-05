@@ -40,6 +40,11 @@ def _parse_order_item(raw) -> dict | None:
     po    = inner.get("productOrder", {})
     buyer = inner.get("buyer", {})
 
+    import json as _json
+    logger.info("[SS productOrder 키 목록] keys=%s", list(po.keys()))
+    logger.info("[SS productOrder 전체값]\n%s",
+                _json.dumps(po, ensure_ascii=False, default=str)[:3000])
+
     order_id = (po.get("productOrderId")
                 or raw.get("productOrderId")
                 or order.get("orderId"))
