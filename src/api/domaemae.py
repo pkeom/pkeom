@@ -311,6 +311,8 @@ class DomaemaeClient:
 
         shipping_info 필수 키: name, phone, zipcode, address
         shipping_info 선택 키: memo
+
+        deliinfo 형식: "이름|이메일|우편번호|기본주소|상세주소|휴대폰|전화번호|"
         """
         product_id = self._normalize_pid(product_id)
 
@@ -346,14 +348,19 @@ class DomaemaeClient:
 
         # item[상품번호] = "dome||P||옵션코드|수량||||"
         item_value = f"mome||P||{option_code or ''}|{quantity}||||||"
+        deliinfo = (
+            f"{shipping_info['name']}"
+            f"||"
+            f"{shipping_info['zipcode']}"
+            f"|{shipping_info['address']}"
+            f"||"
+            f"{shipping_info['phone']}"
+            f"||"
+        )
         data: dict = {
-            f"item[{product_id}]":  item_value,
-            "deliinfo[name]":       shipping_info["name"],
-            "deliinfo[mobile]":     shipping_info["phone"],
-            "deliinfo[post]":       shipping_info["zipcode"],
-            "deliinfo[addr1]":      shipping_info["address"],
-            "deliinfo[deli_msg]":   shipping_info.get("memo", ""),
-            "receipt":              "0",
+            f"item[{product_id}]": item_value,
+            "deliinfo":            deliinfo,
+            "receipt":             "0",
         }
 
         logger.debug("도매매 setOrder 요청 파라미터: %s", data)
