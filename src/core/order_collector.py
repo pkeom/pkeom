@@ -28,13 +28,13 @@ def _parse_order_item(raw) -> dict | None:
         logger.warning("파싱 불가 항목 스킵 (타입=%s): %s", type(raw).__name__, str(raw)[:200])
         return None
 
-    # 첫 번째 항목의 전체 구조를 DEBUG로 출력 → 실제 API 응답 경로 파악용
+    # 첫 번째 항목의 전체 구조를 INFO로 출력 → 실제 API 응답 경로 파악용
     if not _raw_logged:
         _raw_logged = True
         import json as _json
-        logger.debug("[SS API 응답 구조 진단] raw 최상위 keys=%s", list(raw.keys()))
-        logger.debug("[SS API 응답 구조 진단] raw 전체(첫 1건):\n%s",
-                     _json.dumps(raw, ensure_ascii=False, default=str)[:3000])
+        logger.info("[SS API 응답 구조 진단] raw 최상위 keys=%s", list(raw.keys()))
+        logger.info("[SS API 응답 구조 진단] raw 전체(첫 1건):\n%s",
+                    _json.dumps(raw, ensure_ascii=False, default=str)[:5000])
 
     # 실제 응답: {"productOrderId": "...", "content": {"order":{}, "productOrder":{}, ...}}
     inner = raw.get("content", raw)
