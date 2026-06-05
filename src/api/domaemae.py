@@ -345,7 +345,7 @@ class DomaemaeClient:
             logger.debug("도매매 발주 옵션 없음: product=%s", product_id)
 
         # item[상품번호] = "dome||P||옵션코드|수량||||"
-        item_value = f"mome||P||{option_code or ''}|{quantity}||0||||"
+        item_value = f"mome||P||{option_code or ''}|{quantity}||||||"
         data: dict = {
             f"item[{product_id}]":  item_value,
             "deliinfo[name]":       shipping_info["name"],
@@ -357,7 +357,7 @@ class DomaemaeClient:
         }
 
         logger.debug("도매매 setOrder 요청 파라미터: %s", data)
-        root = self._post("setOrder", "4.0", data)
+        root = self._post("setOrder", "4.3", data)
         logger.debug("도매매 setOrder 응답: %s", root)
 
         # 에러 감지 — errors.dcode 우선, 이후 루트 레벨 오류 필드 확인
