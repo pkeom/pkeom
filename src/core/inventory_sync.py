@@ -110,7 +110,11 @@ class InventorySync:
         # 1. 도매처 재고·상품명 조회 (get_product 한 번으로 모두 획득)
         try:
             product      = self.clients[supplier].get_product(supplier_pid)
-            stock        = int(product.get("stock", 0))
+            stock        = product.get("stock")
+            if stock is None:
+                logger.warning("재고 조회 None — 건너뜀: %s/%s", supplier, supplier_pid)
+                return "unchanged"
+            stock        = int(stock)
             product_name = product.get("title", "") or mapping.get("memo", "") or ss_product_id
             in_stock     = stock > 0
         except requests.HTTPError as e:

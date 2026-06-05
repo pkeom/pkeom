@@ -55,7 +55,7 @@ class DomaekkukAPI:
         try:
             stock_val = int(qty.get("inventory", 0))
         except (TypeError, ValueError):
-            stock_val = 0
+            stock_val = None
         return {
             "title":     basis.get("title", ""),
             "price":     price_val,
@@ -63,7 +63,7 @@ class DomaekkukAPI:
             "seller_id": seller.get("id", ""),
         }
 
-    def get_stock(self, product_no: str) -> int:
+    def get_stock(self, product_no: str) -> int | None:
         """재고 수량 조회"""
         return self.get_product(product_no)["stock"]
 

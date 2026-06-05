@@ -224,7 +224,7 @@ class DomaemaeClient:
         try:
             stock_val = int(qty.get("inventory", 0))
         except (TypeError, ValueError):
-            stock_val = 0
+            stock_val = None
         return {
             "product_id": product_id,
             "title":      basis.get("title", ""),
@@ -232,7 +232,7 @@ class DomaemaeClient:
             "stock":      stock_val,
         }
 
-    def get_stock(self, product_id: str) -> int:
+    def get_stock(self, product_id: str) -> int | None:
         return self.get_product(product_id)["stock"]
 
     def get_options(self, product_id: str) -> list[dict]:
