@@ -352,12 +352,11 @@ class DomaemaeClient:
             "deliinfo[post]":     shipping_info["zipcode"],
             "deliinfo[addr1]":    shipping_info["address"],
             "deliinfo[deli_msg]": shipping_info.get("memo", ""),
-            "receipt":            "0",
         }
         if option_code:
-            data["item[0][option]"] = option_code
+            data["item[0][opt]"] = option_code   # ※ "option" 아닌 "opt"
 
-        root = self._post("setOrder", "4.3", data)
+        root = self._post("setOrder", "4.0", data)
         logger.debug("도매매 setOrder 응답: %s", root)
 
         # 에러 감지 — errors.dcode 우선, 이후 루트 레벨 오류 필드 확인
