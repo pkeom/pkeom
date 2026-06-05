@@ -4,6 +4,7 @@
 상품/발주/송장: https://domemedb.domeggook.com/ssl/api/
 응답 루트:  body["domeggook"]
 """
+import re
 import requests
 
 
@@ -36,8 +37,21 @@ class DomaekkukAPI:
 
     # ── 상품 조회 ────────────────────────────────────────────
 
+    @staticmethod
+    def _normalize_pid(product_no: str) -> str:
+        """URL이 전달된 경우 숫자 상품번호만 추출.
+
+        https://domeggook.com/56328525       → '56328525'
+        domeme.domeggook.com/s/56328525      → '56328525'
+        56328525                             → '56328525'
+        """
+        text = product_no.strip()
+        m = re.search(r"domeggook\.com/(\d+)", text) or re.search(r"/s/(\d+)", text)
+        return m.group(1) if m else text
+
     def get_product(self, product_no: str) -> dict:
         """상품 상세 정보 조회. 반환값: {title, price, stock, seller_id}"""
+        product_no = self._normalize_pid(product_no)
         resp = requests.get(
             self.API_URL,
             params=self._params({"mode": "getItemView", "no": product_no}),
@@ -157,6 +171,8 @@ class DomaekkukAPI:
         import logging as _log
         _logger = _log.getLogger(__name__)
 
+        product_no = self._normalize_pid(product_no)
+
         if dry_run:
             opt_tag = f" opt={supplier_option_id}" if supplier_option_id else ""
             return {"order_no": f"[DRY_RUN] prod={product_no} qty={quantity}{opt_tag}"}
@@ -188,16 +204,18 @@ class DomaekkukAPI:
         resp = requests.post(self.API_URL, data=data, timeout=10)
         root = self._root(resp)
 
-        # e머니 부족 및 일반 에러 감지
+        # 에러 감지 — errors.dcode 우선, 이후 루트 레벨 오류 필드 확인
         from src.core.exceptions import EmoneyShortageError
         errors = root.get("errors", {})
-        if isinstance(errors, dict):
+        if isinstance(errors, dict) and errors:
             dcode = errors.get("dcode", "")
+            dmsg  = errors.get("dmessage") or errors.get("msg", "")
             if dcode == "LACK_MONEY":
                 raise EmoneyShortageError(
-                    f"도매꾹 e머니 잔액 부족 — 충전 후 재시도하세요. "
-                    f"(msg: {errors.get('msg', '')})"
+                    f"도매꾹 e머니 잔액 부족 — 충전 후 재시도하세요. (msg: {dmsg})"
                 )
+            if dcode:
+                raise RuntimeError(f"도매꾹 발주 오류: {dcode} — {dmsg}")
         err = root.get("error") or root.get("errCode") or root.get("errMsg")
         if err:
             raise RuntimeError(f"도매꾹 발주 실패: {err}")

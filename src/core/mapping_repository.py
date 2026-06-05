@@ -33,16 +33,21 @@ def extract_supplier_id(url_or_id: str) -> str:
     """도매꾹/도매매 URL 또는 숫자ID에서 상품번호 추출.
 
     지원 형식:
-      https://domeggook.com/56328525          → '56328525'
-      https://www.domaemae.co.kr/...?no=56328525 → '56328525'
-      56328525                                 → '56328525'
+      https://domeggook.com/56328525              → '56328525'
+      https://domeme.domeggook.com/s/63641452     → '63641452'
+      https://www.domaemae.co.kr/...?no=56328525  → '56328525'
+      56328525                                    → '56328525'
     """
     text = url_or_id.strip()
-    # 도매꾹: domeggook.com/{no}
+    # 도매꾹: domeggook.com/{no} (숫자 직접)
     m = re.search(r"domeggook\.com/(\d+)", text)
     if m:
         return m.group(1)
-    # 도매매: ?no={no} 쿼리 파라미터
+    # 도매매: domeggook.com/s/{no}
+    m = re.search(r"domeggook\.com/s/(\d+)", text)
+    if m:
+        return m.group(1)
+    # 쿼리 파라미터: ?no={no}
     m = re.search(r"[?&]no=(\d+)", text)
     if m:
         return m.group(1)

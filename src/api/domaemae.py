@@ -1,6 +1,7 @@
 """도매매(도매꾹) Private API 클라이언트 — 공식 Private API 인증"""
 import datetime
 import logging
+import re
 import socket
 import requests
 
@@ -234,8 +235,21 @@ class DomaemaeClient:
 
     # ── 공개 API ──────────────────────────────────────────────────
 
+    @staticmethod
+    def _normalize_pid(product_id: str) -> str:
+        """URL이 전달된 경우 숫자 상품번호만 추출.
+
+        domeme.domeggook.com/s/63641452  → '63641452'
+        ?no=63641452                     → '63641452'
+        63641452                         → '63641452'
+        """
+        text = product_id.strip()
+        m = re.search(r"/s/(\d+)", text) or re.search(r"[?&]no=(\d+)", text)
+        return m.group(1) if m else text
+
     def get_product(self, product_id: str) -> dict:
         """상품 상세 정보 조회. 반환값: {product_id, title, price, stock}"""
+        product_id = self._normalize_pid(product_id)
         root  = self._get("getItemView", "4.5", {"no": product_id})
         basis = root.get("basis", {})
         price = root.get("price", {})
@@ -263,6 +277,7 @@ class DomaemaeClient:
 
         option_id: 콤보 키 (예: "00_00", "00_01") — 매핑의 supplier_option_id 값.
         """
+        product_id = self._normalize_pid(product_id)
         root = self._get("getItemView", "4.5", {"no": product_id})
         parsed = self._parse_select_opt(root.get("selectOpt"))
         data = parsed.get("data") or {}
@@ -280,6 +295,7 @@ class DomaemaeClient:
 
     def get_options(self, product_id: str) -> list[dict]:
         """상품 옵션 목록. [{"id": 콤보키, "name": 옵션명}]"""
+        product_id = self._normalize_pid(product_id)
         root = self._get("getItemView", "4.5", {"no": product_id})
         return self._parse_options(root.get("selectOpt"))
 
@@ -296,6 +312,8 @@ class DomaemaeClient:
         shipping_info 필수 키: name, phone, zipcode, address
         shipping_info 선택 키: memo
         """
+        product_id = self._normalize_pid(product_id)
+
         if dry_run:
             opt_tag = f" opt={option_id or option_name}" if (option_id or option_name) else ""
             return f"[DRY_RUN] prod={product_id} qty={quantity}{opt_tag}"
@@ -342,16 +360,18 @@ class DomaemaeClient:
         root = self._post("setOrder", "4.3", data)
         logger.debug("도매매 setOrder 응답: %s", root)
 
-        # e머니 부족 및 일반 에러 감지
+        # 에러 감지 — errors.dcode 우선, 이후 루트 레벨 오류 필드 확인
         from src.core.exceptions import EmoneyShortageError
         errors = root.get("errors", {})
-        if isinstance(errors, dict):
+        if isinstance(errors, dict) and errors:
             dcode = errors.get("dcode", "")
+            dmsg  = errors.get("dmessage") or errors.get("msg", "")
             if dcode == "LACK_MONEY":
                 raise EmoneyShortageError(
-                    f"도매매 e머니 잔액 부족 — 충전 후 재시도하세요. "
-                    f"(msg: {errors.get('msg', '')})"
+                    f"도매매 e머니 잔액 부족 — 충전 후 재시도하세요. (msg: {dmsg})"
                 )
+            if dcode:
+                raise RuntimeError(f"도매매 발주 오류: {dcode} — {dmsg}")
         err = root.get("error") or root.get("errCode") or root.get("errMsg")
         if err:
             raise RuntimeError(f"도매매 발주 실패: {err}")
