@@ -8,6 +8,9 @@ from src.core.order_repository import OrderRepository
 logger = logging.getLogger(__name__)
 
 
+_raw_logged = False  # 첫 번째 raw 항목만 전체 구조 출력
+
+
 def _parse_order_item(raw) -> dict | None:
     """Naver Commerce GET /v1/pay-order/seller/product-orders 응답 1건 정규화.
 
@@ -19,16 +22,41 @@ def _parse_order_item(raw) -> dict | None:
       raw["delivery"]      → receiverName, receiverTel1,
                              baseAddress, detailAddress, zipCode
     """
+    global _raw_logged
+
     if not isinstance(raw, dict):
         logger.warning("파싱 불가 항목 스킵 (타입=%s): %s", type(raw).__name__, str(raw)[:200])
         return None
+
+    # 첫 번째 항목의 전체 구조를 DEBUG로 출력 → 실제 API 응답 경로 파악용
+    if not _raw_logged:
+        _raw_logged = True
+        import json as _json
+        logger.debug("[SS API 응답 구조 진단] raw 최상위 keys=%s", list(raw.keys()))
+        logger.debug("[SS API 응답 구조 진단] raw 전체(첫 1건):\n%s",
+                     _json.dumps(raw, ensure_ascii=False, default=str)[:3000])
 
     # 실제 응답: {"productOrderId": "...", "content": {"order":{}, "productOrder":{}, ...}}
     inner = raw.get("content", raw)
     order = inner.get("order", {})
     po    = inner.get("productOrder", {})
     buyer = inner.get("buyer", {})
-    dlv   = inner.get("delivery", {})
+
+    # delivery 위치를 여러 경로에서 탐색
+    dlv = (
+        inner.get("delivery")                           # 표준 경로
+        or inner.get("shippingAddress")                 # 일부 버전 대안
+        or raw.get("delivery")                          # content 없는 플랫 응답
+        or raw.get("shippingAddress")
+        or {}
+    )
+
+    logger.debug(
+        "[SS delivery 진단] inner keys=%s | delivery keys=%s | dlv=%s",
+        list(inner.keys()),
+        list(dlv.keys()) if isinstance(dlv, dict) else type(dlv).__name__,
+        str(dlv)[:500],
+    )
 
     order_id = (po.get("productOrderId")
                 or raw.get("productOrderId")
@@ -57,10 +85,35 @@ def _parse_order_item(raw) -> dict | None:
         _cpno, _pid, _origno, product_id,
     )
 
-    address = " ".join(filter(None, [
-        dlv.get("baseAddress", ""),
-        dlv.get("detailAddress", ""),
-    ]))
+    # receiver 필드: 표준 키 + 대안 키 순으로 탐색
+    receiver_name = (
+        dlv.get("receiverName")
+        or dlv.get("name")
+        or dlv.get("recipientName")
+        or buyer.get("buyerName", "")
+    ) or ""
+    receiver_phone = (
+        dlv.get("receiverTel1")
+        or dlv.get("receiverTel2")
+        or dlv.get("tel")
+        or dlv.get("mobile")
+        or buyer.get("buyerTel1", "")
+    ) or ""
+    receiver_zipcode = (
+        dlv.get("zipCode")
+        or dlv.get("postcode")
+        or dlv.get("addressInfoList", [{}])[0].get("zipCode", "") if isinstance(dlv.get("addressInfoList"), list) else ""
+    ) or ""
+
+    # 주소: baseAddress + detailAddress, 또는 address 단일 필드
+    base   = dlv.get("baseAddress") or dlv.get("address", "")
+    detail = dlv.get("detailAddress") or dlv.get("addressDetail", "")
+    address = " ".join(filter(None, [base, detail]))
+
+    logger.info(
+        "[SS delivery 파싱 결과] order_id=%s | receiver_name=%r phone=%r zipcode=%r address=%r",
+        order_id, receiver_name, receiver_phone, receiver_zipcode, address,
+    )
 
     now = datetime.now().isoformat(timespec="seconds")
     return {
@@ -71,10 +124,10 @@ def _parse_order_item(raw) -> dict | None:
         "option_code":      str(po.get("optionCode") or raw.get("optionCode") or ""),
         "quantity":         int(po.get("quantity", 1)),
         "buyer_name":       buyer.get("buyerName", ""),
-        "receiver_name":    dlv.get("receiverName", ""),
-        "receiver_phone":   dlv.get("receiverTel1") or dlv.get("receiverTel2", ""),
+        "receiver_name":    receiver_name,
+        "receiver_phone":   receiver_phone,
         "receiver_address": address,
-        "receiver_zipcode": dlv.get("zipCode", ""),
+        "receiver_zipcode": receiver_zipcode,
         "delivery_memo":    dlv.get("deliveryMemo") or raw.get("deliveryMemo", ""),
         "status":           "NEW",
         "collected_at":     now,
