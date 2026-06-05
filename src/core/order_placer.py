@@ -18,6 +18,7 @@ import logging
 import os
 import threading
 from datetime import datetime, timezone
+import requests
 from src.api.domaekkuk import DomaekkukAPI
 from src.api.domaemae import DomaemaeClient
 from src.core.exceptions import EmoneyShortageError
@@ -486,13 +487,31 @@ class OrderPlacer:
             try:
                 client  = self.clients[supplier]
                 product = client.get_product(supplier_pid)
-                stock   = int(product.get("stock", 0))
-                if stock == 0:
-                    return self._handle_stock_pending(order, mapping)
+                stock   = product.get("stock")
+                if stock is None:
+                    logger.warning(
+                        "재고 조회 None — 발주 계속 진행: %s/%s", supplier, supplier_pid,
+                    )
+                else:
+                    stock = int(stock)
+                    if stock == 0:
+                        return self._handle_stock_pending(order, mapping)
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 404:
+                    logger.error(
+                        "재고 조회 404 (상품 없음) → ERROR: %s/%s", supplier, supplier_pid,
+                    )
+                    self._handle_error(
+                        order=order, mapping=mapping,
+                        reason="재고 조회 404 (도매처 상품 없음)", detail=str(e),
+                    )
+                    return "error"
+                logger.warning(
+                    "재고 조회 실패 — 발주 계속 진행: %s/%s — %s", supplier, supplier_pid, e,
+                )
             except Exception as e:
                 logger.warning(
-                    "재고 조회 실패 — 발주 계속 진행: %s/%s — %s",
-                    supplier, supplier_pid, e,
+                    "재고 조회 실패 — 발주 계속 진행: %s/%s — %s", supplier, supplier_pid, e,
                 )
 
         # 3. 도매처 발주 API 호출
