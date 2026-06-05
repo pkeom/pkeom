@@ -525,12 +525,24 @@ class OrderPlacer:
 
         # 3. 도매처 발주 API 호출
         shipping = {
-            "name":    order["receiver_name"],
-            "phone":   order["receiver_phone"],
-            "address": order["receiver_address"],
-            "zipcode": order["receiver_zipcode"],
+            "name":    order.get("receiver_name", ""),
+            "phone":   order.get("receiver_phone", ""),
+            "address": order.get("receiver_address", ""),
+            "zipcode": order.get("receiver_zipcode", ""),
             "memo":    order.get("delivery_memo", ""),
         }
+        _missing = [k for k, v in [
+            ("receiver_name",    shipping["name"]),
+            ("receiver_phone",   shipping["phone"]),
+            ("receiver_address", shipping["address"]),
+            ("receiver_zipcode", shipping["zipcode"]),
+        ] if not v]
+        if _missing:
+            logger.warning(
+                "발주 배송지 정보 누락 (order_id=%s): %s — "
+                "SmartStore 주문 수집 시 delivery.receiverName/receiverTel1/baseAddress/zipCode 값 확인 필요",
+                order_id, ", ".join(_missing),
+            )
         supplier_option_id = mapping.get("supplier_option_id", "")
         try:
             client = self.clients[mapping["supplier"]]
