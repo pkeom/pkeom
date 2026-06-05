@@ -164,17 +164,41 @@ class DomaemaeClient:
     # ── 파싱 헬퍼 ─────────────────────────────────────────────────
 
     @staticmethod
-    def _parse_options(select_opt) -> list[dict]:
-        """getItemView selectOpt 딕셔너리 → [{"id": str, "name": str}]
-
-        selectOpt 구조: {"CODE": {"name": str, "sup": int, "hid": int}}
-        hid=2 : 완전 숨김 → 제외
+    def _parse_select_opt(select_opt) -> dict:
+        """selectOpt(JSON 문자열 또는 dict) → 파싱된 dict.
+        실패 시 {} 반환.
         """
-        if not select_opt or not isinstance(select_opt, dict):
+        import json as _json
+        if not select_opt:
+            return {}
+        if isinstance(select_opt, str):
+            try:
+                select_opt = _json.loads(select_opt)
+            except (ValueError, TypeError):
+                return {}
+        return select_opt if isinstance(select_opt, dict) else {}
+
+    @staticmethod
+    def _parse_options(select_opt) -> list[dict]:
+        """getItemView selectOpt → [{"id": str, "name": str}]
+
+        실제 selectOpt 구조 (JSON 문자열):
+        {
+          "type": "combination",
+          "data": {
+            "00_00": {"name": "블랙/ONE", "qty": "999", "hid": "0", ...},
+            ...
+          },
+          "set": [{"name": "색상", "opts": [...]}, ...]
+        }
+        hid=2: 완전 숨김 → 제외
+        """
+        parsed = DomaemaeClient._parse_select_opt(select_opt)
+        data = parsed.get("data") or {}
+        if not isinstance(data, dict):
             return []
         options = []
-        seen: set[str] = set()
-        for code, info in select_opt.items():
+        for code, info in data.items():
             if not isinstance(info, dict):
                 continue
             try:
@@ -184,9 +208,8 @@ class DomaemaeClient:
             if hid == 2:
                 continue
             name = str(info.get("name", "")).strip()
-            if name and code not in seen:
+            if name:
                 options.append({"id": str(code), "name": name})
-                seen.add(code)
         return options
 
     @staticmethod
@@ -236,23 +259,27 @@ class DomaemaeClient:
         return self.get_product(product_id)["stock"]
 
     def get_option_stock(self, product_id: str, option_id: str) -> int | None:
-        """특정 옵션의 재고 조회. selectOpt[option_id].sup 사용."""
+        """특정 옵션의 재고 조회. selectOpt.data[option_id].qty 사용.
+
+        option_id: 콤보 키 (예: "00_00", "00_01") — 매핑의 supplier_option_id 값.
+        """
         root = self._get("getItemView", "4.5", {"no": product_id})
-        select_opt = root.get("selectOpt") or {}
-        if not isinstance(select_opt, dict):
-            logger.warning("도매매 selectOpt 없음: product=%s", product_id)
+        parsed = self._parse_select_opt(root.get("selectOpt"))
+        data = parsed.get("data") or {}
+        if not isinstance(data, dict):
+            logger.warning("도매매 selectOpt.data 없음: product=%s", product_id)
             return None
-        opt_info = select_opt.get(str(option_id))
+        opt_info = data.get(str(option_id))
         if not isinstance(opt_info, dict):
-            logger.warning("도매매 옵션 코드 없음: product=%s, option=%s", product_id, option_id)
+            logger.warning("도매매 옵션 키 없음: product=%s, option=%s", product_id, option_id)
             return None
         try:
-            return int(opt_info.get("sup", 0))
+            return int(opt_info.get("qty", 0))
         except (TypeError, ValueError):
             return None
 
     def get_options(self, product_id: str) -> list[dict]:
-        """상품 옵션 목록. [{"id": str, "name": str}]"""
+        """상품 옵션 목록. [{"id": 콤보키, "name": 옵션명}]"""
         root = self._get("getItemView", "4.5", {"no": product_id})
         return self._parse_options(root.get("selectOpt"))
 
