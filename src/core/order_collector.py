@@ -15,12 +15,11 @@ def _parse_order_item(raw) -> dict | None:
     """Naver Commerce GET /v1/pay-order/seller/product-orders 응답 1건 정규화.
 
     실제 응답 구조:
-      raw["order"]         → orderId, orderDate
-      raw["productOrder"]  → productOrderId, productId, channelProductNo,
-                             productName, quantity, optionCode
-      raw["buyer"]         → buyerName, buyerTel1
-      raw["delivery"]      → receiverName, receiverTel1,
-                             baseAddress, detailAddress, zipCode
+      raw["order"]        → orderId
+      raw["productOrder"] → productOrderId, channelProductNo, productName,
+                            quantity, optionCode,
+                            name, tel, zipCode, baseAddress, detailAddress  ← 배송지 직접 포함
+      raw["buyer"]        → buyerName
     """
     global _raw_logged
 
@@ -36,27 +35,10 @@ def _parse_order_item(raw) -> dict | None:
         logger.info("[SS API 응답 구조 진단] raw 전체(첫 1건):\n%s",
                     _json.dumps(raw, ensure_ascii=False, default=str)[:5000])
 
-    # 실제 응답: {"productOrderId": "...", "content": {"order":{}, "productOrder":{}, ...}}
     inner = raw.get("content", raw)
     order = inner.get("order", {})
     po    = inner.get("productOrder", {})
     buyer = inner.get("buyer", {})
-
-    # delivery 위치를 여러 경로에서 탐색
-    dlv = (
-        inner.get("delivery")                           # 표준 경로
-        or inner.get("shippingAddress")                 # 일부 버전 대안
-        or raw.get("delivery")                          # content 없는 플랫 응답
-        or raw.get("shippingAddress")
-        or {}
-    )
-
-    logger.debug(
-        "[SS delivery 진단] inner keys=%s | delivery keys=%s | dlv=%s",
-        list(inner.keys()),
-        list(dlv.keys()) if isinstance(dlv, dict) else type(dlv).__name__,
-        str(dlv)[:500],
-    )
 
     order_id = (po.get("productOrderId")
                 or raw.get("productOrderId")
@@ -65,9 +47,6 @@ def _parse_order_item(raw) -> dict | None:
         logger.warning("productOrderId 없음 — 건너뜀. keys=%s", list(raw.keys()))
         return None
 
-    # channelProductNo 우선 (mappings.json의 ss_product_id와 동일 체계)
-    # → productId → originProductNo 순으로 fallback
-    # nested(productOrder) 와 flat(raw 최상위) 양쪽을 모두 시도
     def _first_valid(*vals):
         for v in vals:
             if v not in (None, "", 0):
@@ -85,34 +64,18 @@ def _parse_order_item(raw) -> dict | None:
         _cpno, _pid, _origno, product_id,
     )
 
-    # receiver 필드: 표준 키 + 대안 키 순으로 탐색
-    receiver_name = (
-        dlv.get("receiverName")
-        or dlv.get("name")
-        or dlv.get("recipientName")
-        or buyer.get("buyerName", "")
-    ) or ""
-    receiver_phone = (
-        dlv.get("receiverTel1")
-        or dlv.get("receiverTel2")
-        or dlv.get("tel")
-        or dlv.get("mobile")
-        or buyer.get("buyerTel1", "")
-    ) or ""
-    receiver_zipcode = (
-        dlv.get("zipCode")
-        or dlv.get("postcode")
-        or dlv.get("addressInfoList", [{}])[0].get("zipCode", "") if isinstance(dlv.get("addressInfoList"), list) else ""
-    ) or ""
-
-    # 주소: baseAddress + detailAddress, 또는 address 단일 필드
-    base   = dlv.get("baseAddress") or dlv.get("address", "")
-    detail = dlv.get("detailAddress") or dlv.get("addressDetail", "")
-    address = " ".join(filter(None, [base, detail]))
+    # 배송지: productOrder 안에 직접 포함된 필드에서 읽음
+    receiver_name    = str(po.get("name",        "") or "")
+    receiver_phone   = str(po.get("tel",         "") or "")
+    receiver_zipcode = str(po.get("zipCode",     "") or "")
+    base             = str(po.get("baseAddress",   "") or "")
+    detail           = str(po.get("detailAddress", "") or "")
+    receiver_address = " ".join(filter(None, [base, detail]))
+    delivery_memo    = str(po.get("deliveryMemo", "") or raw.get("deliveryMemo", "") or "")
 
     logger.info(
-        "[SS delivery 파싱 결과] order_id=%s | receiver_name=%r phone=%r zipcode=%r address=%r",
-        order_id, receiver_name, receiver_phone, receiver_zipcode, address,
+        "[SS delivery 파싱 결과] order_id=%s | name=%r tel=%r zipCode=%r address=%r",
+        order_id, receiver_name, receiver_phone, receiver_zipcode, receiver_address,
     )
 
     now = datetime.now().isoformat(timespec="seconds")
@@ -126,9 +89,9 @@ def _parse_order_item(raw) -> dict | None:
         "buyer_name":       buyer.get("buyerName", ""),
         "receiver_name":    receiver_name,
         "receiver_phone":   receiver_phone,
-        "receiver_address": address,
+        "receiver_address": receiver_address,
         "receiver_zipcode": receiver_zipcode,
-        "delivery_memo":    dlv.get("deliveryMemo") or raw.get("deliveryMemo", ""),
+        "delivery_memo":    delivery_memo,
         "status":           "NEW",
         "collected_at":     now,
         "updated_at":       now,
