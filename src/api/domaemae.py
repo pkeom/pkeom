@@ -356,6 +356,7 @@ class DomaemaeClient:
         if option_code:
             data["item[0][opt]"] = option_code   # ※ "option" 아닌 "opt"
 
+        logger.debug("도매매 setOrder 요청 파라미터: %s", data)
         root = self._post("setOrder", "4.0", data)
         logger.debug("도매매 setOrder 응답: %s", root)
 
