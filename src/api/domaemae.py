@@ -340,6 +340,7 @@ class DomaemaeClient:
             data["item[0][option]"] = option_code
 
         root = self._post("setOrder", "4.3", data)
+        logger.debug("도매매 setOrder 응답: %s", root)
 
         # e머니 부족 및 일반 에러 감지
         from src.core.exceptions import EmoneyShortageError
@@ -354,7 +355,21 @@ class DomaemaeClient:
         err = root.get("error") or root.get("errCode") or root.get("errMsg")
         if err:
             raise RuntimeError(f"도매매 발주 실패: {err}")
-        return str(root.get("orderNo", ""))
+
+        # 발주번호 확인 — 여러 후보 키 시도
+        order_no = (
+            str(root.get("orderNo") or "")
+            or str(root.get("order_no") or "")
+            or str(root.get("ordNo") or "")
+            or str(root.get("no") or "")
+        ).strip()
+
+        if not order_no:
+            raise RuntimeError(
+                f"도매매 발주 응답에 orderNo 없음 — 발주 미확인 (응답: {root})"
+            )
+
+        return order_no
 
     def cancel_order(self, order_no: str) -> dict:
         """발주 취소 (setOrdDeny).
