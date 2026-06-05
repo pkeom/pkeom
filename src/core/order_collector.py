@@ -70,7 +70,10 @@ def _parse_order_item(raw) -> dict | None:
     )
 
     # 배송지: productOrder.takingAddress 하위 필드에서 읽음
-    addr             = po.get("takingAddress", {})
+    addr = po.get("takingAddress", {})
+    logger.info("[SS takingAddress 키 목록] keys=%s", list(addr.keys()))
+    logger.info("[SS takingAddress 전체값]\n%s",
+                _json.dumps(addr, ensure_ascii=False, default=str))
     receiver_name    = str(addr.get("name",          "") or "")
     receiver_phone   = str(addr.get("tel",           "") or "")
     receiver_zipcode = str(addr.get("zipCode",       "") or "")
