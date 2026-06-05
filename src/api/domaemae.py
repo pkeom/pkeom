@@ -344,17 +344,17 @@ class DomaemaeClient:
         else:
             logger.debug("도매매 발주 옵션 없음: product=%s", product_id)
 
+        # item[상품번호] = "dome||P||옵션코드|수량||||"
+        item_value = f"dome||P||{option_code or ''}|{quantity}||||"
         data: dict = {
-            "item[0][no]":        product_id,
-            "item[0][cnt]":       str(quantity),
-            "deliinfo[name]":     shipping_info["name"],
-            "deliinfo[mobile]":   shipping_info["phone"],
-            "deliinfo[post]":     shipping_info["zipcode"],
-            "deliinfo[addr1]":    shipping_info["address"],
-            "deliinfo[deli_msg]": shipping_info.get("memo", ""),
+            f"item[{product_id}]":  item_value,
+            "deliinfo[name]":       shipping_info["name"],
+            "deliinfo[mobile]":     shipping_info["phone"],
+            "deliinfo[post]":       shipping_info["zipcode"],
+            "deliinfo[addr1]":      shipping_info["address"],
+            "deliinfo[deli_msg]":   shipping_info.get("memo", ""),
+            "receipt":              "0",
         }
-        if option_code:
-            data["item[0][opt]"] = option_code   # ※ "option" 아닌 "opt"
 
         logger.debug("도매매 setOrder 요청 파라미터: %s", data)
         root = self._post("setOrder", "4.0", data)
