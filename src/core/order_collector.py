@@ -75,7 +75,15 @@ def _parse_order_item(raw) -> dict | None:
     logger.info("[SS takingAddress 전체값]\n%s",
                 _json.dumps(addr, ensure_ascii=False, default=str))
     receiver_name    = str(addr.get("name",          "") or "")
-    receiver_phone   = str(addr.get("tel",           "") or "")
+    _phone_from_addr = addr.get("tel", "") or ""
+    _phone_fallback  = (buyer.get("buyerTel1", "") or
+                        order.get("ordererTel", "") or "")
+    if not _phone_from_addr and _phone_fallback:
+        logger.info(
+            "[SS receiver_phone fallback] order_id=%s addr.tel 없음 → buyerTel1/ordererTel 사용: %r",
+            po.get("productOrderId") or order.get("orderId"), _phone_fallback,
+        )
+    receiver_phone   = str(_phone_from_addr or _phone_fallback)
     receiver_zipcode = str(addr.get("zipCode",       "") or "")
     base             = str(addr.get("baseAddress",   "") or "")
     detail           = str(addr.get("detailAddress", "") or "")
