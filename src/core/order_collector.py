@@ -95,7 +95,7 @@ def _parse_order_item(raw) -> dict | None:
     # 수령인 이름 · 전화번호 · 주소: productOrder.shippingAddress
     addr = po.get("shippingAddress") or {}
     receiver_name    = str(addr.get("name", "") or "")
-    receiver_phone   = str(addr.get("tel",  "") or "")
+    receiver_phone   = str(addr.get("tel1", "") or addr.get("tel", "") or "")
     receiver_zipcode = str(addr.get("zipCode",       "") or "")
     base             = str(addr.get("baseAddress",   "") or "")
     detail           = str(addr.get("detailAddress", "") or "")
