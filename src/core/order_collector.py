@@ -85,12 +85,10 @@ def _parse_order_item(raw) -> dict | None:
                      _pid  if _pid  is not None else
                      _origno if _origno is not None else "")
 
-    # 수령인 이름 · 전화번호: content.order
-    receiver_name  = str(order.get("ordererName", "") or "")
-    receiver_phone = str(order.get("ordererTel",  "") or "")
-
-    # 주소: shippingAddress 우선, 없으면 takingAddress
-    addr = po.get("shippingAddress") or po.get("takingAddress") or {}
+    # 수령인 이름 · 전화번호 · 주소: productOrder.shippingAddress
+    addr = po.get("shippingAddress") or {}
+    receiver_name    = str(addr.get("name", "") or "")
+    receiver_phone   = str(addr.get("tel",  "") or "")
     receiver_zipcode = str(addr.get("zipCode",       "") or "")
     base             = str(addr.get("baseAddress",   "") or "")
     detail           = str(addr.get("detailAddress", "") or "")
