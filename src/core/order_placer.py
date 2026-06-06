@@ -528,7 +528,8 @@ class OrderPlacer:
             "name":           order.get("receiver_name", ""),
             "phone":          order.get("receiver_phone", ""),
             "address":        order.get("receiver_address", ""),
-            "base_address":            order.get("base_address", ""),
+            "base_address":            (order.get("base_address", "")
+                                       or order.get("receiver_address", "")),
             "receiver_address_detail": order.get("detail_address", ""),
             "zipcode":        order.get("receiver_zipcode", ""),
             "memo":           order.get("delivery_memo", ""),
