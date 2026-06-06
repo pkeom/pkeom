@@ -390,6 +390,19 @@ class DomaemaeClient:
 
         logger.debug("도매매 setOrder 요청 파라미터: %s", data)
         print("[setOrder 요청]", data, flush=True)
+
+        # PreparedRequest로 실제 전송 URL·body 캡처
+        _full_data = {"mode": "setOrder", "ver": "4.3", "om": "json",
+                      "aid": self.api_key, "sId": self._sid}
+        _full_data.update(data)
+        _req = requests.Request("POST", API_URL, data=_full_data).prepare()
+        print("=" * 60, flush=True)
+        print(f"[PreparedRequest] URL : {_req.url}", flush=True)
+        print(f"[PreparedRequest] Body: {_req.body}", flush=True)
+        print("=" * 60, flush=True)
+        logger.info("[PreparedRequest] URL=%s", _req.url)
+        logger.info("[PreparedRequest] Body=%s", _req.body)
+
         root = self._post("setOrder", "4.3", data)
         logger.debug("도매매 setOrder 응답: %s", root)
         print("[setOrder 응답]", root, flush=True)
