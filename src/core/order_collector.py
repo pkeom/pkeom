@@ -11,6 +11,21 @@ logger = logging.getLogger(__name__)
 _raw_logged = False  # 첫 번째 raw 항목만 전체 구조 출력
 
 
+def _find_paths(obj, target: str, path: str = "") -> list[tuple[str, str]]:
+    """obj 안에서 target 문자열을 포함하는 모든 리프 값의 경로를 반환."""
+    results = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{path}.{k}" if path else k
+            results.extend(_find_paths(v, target, p))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            results.extend(_find_paths(v, target, f"{path}[{i}]"))
+    elif isinstance(obj, str) and target in obj:
+        results.append((path, obj))
+    return results
+
+
 def _parse_order_item(raw) -> dict | None:
     """Naver Commerce GET /v1/pay-order/seller/product-orders 응답 1건 정규화.
 
@@ -27,20 +42,33 @@ def _parse_order_item(raw) -> dict | None:
         logger.warning("파싱 불가 항목 스킵 (타입=%s): %s", type(raw).__name__, str(raw)[:200])
         return None
 
-    # 첫 번째 항목의 전체 구조를 INFO로 출력 → 실제 API 응답 경로 파악용
+    import json as _json
+
+    # 첫 번째 항목: 최상위 키 + 타입 출력
     if not _raw_logged:
         _raw_logged = True
-        import json as _json
-        logger.info("[SS API 응답 구조 진단] raw 최상위 keys=%s", list(raw.keys()))
-        logger.info("[SS API 응답 구조 진단] raw 전체(첫 1건):\n%s",
+        key_types = {k: type(v).__name__ for k, v in raw.items()}
+        logger.info("[SS API 진단] raw 최상위 keys+types=%s", key_types)
+        logger.info("[SS API 진단] raw 전체(첫 1건):\n%s",
                     _json.dumps(raw, ensure_ascii=False, default=str)[:5000])
+
+    # 매 항목마다 '유승윤' 경로 탐색 → 수령인 필드 위치 확인용
+    _NAME_TARGET = "유승윤"
+    _found = _find_paths(raw, _NAME_TARGET)
+    if _found:
+        logger.info(
+            "[SS 수령인 경로 탐색] '%s' 발견 경로: %s",
+            _NAME_TARGET,
+            [(p, v) for p, v in _found],
+        )
+    else:
+        logger.info("[SS 수령인 경로 탐색] '%s' 이번 항목에서 미발견", _NAME_TARGET)
 
     inner = raw.get("content", raw)
     order = inner.get("order", {})
     po    = inner.get("productOrder", {})
     buyer = inner.get("buyer", {})
 
-    import json as _json
     logger.info("[SS productOrder 키 목록] keys=%s", list(po.keys()))
     logger.info("[SS productOrder 전체값]\n%s",
                 _json.dumps(po, ensure_ascii=False, default=str)[:3000])
