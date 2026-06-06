@@ -99,6 +99,15 @@ def _parse_order_item(raw) -> dict | None:
     receiver_zipcode = str(addr.get("zipCode",       "") or "")
     base             = str(addr.get("baseAddress",   "") or "")
     detail           = str(addr.get("detailAddress", "") or "")
+
+    # detailAddress가 비어 있고 baseAddress에 괄호 부분이 포함된 경우 분리
+    if not detail and base:
+        import re as _re
+        _m = _re.search(r"\s*(\(.*?\))\s*$", base)
+        if _m:
+            detail = _m.group(1)
+            base   = base[:_m.start()].rstrip()
+
     receiver_address = " ".join(filter(None, [base, detail]))
 
     # receiver_phone fallback: shippingAddress.tel이 비어 있으면 다른 필드 시도
