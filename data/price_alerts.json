@@ -155,6 +155,18 @@
       "change_rate": 0.0,
       "detected_at": "2026-06-07T04:38:24",
       "is_read": false
+    },
+    {
+      "id": "2ab991a3-b50c-4b75-a64f-b396b5bc67fa",
+      "ss_product_id": "13622932026",
+      "supplier": "domaemae",
+      "supplier_product_id": "https://domeme.domeggook.com/s/63641452",
+      "product_name": "차량용 주차번호판 흡착식 슬라이딩 번호 숨기기 알림판",
+      "old_price": null,
+      "new_price": 3700,
+      "change_rate": 0.0,
+      "detected_at": "2026-06-07T06:09:11",
+      "is_read": false
     }
   ]
 }
