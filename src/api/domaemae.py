@@ -346,8 +346,8 @@ class DomaemaeClient:
         else:
             logger.debug("도매매 발주 옵션 없음: product=%s", product_id)
 
-        # item[상품번호] = "mome|P|옵션코드|수량||||||"
-        item_value = f"mome|P|{option_code or ''}|{quantity}||||||"
+        # item[상품번호] = "dome|P|옵션코드|수량||||||"
+        item_value = f"dome|P|{option_code or ''}|{quantity}||||||"
         name           = shipping_info["name"]
         zipcode        = shipping_info["zipcode"]
         base_address   = (shipping_info.get("base_address", "")
