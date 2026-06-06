@@ -525,11 +525,13 @@ class OrderPlacer:
 
         # 3. 도매처 발주 API 호출
         shipping = {
-            "name":    order.get("receiver_name", ""),
-            "phone":   order.get("receiver_phone", ""),
-            "address": order.get("receiver_address", ""),
-            "zipcode": order.get("receiver_zipcode", ""),
-            "memo":    order.get("delivery_memo", ""),
+            "name":           order.get("receiver_name", ""),
+            "phone":          order.get("receiver_phone", ""),
+            "address":        order.get("receiver_address", ""),
+            "base_address":   order.get("base_address", ""),
+            "detail_address": order.get("detail_address", ""),
+            "zipcode":        order.get("receiver_zipcode", ""),
+            "memo":           order.get("delivery_memo", ""),
         }
         _missing = [k for k, v in [
             ("receiver_name",    shipping["name"]),

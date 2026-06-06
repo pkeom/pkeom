@@ -309,7 +309,7 @@ class DomaemaeClient:
           2. option_name: option_id 없을 때 옵션명으로 API 검색 후 매칭 (폴백)
           3. 둘 다 없음 : 옵션 없이 발주
 
-        shipping_info 필수 키: name, phone, zipcode, address
+        shipping_info 필수 키: name, phone, zipcode, base_address, detail_address
         shipping_info 선택 키: memo
 
         deliinfo 형식: "이름|이메일|우편번호|기본주소|상세주소|휴대폰|전화번호|"
@@ -348,15 +348,12 @@ class DomaemaeClient:
 
         # item[상품번호] = "dome||P||옵션코드|수량||||"
         item_value = f"mome||P||{option_code or ''}|{quantity}||||||"
-        deliinfo = (
-            f"{shipping_info['name']}"
-            f"||"
-            f"{shipping_info['zipcode']}"
-            f"|{shipping_info['address']}"
-            f"||"
-            f"{shipping_info['phone']}"
-            f"||"
-        )
+        name           = shipping_info["name"]
+        zipcode        = shipping_info["zipcode"]
+        base_address   = shipping_info.get("base_address", "")
+        detail_address = shipping_info.get("detail_address", "")
+        phone          = shipping_info["phone"]
+        deliinfo = f"{name}||{zipcode}|{base_address}|{detail_address}|{phone}||"
         data: dict = {
             f"item[{product_id}]": item_value,
             "deliinfo":            deliinfo,

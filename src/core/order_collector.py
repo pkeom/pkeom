@@ -107,6 +107,8 @@ def _parse_order_item(raw) -> dict | None:
         "receiver_name":    receiver_name,
         "receiver_phone":   receiver_phone,
         "receiver_address": receiver_address,
+        "base_address":     base,
+        "detail_address":   detail,
         "receiver_zipcode": receiver_zipcode,
         "delivery_memo":    delivery_memo,
         "status":           "NEW",
