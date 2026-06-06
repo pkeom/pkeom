@@ -11,6 +11,21 @@ logger = logging.getLogger(__name__)
 _raw_logged = False  # 첫 번째 raw 항목만 전체 구조 출력
 
 
+def _find_paths(obj, target: str, path: str = "") -> list[tuple[str, str]]:
+    """obj 전체를 재귀 탐색해 target 문자열이 포함된 모든 경로 반환."""
+    results = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{path}.{k}" if path else k
+            results.extend(_find_paths(v, target, p))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            results.extend(_find_paths(v, target, f"{path}[{i}]"))
+    elif isinstance(obj, str) and target in obj:
+        results.append((path, obj))
+    return results
+
+
 def _parse_order_item(raw) -> dict | None:
     """Naver Commerce GET /v1/pay-order/seller/product-orders 응답 1건 정규화.
 
@@ -36,6 +51,14 @@ def _parse_order_item(raw) -> dict | None:
         logger.info("[SS API 진단] raw 최상위 keys+types=%s", key_types)
         logger.info("[SS API 진단] raw 전체(첫 1건):\n%s",
                     _json.dumps(raw, ensure_ascii=False, default=str)[:5000])
+
+    # 수령인 이름·전화번호 경로 진단 (매 건마다 출력)
+    for _target in ("유상환", "010-3564-8630"):
+        _paths = _find_paths(raw, _target)
+        if _paths:
+            logger.info("[수령인 경로 탐색] '%s' 발견 경로: %s", _target, _paths)
+        else:
+            logger.info("[수령인 경로 탐색] '%s' raw에서 찾지 못함", _target)
 
     inner = raw.get("content", raw)
     order = inner.get("order", {})
