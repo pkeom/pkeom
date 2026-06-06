@@ -366,7 +366,7 @@ class DomaemaeClient:
         self._verify_session()
 
         # item[상품번호] = "dome|P|옵션코드|수량||||||"
-        item_value = f"dome|P|{option_code or ''}|{quantity}||||||"
+        item_value = f"dome|P|{option_code or ''}|{quantity}||||"
         name           = shipping_info["name"]
         zipcode        = shipping_info["zipcode"]
         base_address   = (shipping_info.get("base_address", "")
