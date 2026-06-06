@@ -94,6 +94,28 @@ def _parse_order_item(raw) -> dict | None:
     detail           = str(addr.get("detailAddress", "") or "")
     receiver_address = " ".join(filter(None, [base, detail]))
 
+    # receiver_phone fallback: shippingAddress.tel이 비어 있으면 다른 필드 시도
+    if not receiver_phone:
+        receiver_phone = str(
+            _first_valid(
+                order.get("ordererTel"),
+                buyer.get("buyerTel1"),
+                buyer.get("buyerTel"),
+                addr.get("tel1"),
+                addr.get("receiverTel"),
+            ) or ""
+        )
+        if receiver_phone:
+            logger.info("[전화번호 fallback] shippingAddress.tel 없음 → %r 사용", receiver_phone)
+        else:
+            # 어디에도 없으면 raw 전체에서 전화번호 패턴 탐색해 경로 출력
+            import re as _re
+            _phone_pat = _re.compile(r"01[016789]-?\d{3,4}-?\d{4}")
+            for _k, _v in _find_paths(raw, "010"):
+                if _phone_pat.search(_v):
+                    logger.info("[전화번호 경로 탐색] 발견: path=%s value=%r", _k, _v)
+            logger.warning("[전화번호] 모든 fallback 실패 — 전화번호 없음")
+
     delivery_memo = str(po.get("deliveryMemo", "") or raw.get("deliveryMemo", "") or "")
 
     logger.info(
