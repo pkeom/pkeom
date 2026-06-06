@@ -354,6 +354,9 @@ class DomaemaeClient:
                           or shipping_info.get("address", ""))
         detail_address = shipping_info.get("receiver_address_detail", "")
         phone          = shipping_info["phone"]
+        # SS API detailAddress에 전화번호가 저장된 경우 중복 방지
+        if detail_address == phone:
+            detail_address = ""
         # 형식: "이름|이메일|우편번호|기본주소|상세주소|휴대폰|전화번호|상호명"
         deliinfo = f"{name}||{zipcode}|{base_address}|{detail_address}|{phone}||"
         logger.info(
