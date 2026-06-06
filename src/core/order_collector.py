@@ -60,6 +60,13 @@ def _parse_order_item(raw) -> dict | None:
         else:
             logger.info("[수령인 경로 탐색] '%s' raw에서 찾지 못함", _target)
 
+    # "010-3564-8630" 전체 raw에서 경로 탐색
+    _phone_paths = _find_paths(raw, "010-3564-8630")
+    if _phone_paths:
+        logger.info("[전화번호 경로 탐색] '010-3564-8630' 발견 경로: %s", _phone_paths)
+    else:
+        logger.info("[전화번호 경로 탐색] '010-3564-8630' raw에서 찾지 못함")
+
     inner = raw.get("content", raw)
     order = inner.get("order", {})
     po    = inner.get("productOrder", {})
