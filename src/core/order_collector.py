@@ -16,10 +16,10 @@ def _parse_order_item(raw) -> dict | None:
 
     실제 응답 구조:
       raw["order"]        → orderId
-      raw["productOrder"] → productOrderId, channelProductNo, productName,
-                            quantity, optionCode,
-                            takingAddress.name/tel/zipCode/baseAddress/detailAddress  ← 배송지
-      raw["buyer"]        → buyerName
+      raw["productOrder"]    → productOrderId, channelProductNo, productName,
+                              quantity, optionCode
+      raw["shippingAddress"] → name/tel1/tel2/zipCode/roadAddress/detailAddress/addressStr  ← 배송지
+      raw["buyer"]           → buyerName
     """
     global _raw_logged
 
@@ -69,25 +69,26 @@ def _parse_order_item(raw) -> dict | None:
         _cpno, _pid, _origno, product_id,
     )
 
-    # 배송지: productOrder.takingAddress 하위 필드에서 읽음
-    addr = po.get("takingAddress", {})
-    logger.info("[SS takingAddress 키 목록] keys=%s", list(addr.keys()))
-    logger.info("[SS takingAddress 전체값]\n%s",
+    # 배송지: raw.shippingAddress (수령인/배송지) — cancel_monitor·return_monitor와 동일 구조
+    # takingAddress는 상품 출고지(발신지)이므로 사용하지 않음
+    addr = inner.get("shippingAddress", {})
+    logger.info("[SS shippingAddress 키 목록] keys=%s", list(addr.keys()))
+    logger.info("[SS shippingAddress 전체값]\n%s",
                 _json.dumps(addr, ensure_ascii=False, default=str))
     receiver_name    = str(addr.get("name",          "") or "")
-    _phone_from_addr = addr.get("tel", "") or ""
+    _phone_from_addr = addr.get("tel1", "") or addr.get("tel2", "") or ""
     _phone_fallback  = (buyer.get("buyerTel1", "") or
                         order.get("ordererTel", "") or "")
     if not _phone_from_addr and _phone_fallback:
         logger.info(
-            "[SS receiver_phone fallback] order_id=%s addr.tel 없음 → buyerTel1/ordererTel 사용: %r",
+            "[SS receiver_phone fallback] order_id=%s shippingAddress.tel1/tel2 없음 → buyerTel1/ordererTel 사용: %r",
             po.get("productOrderId") or order.get("orderId"), _phone_fallback,
         )
     receiver_phone   = str(_phone_from_addr or _phone_fallback)
     receiver_zipcode = str(addr.get("zipCode",       "") or "")
-    base             = str(addr.get("baseAddress",   "") or "")
+    base             = str(addr.get("roadAddress",   "") or "")
     detail           = str(addr.get("detailAddress", "") or "")
-    receiver_address = " ".join(filter(None, [base, detail]))
+    receiver_address = str(addr.get("addressStr",    "") or " ".join(filter(None, [base, detail])))
     delivery_memo    = str(po.get("deliveryMemo", "") or raw.get("deliveryMemo", "") or "")
 
     logger.info(
