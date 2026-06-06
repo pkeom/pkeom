@@ -11,30 +11,16 @@ logger = logging.getLogger(__name__)
 _raw_logged = False  # 첫 번째 raw 항목만 전체 구조 출력
 
 
-def _find_paths(obj, target: str, path: str = "") -> list[tuple[str, str]]:
-    """obj 안에서 target 문자열을 포함하는 모든 리프 값의 경로를 반환."""
-    results = []
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            p = f"{path}.{k}" if path else k
-            results.extend(_find_paths(v, target, p))
-    elif isinstance(obj, list):
-        for i, v in enumerate(obj):
-            results.extend(_find_paths(v, target, f"{path}[{i}]"))
-    elif isinstance(obj, str) and target in obj:
-        results.append((path, obj))
-    return results
-
-
 def _parse_order_item(raw) -> dict | None:
     """Naver Commerce GET /v1/pay-order/seller/product-orders 응답 1건 정규화.
 
     실제 응답 구조:
-      raw["order"]        → orderId
-      raw["productOrder"] → productOrderId, channelProductNo, productName,
-                            quantity, optionCode,
-                            takingAddress.name/tel/zipCode/baseAddress/detailAddress  ← 배송지
-      raw["buyer"]        → buyerName
+      content.order.ordererName          → 수령인 이름
+      content.order.ordererTel           → 전화번호
+      content.productOrder.shippingAddress (없으면 takingAddress)
+                           .zipCode / .baseAddress / .detailAddress  → 주소
+      content.productOrder.productOrderId / channelProductNo / ...
+      content.buyer.buyerName
     """
     global _raw_logged
 
@@ -44,7 +30,6 @@ def _parse_order_item(raw) -> dict | None:
 
     import json as _json
 
-    # 첫 번째 항목: 최상위 키 + 타입 출력
     if not _raw_logged:
         _raw_logged = True
         key_types = {k: type(v).__name__ for k, v in raw.items()}
@@ -52,26 +37,10 @@ def _parse_order_item(raw) -> dict | None:
         logger.info("[SS API 진단] raw 전체(첫 1건):\n%s",
                     _json.dumps(raw, ensure_ascii=False, default=str)[:5000])
 
-    # 매 항목마다 '유승윤' 경로 탐색 → 수령인 필드 위치 확인용
-    _NAME_TARGET = "유승윤"
-    _found = _find_paths(raw, _NAME_TARGET)
-    if _found:
-        logger.info(
-            "[SS 수령인 경로 탐색] '%s' 발견 경로: %s",
-            _NAME_TARGET,
-            [(p, v) for p, v in _found],
-        )
-    else:
-        logger.info("[SS 수령인 경로 탐색] '%s' 이번 항목에서 미발견", _NAME_TARGET)
-
     inner = raw.get("content", raw)
     order = inner.get("order", {})
     po    = inner.get("productOrder", {})
     buyer = inner.get("buyer", {})
-
-    logger.info("[SS productOrder 키 목록] keys=%s", list(po.keys()))
-    logger.info("[SS productOrder 전체값]\n%s",
-                _json.dumps(po, ensure_ascii=False, default=str)[:3000])
 
     order_id = (po.get("productOrderId")
                 or raw.get("productOrderId")
@@ -92,38 +61,22 @@ def _parse_order_item(raw) -> dict | None:
     product_id = str(_cpno if _cpno is not None else
                      _pid  if _pid  is not None else
                      _origno if _origno is not None else "")
-    logger.info(
-        "product_id 추출: channelProductNo=%r productId=%r originProductNo=%r → product_id=%r",
-        _cpno, _pid, _origno, product_id,
-    )
 
-    # 배송지: productOrder.takingAddress — 실제 SS API 응답에서 수령인 정보가 여기에 있음
-    addr = po.get("takingAddress", {})
-    logger.info("[SS takingAddress 키 목록] keys=%s", list(addr.keys()))
-    logger.info("[SS takingAddress 전체값]\n%s",
-                _json.dumps(addr, ensure_ascii=False, default=str))
-    receiver_name    = str(addr.get("name",          "") or "")
-    logger.info(
-        "[SS takingAddress.name 진단] order_id=%s | takingAddress.name=%r (수령인 이름 확인용)",
-        po.get("productOrderId") or order.get("orderId"), receiver_name,
-    )
-    _phone_from_addr = addr.get("tel", "") or ""
-    _phone_fallback  = (buyer.get("buyerTel1", "") or
-                        order.get("ordererTel", "") or "")
-    if not _phone_from_addr and _phone_fallback:
-        logger.info(
-            "[SS receiver_phone fallback] order_id=%s takingAddress.tel 없음 → buyerTel1/ordererTel 사용: %r",
-            po.get("productOrderId") or order.get("orderId"), _phone_fallback,
-        )
-    receiver_phone   = str(_phone_from_addr or _phone_fallback)
+    # 수령인 이름 · 전화번호: content.order
+    receiver_name  = str(order.get("ordererName", "") or "")
+    receiver_phone = str(order.get("ordererTel",  "") or "")
+
+    # 주소: shippingAddress 우선, 없으면 takingAddress
+    addr = po.get("shippingAddress") or po.get("takingAddress") or {}
     receiver_zipcode = str(addr.get("zipCode",       "") or "")
     base             = str(addr.get("baseAddress",   "") or "")
     detail           = str(addr.get("detailAddress", "") or "")
     receiver_address = " ".join(filter(None, [base, detail]))
-    delivery_memo    = str(po.get("deliveryMemo", "") or raw.get("deliveryMemo", "") or "")
+
+    delivery_memo = str(po.get("deliveryMemo", "") or raw.get("deliveryMemo", "") or "")
 
     logger.info(
-        "[SS delivery 파싱 결과] order_id=%s | name=%r tel=%r zipCode=%r address=%r",
+        "[SS 파싱 결과] order_id=%s | name=%r tel=%r zip=%r address=%r",
         order_id, receiver_name, receiver_phone, receiver_zipcode, receiver_address,
     )
 
