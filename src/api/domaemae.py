@@ -84,7 +84,7 @@ class DomaemaeClient:
         logger.info("도매매 로그인 성공 (sId 앞 8자: %s)", self._sid[:8])
 
     def _renew(self):
-        """setLoginChk로 sId 갱신 (30일 세션 유지)."""
+        """setLoginChk로 sId 갱신. 세션 만료 감지 시 재로그인."""
         resp = requests.post(API_URL, data={
             "mode":          "setLoginChk",
             "ver":           "4.0",
@@ -103,6 +103,14 @@ class DomaemaeClient:
             raise ValueError(f"도매매 세션 갱신 응답 JSON 파싱 실패: {resp.text[:200]}")
         root = data.get("domeggook", data)
 
+        # 세션 만료 오류 감지 → 재로그인
+        err_code = str(root.get("errCode", "") or root.get("error", "") or "").upper()
+        if err_code in ("SESSION_EXPIRE", "SESSION_EXPIRED", "INVALID_SESSION",
+                        "LOGIN_FAIL", "NOLOGIN", "NO_LOGIN"):
+            logger.info("도매매 세션 만료 감지 (setLoginChk errCode=%s) → 재로그인", err_code)
+            self._login()
+            return
+
         new_sid = str(root.get("sId", ""))
         if new_sid:
             self._sid = new_sid
@@ -113,6 +121,14 @@ class DomaemaeClient:
             else datetime.datetime.now() + datetime.timedelta(seconds=180)
         )
         logger.debug("도매매 sId 갱신 완료")
+
+    def _verify_session(self):
+        """setLoginChk로 세션 유효성 즉시 확인. 만료 시 재로그인."""
+        if not self._sid:
+            self._login()
+            return
+        logger.debug("도매매 세션 유효성 확인 (setLoginChk)")
+        self._renew()
 
     def _ensure_session(self):
         """API 호출 전 세션 유효성 보장."""
@@ -345,6 +361,9 @@ class DomaemaeClient:
                 )
         else:
             logger.debug("도매매 발주 옵션 없음: product=%s", product_id)
+
+        # setOrder 직전 세션 유효성 확인 → 만료 시 자동 재로그인
+        self._verify_session()
 
         # item[상품번호] = "dome|P|옵션코드|수량||||||"
         item_value = f"dome|P|{option_code or ''}|{quantity}||||||"
