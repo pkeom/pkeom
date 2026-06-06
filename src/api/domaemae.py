@@ -59,8 +59,8 @@ class DomaemaeClient:
             "id":         self.user_id,
             "pw":         self.password,
             "loginKeep":  "1",
-            "ip":         self._local_ip(),
-            "device":     "Third Party",
+            "ip":         "127.0.0.1",
+            "device":     "PC",
         }, timeout=10)
         resp.raise_for_status()
         try:
