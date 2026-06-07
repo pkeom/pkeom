@@ -362,6 +362,67 @@ def _parse_options(select_opt) -> list[dict]:
     return [{"name": "옵션", "values": flat}] if flat else []
 
 
+def _normalize_opt(s: str) -> str:
+    """옵션명 정규화 (매칭용): 소문자, 공백·슬래시·괄호 제거."""
+    return re.sub(r"[\s/()（）]", "", s).lower()
+
+
+def _parse_option_code_map(select_opt) -> dict[str, str]:
+    """selectOpt.data → {normalized_full_name: combo_code} 딕셔너리.
+
+    도매매 selectOpt.data 예:
+      {"00_00": {"name": "BM-106 아이스롤러/올핑크", "hid": "0", ...}, ...}
+    → {"bm-106아이스롤러올핑크": "00_00", ...}
+    """
+    if not select_opt:
+        return {}
+    if isinstance(select_opt, str):
+        try:
+            root = json.loads(select_opt)
+        except Exception:
+            return {}
+    else:
+        root = select_opt
+    if not isinstance(root, dict):
+        return {}
+    data = root.get("data") or {}
+    if not isinstance(data, dict):
+        return {}
+    result: dict[str, str] = {}
+    for code, info in data.items():
+        if not isinstance(info, dict):
+            continue
+        try:
+            hid = int(info.get("hid", 0))
+        except (TypeError, ValueError):
+            hid = 0
+        if hid == 2:
+            continue
+        name = str(info.get("name", "")).strip()
+        if name:
+            result[_normalize_opt(name)] = str(code)
+    return result
+
+
+def _match_supplier_option(option_code_map: dict[str, str], combo_vals: list[str]) -> str:
+    """SS 옵션 콤보 값 목록 → 도매처 옵션코드.
+
+    매칭 순서:
+      1. 정규화 후 직접 일치
+      2. 도매처 이름 끝이 정규화 콤보로 끝나는지 (접두사 "상품명/" 형태 대응)
+    없으면 "" 반환.
+    """
+    if not option_code_map or not combo_vals:
+        return ""
+    normalized = "".join(_normalize_opt(v) for v in combo_vals)
+    if normalized in option_code_map:
+        return option_code_map[normalized]
+    for key, code in option_code_map.items():
+        if key.endswith(normalized):
+            return code
+    return ""
+
+
 def _parse_category(cat_d) -> str:
     if isinstance(cat_d, dict):
         # 신규 API 형식: {"parents": {"elem": [{"name":..}]}, "current": {"name":..}}
@@ -882,7 +943,8 @@ def fetch_product_info(url: str, client) -> dict:
                       or basis.get("certAgency") or basis.get("certOrgName") or "")
     min_qty      = int(basis.get("minQty") or basis.get("min_qty") or 1)
     cat_name     = _parse_category(raw.get("category", {}))
-    options      = _parse_options(raw.get("selectOpt", {}))
+    options          = _parse_options(raw.get("selectOpt", {}))
+    option_code_map  = _parse_option_code_map(raw.get("selectOpt", {}))
     img_src = raw.get("img") or raw.get("images") or {}
     if not img_src and raw.get("thumb"):
         # 신규 API: thumb.original / thumb.large / thumb.small 순으로 대표이미지 설정
@@ -953,8 +1015,9 @@ def fetch_product_info(url: str, client) -> dict:
         "sub_images":    sub_images,
         "detail_images": detail_images,
         "detail_html":   detail_html,
-        "options":       options,
-        "category_id":   cat_name,
+        "options":          options,
+        "option_code_map":  option_code_map,
+        "category_id":      cat_name,
         "category_name": cat_name,
         "category_code": category_code,
     }
@@ -1410,7 +1473,8 @@ def _save_option_mappings(
     if not combinations:
         return 0
 
-    title_short = info.get("title", "")[:30]
+    option_code_map = info.get("option_code_map", {})
+    title_short     = info.get("title", "")[:30]
     saved = 0
     for combo in combinations:
         if not combo.get("usable", True):
@@ -1426,6 +1490,13 @@ def _save_option_mappings(
         ]
         option_label = "/".join(name_parts) or ch_opt_id
 
+        supplier_opt_id = _match_supplier_option(option_code_map, name_parts)
+        if supplier_opt_id:
+            logger.info("옵션 매핑: SS 옵션=%r → 도매처 코드=%s", option_label, supplier_opt_id)
+        else:
+            logger.warning("옵션 매핑 실패 — SS 옵션=%r 도매처 코드 없음 (product=%s)",
+                           option_label, ss_prod_id)
+
         try:
             mapping_repo.add(
                 ss_product_id      = ss_prod_id,
@@ -1433,6 +1504,7 @@ def _save_option_mappings(
                 supplier           = info["supplier"],
                 supplier_url_or_id = url,
                 ss_option_id       = ch_opt_id,
+                supplier_option_id = supplier_opt_id,
                 price_margin_rate  = price_margin_rate,
                 memo               = f"자동등록 {title_short} [{option_label}]",
             )
@@ -1440,7 +1512,13 @@ def _save_option_mappings(
         except Exception as e:
             logger.warning("옵션 매핑 저장 실패 (combo_id=%s): %s", ch_opt_id, e)
 
-    logger.info("옵션 매핑 저장 완료: ss_product_id=%s — %d건", ss_prod_id, saved)
+    logger.info("옵션 매핑 저장 완료: ss_product_id=%s — %d건 (코드 매칭 성공 %d건)",
+                ss_prod_id, saved,
+                sum(1 for c in combinations
+                    if _match_supplier_option(option_code_map,
+                        [str(c.get(f"optionName{i}", "")).strip()
+                         for i in range(1, 5)
+                         if str(c.get(f"optionName{i}", "")).strip()])))
     return saved
 
 
@@ -1706,3 +1784,109 @@ def register_product(url: str, selling_price: int, smartstore_api,
         "category_match": category_match,
         "info":           info,
     }
+
+
+# ── 옵션 매핑 backfill ──────────────────────────────────────────────
+
+def backfill_option_mappings(
+    ss_product_id: str,
+    supplier_product_id: str,
+    smartstore_api,
+    supplier_client,
+    mapping_repo,
+    supplier: str = "domaemae",
+    price_margin_rate: float = 1.3,
+) -> dict:
+    """이미 등록된 상품의 옵션 매핑에 supplier_option_id 재매핑.
+
+    Args:
+        ss_product_id:       channelProductNo (예: "13625392732")
+        supplier_product_id: 도매매 상품번호   (예: "59295051")
+
+    Returns:
+        {"updated": int, "failed": [option_label,...], "total": int}
+    """
+    # 1. origin_product_no 조회 (기존 매핑 우선, 없으면 ss_product_id 직접 시도)
+    origin_prod_id = ""
+    for m in mapping_repo.all():
+        if m.get("ss_product_id") == ss_product_id and m.get("origin_product_no"):
+            origin_prod_id = m["origin_product_no"]
+            break
+    if not origin_prod_id:
+        origin_prod_id = ss_product_id
+        logger.warning("backfill: 기존 매핑에서 origin_product_no 없음 — ss_product_id(%s)로 시도",
+                       ss_product_id)
+
+    # 2. SS 옵션 조합 목록 조회
+    try:
+        confirmed = smartstore_api.get_product(origin_prod_id)
+    except Exception as e:
+        raise RuntimeError(f"SS 상품 조회 실패 (origin={origin_prod_id}): {e}") from e
+
+    opt_info     = (confirmed.get("originProduct", {})
+                             .get("detailAttribute", {})
+                             .get("optionInfo", {}))
+    combinations = opt_info.get("optionCombinations", [])
+    if not combinations:
+        logger.info("backfill: optionCombinations 없음 — 단일 상품")
+        return {"updated": 0, "failed": [], "total": 0}
+
+    # 3. 도매매 옵션코드 맵 (get_options → selectOpt.data 형식)
+    try:
+        dm_opts = supplier_client.get_options(supplier_product_id)
+    except Exception as e:
+        raise RuntimeError(f"도매매 옵션 조회 실패 (product={supplier_product_id}): {e}") from e
+
+    option_code_map: dict[str, str] = {
+        _normalize_opt(o["name"]): o["id"] for o in dm_opts if o.get("name")
+    }
+    logger.info("backfill: 도매매 옵션 %d개 로드 (상품=%s)", len(option_code_map), supplier_product_id)
+
+    # 4. 조합별 매핑 업데이트 or 신규 추가
+    updated, failed = 0, []
+    for combo in combinations:
+        if not combo.get("usable", True):
+            continue
+        ch_opt_id = str(combo.get("id") or "")
+        if not ch_opt_id:
+            continue
+
+        name_parts = [
+            str(combo.get(f"optionName{i}", "")).strip()
+            for i in range(1, 5)
+            if combo.get(f"optionName{i}", "").strip()
+        ]
+        option_label    = "/".join(name_parts) or ch_opt_id
+        supplier_opt_id = _match_supplier_option(option_code_map, name_parts)
+
+        if supplier_opt_id:
+            logger.info("backfill 매칭: SS 옵션=%r → 도매처 코드=%s", option_label, supplier_opt_id)
+        else:
+            logger.warning("backfill 매칭 실패: SS 옵션=%r 도매처 코드 없음", option_label)
+            failed.append(option_label)
+
+        existing = mapping_repo.find(ss_product_id, ch_opt_id)
+        if existing:
+            mapping_repo.set_supplier_option_id(existing["id"], supplier_opt_id)
+            updated += 1
+        else:
+            try:
+                mapping_repo.add(
+                    ss_product_id      = ss_product_id,
+                    origin_product_no  = origin_prod_id,
+                    supplier           = supplier,
+                    supplier_url_or_id = supplier_product_id,
+                    ss_option_id       = ch_opt_id,
+                    supplier_option_id = supplier_opt_id,
+                    price_margin_rate  = price_margin_rate,
+                    memo               = f"backfill [{option_label}]",
+                )
+                updated += 1
+            except Exception as e:
+                logger.warning("backfill 매핑 추가 실패: %s", e)
+                if option_label not in failed:
+                    failed.append(option_label)
+
+    logger.info("backfill 완료: ss_product_id=%s — 처리 %d건 / 매칭 실패 %d건",
+                ss_product_id, updated, len(failed))
+    return {"updated": updated, "failed": failed, "total": len(combinations)}

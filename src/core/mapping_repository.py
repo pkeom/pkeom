@@ -162,3 +162,13 @@ class MappingRepository:
                     m["memo"] = memo
                     break
             self._write(mappings)
+
+    def set_supplier_option_id(self, mapping_id: int, supplier_option_id: str):
+        """supplier_option_id 업데이트 (backfill용)"""
+        with _lock:
+            mappings = self._read()
+            for m in mappings:
+                if m.get("id") == mapping_id:
+                    m["supplier_option_id"] = supplier_option_id
+                    break
+            self._write(mappings)
