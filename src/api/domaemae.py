@@ -454,7 +454,7 @@ class DomaemaeClient:
         "req":      "취소요청접수",
     }
 
-    def cancel_order(self, order_no: str) -> dict:
+    def cancel_order(self, order_no: str, memo: str = "고객 취소요청") -> dict:
         """발주 취소 (setOrdDeny, ver=1.0).
 
         배송 시작 전에만 취소 가능. 이미 발송된 경우 API가 오류를 반환합니다.
@@ -466,7 +466,7 @@ class DomaemaeClient:
             "mode": "setOrdDeny", "ver": "1.0", "om": "json", "ie": "utf8",
             "aid":  self.api_key,  "sId": self._sid,
             "type": "buy",         "id":  self.user_id,
-            "no":   order_no,
+            "no":   order_no,      "memo": memo,
         }
         _req = requests.Request("POST", API_URL, data=_full_d).prepare()
         print("=" * 60, flush=True)
@@ -477,7 +477,8 @@ class DomaemaeClient:
         logger.info("[setOrdDeny] Body=%s", _req.body)
 
         root = self._post("setOrdDeny", "1.0",
-                          {"type": "buy", "id": self.user_id, "no": order_no, "ie": "utf8"})
+                          {"type": "buy", "id": self.user_id, "no": order_no,
+                           "memo": memo, "ie": "utf8"})
         logger.info("[setOrdDeny] 응답 원문: %s", root)
         print(f"[setOrdDeny 응답] {root}", flush=True)
 

@@ -228,7 +228,7 @@ class CancelMonitor:
             )
             return
 
-        ok, msg = self._call_deny(supplier, order_no)
+        ok, msg = self._call_deny(supplier, order_no, entry.get("cancel_reason", ""))
         if ok:
             entry["cancel_state"] = "DENY_SENT"
             entry["deny_sent_at"] = datetime.now(timezone.utc).isoformat()
@@ -283,7 +283,7 @@ class CancelMonitor:
             )
             return
 
-        ok, msg = self._call_deny(supplier, order_no)
+        ok, msg = self._call_deny(supplier, order_no, entry.get("cancel_reason", ""))
         if ok:
             entry["cancel_state"] = "DENY_SENT"
             entry["deny_sent_at"] = datetime.now(timezone.utc).isoformat()
@@ -642,13 +642,15 @@ class CancelMonitor:
 
     # ── 도매처 API ───────────────────────────────────────────────
 
-    def _call_deny(self, supplier: str, order_no: str) -> tuple[bool, str]:
+    def _call_deny(self, supplier: str, order_no: str,
+                   cancel_reason: str = "") -> tuple[bool, str]:
         client = self._suppliers.get(supplier)
         if not client:
             logger.error("setOrdDeny 클라이언트 없음: supplier=%s order_no=%s", supplier, order_no)
             return False, f"도매처 클라이언트 없음: {supplier}"
+        memo = cancel_reason or "고객 취소요청"
         try:
-            resp = client.cancel_order(order_no)
+            resp = client.cancel_order(order_no, memo=memo)
             logger.info("setOrdDeny 성공: supplier=%s order_no=%s resp=%s", supplier, order_no, resp)
             return True, "성공"
         except Exception as e:
