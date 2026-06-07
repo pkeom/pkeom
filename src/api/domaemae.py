@@ -427,13 +427,18 @@ class DomaemaeClient:
         if err:
             raise RuntimeError(f"도매매 발주 실패: {err}")
 
-        # 발주번호 확인 — 여러 후보 키 시도
-        order_no = (
-            str(root.get("orderNo") or "")
-            or str(root.get("order_no") or "")
-            or str(root.get("ordNo") or "")
-            or str(root.get("no") or "")
-        ).strip()
+        # 발주번호 확인
+        # 실제 응답: {'result': 'SUCCESS', 'order': [{'orderNo': 73776490, ...}]}
+        order_list = root.get("order", [])
+        if isinstance(order_list, list) and order_list:
+            order_no = str(order_list[0].get("orderNo", "")).strip()
+        else:
+            order_no = (
+                str(root.get("orderNo") or "")
+                or str(root.get("order_no") or "")
+                or str(root.get("ordNo") or "")
+                or str(root.get("no") or "")
+            ).strip()
 
         if not order_no:
             raise RuntimeError(
