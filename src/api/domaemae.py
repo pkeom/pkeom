@@ -507,7 +507,8 @@ class DomaemaeClient:
         return root
 
     _CANCEL_APPROVED_KEYWORDS = ["cancel_ok", "취소승인", "cancel_accept", "deny_ok", "refund",
-                                  "취소완료", "환불", "취소처리완료"]
+                                  "취소완료", "환불", "취소처리완료", "구매취소"]
+    _CANCEL_APPROVED_STATUS_MODES = {"DENYBUY", "CANCEL", "CANCEL_OK", "CANCEL_ACCEPT"}
     _CANCEL_REJECTED_KEYWORDS = ["cancel_deny", "취소거부", "deny_fail", "cancel_reject", "취소거절"]
 
     def get_cancel_result(self, order_no: str) -> str:
@@ -564,9 +565,11 @@ class DomaemaeClient:
             if isinstance(items, dict):
                 items = list(items.values())
             for item in (items if isinstance(items, list) else []):
-                item_no = str(
+                _raw_no = str(
                     item.get("no") or item.get("ordNo") or item.get("orderNo") or ""
                 )
+                # 도매매가 'OR73779677' 형태로 반환 → 숫자만 비교
+                item_no = _raw_no[2:] if _raw_no.upper().startswith("OR") else _raw_no
                 if item_no == str(order_no):
                     logger.info("[getOrderList] 발주번호 발견: no=%s item=%s", order_no, item)
                     return self._parse_cancel_status(item, order_no, tag="getOrderList")
@@ -585,11 +588,17 @@ class DomaemaeClient:
         f_status        = str(item.get("status",        ""))
         f_ord_status    = str(item.get("ordStatus",     ""))
         f_cancel_status = str(item.get("cancelStatus",  ""))
+        f_status_mode   = str(item.get("statusMode",    "") or obj.get("statusMode", "")).upper()
         f_root_status   = str(obj.get("status",         ""))
         logger.info(
-            "[%s] 판별 필드 — item.status=%r ordStatus=%r cancelStatus=%r root.status=%r (no=%s)",
-            tag, f_status, f_ord_status, f_cancel_status, f_root_status, order_no,
+            "[%s] 판별 필드 — item.status=%r ordStatus=%r cancelStatus=%r "
+            "statusMode=%r root.status=%r (no=%s)",
+            tag, f_status, f_ord_status, f_cancel_status, f_status_mode, f_root_status, order_no,
         )
+        # statusMode로 먼저 판별 (DENYBUY 등 명확한 값)
+        if f_status_mode in self._CANCEL_APPROVED_STATUS_MODES:
+            logger.info("[%s] → APPROVED (no=%s statusMode=%r)", tag, order_no, f_status_mode)
+            return "APPROVED"
         status = (f_status or f_ord_status or f_cancel_status or f_root_status).lower()
         if any(k in status for k in self._CANCEL_APPROVED_KEYWORDS):
             logger.info("[%s] → APPROVED (no=%s status=%r)", tag, order_no, status)
@@ -597,7 +606,8 @@ class DomaemaeClient:
         if any(k in status for k in self._CANCEL_REJECTED_KEYWORDS):
             logger.info("[%s] → REJECTED (no=%s status=%r)", tag, order_no, status)
             return "REJECTED"
-        logger.info("[%s] → PENDING (키워드 불일치, no=%s status=%r)", tag, order_no, status)
+        logger.info("[%s] → PENDING (키워드 불일치, no=%s status=%r statusMode=%r)",
+                    tag, order_no, status, f_status_mode)
         return "PENDING"
 
     def get_order_tracking(self, order_no: str) -> dict:
