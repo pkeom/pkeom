@@ -429,6 +429,7 @@ def api_register_preview():
     d             = request.json or {}
     url           = d.get("url", "").strip()
     selling_price = int(d.get("selling_price", 0))
+    product_name  = d.get("product_name", "").strip()
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
     if not _dm_cli:
@@ -438,7 +439,8 @@ def api_register_preview():
         cost = (info["supply_price"] or 0) + 3000
         if not selling_price:
             selling_price = cost
-        return jsonify({**info, "selling_price": selling_price, "cost": cost})
+        return jsonify({**info, "selling_price": selling_price, "cost": cost,
+                        "product_name": product_name})
     except Exception as e:
         import traceback
         logger.error("register preview 오류: %s\n%s", e, traceback.format_exc())
@@ -452,6 +454,7 @@ def api_register_submit():
     url           = d.get("url", "").strip()
     selling_price = int(d.get("selling_price", 0))
     category_id   = d.get("category_id", "").strip()
+    product_name  = d.get("product_name", "").strip()
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
     if not _ss_api or not _dm_cli:
@@ -465,6 +468,7 @@ def api_register_submit():
             settings        = _cfg or {},
             mapping_repo    = _mapping_repo,
             category_id     = category_id,
+            product_name    = product_name,
         )
         if result.get("success"):
             _git_push_mappings()

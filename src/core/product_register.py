@@ -1219,14 +1219,19 @@ def _build_origin_area(origin_text: str) -> dict:
 # ── 스마트스토어 payload 구성 ──────────────────────────────────────
 
 def build_smartstore_payload(info: dict, selling_price: int,
-                             settings: dict, category_id: str = "") -> dict:
-    seller_phone = settings.get("seller_phone", "")
-    leaf_cat_id  = category_id  # resolve_category()가 미리 결정한 값 (빈 문자열 가능)
-    tags         = generate_tags(info["title"])
+                             settings: dict, category_id: str = "",
+                             product_name: str = "") -> dict:
+    seller_phone   = settings.get("seller_phone", "")
+    leaf_cat_id    = category_id  # resolve_category()가 미리 결정한 값 (빈 문자열 가능)
+    effective_name = (product_name or info["title"]).strip()
+    tags           = generate_tags(effective_name)
 
+    # product_name 직접 입력 시 상세설명을 상품명으로 고정
+    if product_name:
+        detail_content = f"<p>{product_name}</p>"
     # detail_html에서 Naver CDN에 업로드된 이미지 태그만 추출해 깔끔한 HTML 구성
     # (iframe 전체 body를 그대로 쓰면 네비게이션·스크립트 등 불필요한 HTML 포함됨)
-    if info.get("detail_html"):
+    elif info.get("detail_html"):
         _naver_imgs = [
             img.get("src", "")
             for img in BeautifulSoup(info["detail_html"], "lxml").find_all("img")
@@ -1237,11 +1242,11 @@ def build_smartstore_payload(info: dict, selling_price: int,
         elif info.get("detail_images"):
             detail_content = "\n".join(f'<img src="{u}"/>' for u in info["detail_images"])
         else:
-            detail_content = f"<p>{info.get('title', '')}</p>"
+            detail_content = f"<p>{effective_name}</p>"
     elif info.get("detail_images"):
         detail_content = "\n".join(f'<img src="{u}"/>' for u in info["detail_images"])
     else:
-        detail_content = f"<p>{info.get('title', '')}</p>"
+        detail_content = f"<p>{effective_name}</p>"
 
     images: dict = {}
     if info.get("main_image"):
@@ -1258,7 +1263,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
     origin_product: dict = {
         "statusType":    "SALE",
         "saleType":      "NEW",
-        "name":          info["title"][:100],
+        "name":          effective_name[:100],
         "detailContent": detail_content,
         "images":        images,
         "salePrice":     selling_price,
@@ -1443,7 +1448,7 @@ def _save_option_mappings(
 
 def register_product(url: str, selling_price: int, smartstore_api,
                      supplier_client, settings: dict, mapping_repo,
-                     category_id: str = "") -> dict:
+                     category_id: str = "", product_name: str = "") -> dict:
     """수집 → 스마트스토어 등록 → 매핑 저장."""
     try:
         info = fetch_product_info(url, supplier_client)
@@ -1560,7 +1565,8 @@ def register_product(url: str, selling_price: int, smartstore_api,
             info["detail_html"],
         )
 
-    payload = build_smartstore_payload(info, selling_price, settings, category_id)
+    payload = build_smartstore_payload(info, selling_price, settings, category_id,
+                                       product_name=product_name)
 
     def _post_product(pl: dict):
         return requests.post(
