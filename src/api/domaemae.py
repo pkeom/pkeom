@@ -328,7 +328,7 @@ class DomaemaeClient:
         shipping_info 필수 키: name, phone, zipcode, base_address, receiver_address_detail
         shipping_info 선택 키: memo
 
-        deliinfo 형식: "이름|이메일|우편번호|기본주소|상세주소|휴대폰|전화번호|"
+        deliinfo 형식: "이름|이메일|우편번호|기본주소|상세주소|휴대폰|전화번호|상호명"
         """
         product_id = self._normalize_pid(product_id)
 
@@ -365,19 +365,20 @@ class DomaemaeClient:
         # setOrder 직전 세션 유효성 확인 → 만료 시 자동 재로그인
         self._verify_session()
 
-        # item[상품번호] = "dome|P|옵션코드|수량||||||"
-        item_value = f"dome|P|{option_code or ''}|{quantity}||||"
+        # item[상품번호] = "supply||P||옵션코드|수량||||"  (시장구분=supply, 더블파이프)
+        item_value = f"supply||P||{option_code or ''}|{quantity}||||"
         name           = shipping_info["name"]
         zipcode        = shipping_info["zipcode"]
         base_address   = (shipping_info.get("base_address", "")
                           or shipping_info.get("address", ""))
         detail_address = shipping_info.get("receiver_address_detail", "")
         phone          = shipping_info["phone"]
+        email          = shipping_info.get("email", "") or "none@none.com"
         # SS API detailAddress에 전화번호가 저장된 경우 중복 방지
         if detail_address == phone:
             detail_address = ""
-        # 형식: "이름|이메일|우편번호|기본주소|상세주소|휴대폰|전화번호|상호명"
-        deliinfo = f"{name}||{zipcode}|{base_address}|{detail_address}|{phone}||"
+        # 형식: "이름|이메일|우편번호|기본주소|상세주소|휴대폰|전화번호|상호명"  (8번째 상호명 필수)
+        deliinfo = f"{name}|{email}|{zipcode}|{base_address}|{detail_address}|{phone}|{phone}|{name}"
         logger.info(
             "[deliinfo 슬롯] 이름=%r 우편번호=%r 기본주소=%r 상세주소=%r 휴대폰=%r → %s",
             name, zipcode, base_address, detail_address, phone, deliinfo,
