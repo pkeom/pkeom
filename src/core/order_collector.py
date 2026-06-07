@@ -33,7 +33,7 @@ def _parse_order_item(raw) -> dict | None:
       content.order.ordererName          → 수령인 이름
       content.order.ordererTel           → 전화번호
       content.productOrder.shippingAddress (없으면 takingAddress)
-                           .zipCode / .baseAddress / .detailAddress  → 주소
+                           .zipCode / .baseAddress / .detailedAddress(.detailAddress)  → 주소
       content.productOrder.productOrderId / channelProductNo / ...
       content.buyer.buyerName
     """
@@ -98,7 +98,8 @@ def _parse_order_item(raw) -> dict | None:
     receiver_phone   = str(addr.get("tel1", "") or addr.get("tel", "") or "")
     receiver_zipcode = str(addr.get("zipCode",       "") or "")
     base             = str(addr.get("baseAddress",   "") or "")
-    detail           = str(addr.get("detailAddress", "") or "")
+    # SS API는 detailedAddress(우선) 또는 detailAddress 중 하나를 사용
+    detail           = str(addr.get("detailedAddress", "") or addr.get("detailAddress", "") or "")
 
     # detailAddress가 비어 있고 baseAddress에 괄호 부분이 포함된 경우 분리
     if not detail and base:

@@ -38,14 +38,15 @@ from src.api.domaemae import API_URL
 client._ensure_session()
 
 option_code = OPTION_ID
-item_value  = f"dome|P|{option_code}|{QUANTITY}||||||"
+item_value  = f"supply||P||{option_code}|{QUANTITY}||||"
 
 base_address   = shipping_info.get("base_address", "") or shipping_info.get("address", "")
 detail_address = shipping_info.get("receiver_address_detail", "")
 phone          = shipping_info["phone"]
-if detail_address == phone:
-    detail_address = ""
-deliinfo = f"{shipping_info['name']}||{shipping_info['zipcode']}|{base_address}|{detail_address}|{phone}||"
+email          = shipping_info.get("email", "") or "none@none.com"
+name           = shipping_info["name"]
+# 8개 필드(파이프 7개) 고정: 이름|이메일|우편번호|기본주소|상세주소|휴대폰|전화번호|상호명
+deliinfo = f"{name}|{email}|{shipping_info['zipcode']}|{base_address}|{detail_address}|{phone}|{phone}|{name}"
 
 data = {
     f"item[{PRODUCT_ID}]": item_value,
