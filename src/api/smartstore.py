@@ -389,24 +389,44 @@ class SmartstoreAPI:
         return resp.json()
 
     def set_product_sale_status(self, origin_product_no: str, on_sale: bool):
-        """상품 판매 상태 변경 — PUT /v2/products/{originProductNo}
-        404 응답 시: 엔드포인트 미지원으로 간주해 경고 로그만 출력하고 정상 반환.
-        """
-        resp = requests.put(
-            f"{self.BASE_URL}/v2/products/{origin_product_no}",
+        """상품 판매 상태 변경 — PATCH /v2/products/origin-products/{originProductNo}"""
+        status_type = "SALE" if on_sale else "SUSPENSION"
+        url  = f"{self.BASE_URL}/v2/products/origin-products/{origin_product_no}"
+        body = {"originProduct": {"statusType": status_type}}
+
+        logger.info(
+            "[set_product_sale_status] PATCH %s body=%s", url, body,
+        )
+
+        resp = requests.patch(
+            url,
             headers=self._headers(),
-            json={"saleStatus": "ON_SALE" if on_sale else "SUSPENSION"},
+            json=body,
             timeout=10,
         )
-        if resp.status_code == 404:
-            logger.warning(
-                "판매상태 변경 404 — 엔드포인트 미지원, 건너뜀 "
-                "(origin_product_no=%s on_sale=%s)",
-                origin_product_no, on_sale,
+
+        logger.info(
+            "[set_product_sale_status] 응답 status=%s body=%s",
+            resp.status_code, resp.text[:500],
+        )
+
+        try:
+            data = resp.json()
+        except ValueError:
+            data = {"raw": resp.text}
+
+        errors = data.get("errors") if isinstance(data, dict) else None
+        if errors:
+            logger.error(
+                "[set_product_sale_status] errors 응답: origin_product_no=%s errors=%s",
+                origin_product_no, errors,
             )
-            return {}
+            raise RuntimeError(
+                f"판매상태 변경 실패 (errors): {errors} (origin_product_no={origin_product_no})"
+            )
+
         resp.raise_for_status()
-        return resp.json()
+        return data
 
     def get_product(self, product_id: str) -> dict:
         """상품 정보 조회 — GET /v2/products/origin-products/{originProductNo}"""
