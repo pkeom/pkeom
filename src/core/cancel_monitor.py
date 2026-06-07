@@ -73,32 +73,36 @@ class CancelMonitor:
         seen_ids = {r["product_order_id"] for r in data["cancellations"]}
         new_count = 0
 
-        # 1. 신규 취소 요청 감지 (최근 1시간)
+        # 1. 신규 취소 요청 감지 — CANCEL_REQUEST 상태 주문 전체 (최근 3일)
         try:
-            raw_cancels = self._ss.get_cancellations(hours=1)
+            raw_cancels = self._ss.get_orders(status="CANCEL_REQUEST", days=3)
         except Exception as e:
             logger.error("취소 요청 목록 조회 실패: %s", e)
             raw_cancels = []
 
         for item in raw_cancels:
-            po       = item.get("productOrder", {})
-            claim    = item.get("claim", {})
+            inner    = item.get("content", item)
+            po       = inner.get("productOrder", {})
+            # 반품 등 다른 클레임 제외 — CANCEL 타입만 처리
+            if po.get("claimType", "CANCEL") not in ("CANCEL", ""):
+                continue
             order_id = po.get("productOrderId", "")
             if not order_id or order_id in seen_ids:
                 continue
 
-            entry          = self._make_entry(item, po, claim)
+            entry          = self._make_entry(item)
             supplier_order = self._get_supplier_order(order_id)
 
-            if not supplier_order or supplier_order["status"] in ("CANCELLED", "ERROR", ""):
+            if not supplier_order or supplier_order["status"] in ("CANCELLED", "ERROR", "", "NEW"):
                 self._route_ss_auto(entry)
-            elif supplier_order["tracking_number"] or supplier_order["status"] == "SHIPPED":
+            elif (supplier_order["tracking_number"]
+                  or supplier_order["status"] in ("SHIPPED", "INVOICED", "DONE")):
                 self._route_shipped(entry, supplier_order)
             elif supplier_order["status"] == "ORDERED":
                 was_confirmed = self._was_ss_confirmed(order_id)
                 self._route_ordered(entry, supplier_order, was_confirmed)
             else:
-                # PENDING, STOCK_PENDING 등 → SS 자동 처리
+                # PENDING, STOCK_PENDING 등 → SS 취소 승인
                 self._route_ss_auto(entry)
 
             data["cancellations"].append(entry)
@@ -128,9 +132,17 @@ class CancelMonitor:
     # ── 라우팅 ───────────────────────────────────────────────────
 
     def _route_ss_auto(self, entry: dict):
-        """case a: DB 발주 없음 또는 이미 취소/오류 → SS 자동 처리."""
-        entry["cancel_state"] = "SS_AUTO"
-        entry["result_label"] = "SS 자동 처리 (도매처 발주 없음)"
+        """case a: DB 발주 없음 또는 이미 취소/오류 → SS 취소 승인 직접 호출."""
+        order_id = entry["product_order_id"]
+        try:
+            self._ss.approve_cancel(order_id)
+            entry["cancel_state"] = "SS_AUTO"
+            entry["result_label"] = "도매처 발주 없음 → SS 취소 승인 완료"
+            logger.info("SS 취소 승인(발주없음): order_id=%s", order_id)
+        except Exception as e:
+            entry["cancel_state"] = "SS_AUTO_FAILED"
+            entry["result_label"] = f"SS 취소 승인 실패: {e}"
+            logger.error("SS 취소 승인 실패 (order_id=%s): %s", order_id, e)
 
     def _route_shipped(self, entry: dict, sup: dict):
         """case c: DB SHIPPED → SS dispatch(CANCEL_REJECT)."""
@@ -392,13 +404,16 @@ class CancelMonitor:
             if not recent_confirmed:
                 return
 
-            # 24시간 취소 요청 목록
+            # 취소 요청 목록 (최근 1일)
             try:
-                raw_24h = self._ss.get_cancellations(hours=24)
-                cancel_24h = {
-                    item.get("productOrder", {}).get("productOrderId", "")
-                    for item in raw_24h
-                }
+                raw_24h = self._ss.get_orders(status="CANCEL_REQUEST", days=1)
+                cancel_24h = set()
+                for _c in raw_24h:
+                    _inner = _c.get("content", _c)
+                    _po    = _inner.get("productOrder", {})
+                    _pid   = _po.get("productOrderId", "")
+                    if _pid:
+                        cancel_24h.add(_pid)
             except Exception:
                 cancel_24h = set()
 
@@ -539,6 +554,21 @@ class CancelMonitor:
     # ── DB 연동 ──────────────────────────────────────────────────
 
     def _get_supplier_order(self, ss_order_id: str) -> dict | None:
+        # orders.json 우선 조회 (실제 운영 데이터)
+        if self._order_repo is not None:
+            try:
+                order = self._order_repo.find(ss_order_id)
+                if order:
+                    return {
+                        "supplier":          order.get("supplier", ""),
+                        "supplier_order_no": order.get("supplier_order_no", ""),
+                        "status":            order.get("status", ""),
+                        "tracking_number":   order.get("tracking_number", ""),
+                        "delivery_company":  order.get("delivery_company", ""),
+                    }
+            except Exception as e:
+                logger.warning("orders.json 발주 조회 실패 (%s): %s", ss_order_id, e)
+        # SQLAlchemy 폴백 (레거시)
         try:
             from src.db.database import get_session
             from src.db.models import SupplierOrder
@@ -562,6 +592,14 @@ class CancelMonitor:
         return None
 
     def _update_supplier_status(self, ss_order_id: str, status: str):
+        # orders.json 우선
+        if self._order_repo is not None:
+            try:
+                self._order_repo.update_status(ss_order_id, status)
+                return
+            except Exception as e:
+                logger.warning("orders.json 상태 업데이트 실패 (%s → %s): %s", ss_order_id, status, e)
+        # SQLAlchemy 폴백
         try:
             from src.db.database import get_session
             from src.db.models import SupplierOrder
@@ -590,34 +628,46 @@ class CancelMonitor:
 
     # ── 파일 I/O ─────────────────────────────────────────────────
 
-    def _make_entry(self, raw: dict, po: dict, claim: dict) -> dict:
-        """SS product-orders/query 응답 1건 → 취소 엔트리 생성.
+    def _make_entry(self, raw: dict) -> dict:
+        """GET /v1/pay-order/seller/product-orders 응답 1건 → 취소 엔트리 생성.
 
-        raw: 전체 응답 (productOrder·order·shippingAddress·claim 포함)
-        po : raw["productOrder"]
-        claim: raw["claim"]
+        raw: {"content": {"productOrder": {...}, "order": {...}, "buyer": {...}}}
         """
-        ord_  = raw.get("order", {})
-        addr  = raw.get("shippingAddress", {})
+        inner = raw.get("content", raw)
+        po    = inner.get("productOrder", {})
+        ord_  = inner.get("order", {})
+        buyer = inner.get("buyer", {})
+        addr  = po.get("shippingAddress") or {}
+
+        # 취소 사유: productOrder.cancel.cancelReason 또는 claimReason
+        cancel_obj    = po.get("cancel", {})
+        cancel_reason = (
+            cancel_obj.get("cancelReason")
+            or cancel_obj.get("claimReason")
+            or po.get("cancelReason")
+            or po.get("claimReason")
+            or "사유 미상"
+        )
+
+        base   = str(addr.get("baseAddress", "") or "")
+        detail = str(addr.get("detailedAddress", "") or addr.get("detailAddress", "") or "")
+        address_str = " ".join(filter(None, [base, detail]))
+
         return {
             # ── 주문 식별 ────────────────────────────────────────
             "product_order_id": po.get("productOrderId", ""),
-            "ss_order_id":      po.get("orderId", ""),
+            "ss_order_id":      ord_.get("orderId", "") or po.get("orderId", ""),
             # ── 상품 정보 ────────────────────────────────────────
             "product_name":     po.get("productName", "알 수 없음"),
             "quantity":         int(po.get("quantity") or 0),
-            "cancel_reason":    (
-                claim.get("cancelReason")
-                or claim.get("claimReason")
-                or "사유 미상"
-            ),
+            "cancel_reason":    cancel_reason,
             # ── 구매자 / 수령인 정보 ─────────────────────────────
-            "buyer_name":       ord_.get("ordererName", ""),
-            "buyer_phone":      (ord_.get("ordererTel") or ord_.get("ordererTelephone", "")),
+            "buyer_name":       (buyer.get("buyerName") or ord_.get("ordererName", "")),
+            "buyer_phone":      (buyer.get("buyerTel1") or ord_.get("ordererTel", "")),
             "receiver_name":    addr.get("name", ""),
-            "receiver_phone":   (addr.get("tel1") or addr.get("tel2") or ""),
-            "receiver_address": addr.get("addressStr", ""),
-            "receiver_zipcode": addr.get("zipCode", ""),
+            "receiver_phone":   (addr.get("tel1", "") or addr.get("tel2", "")),
+            "receiver_address": address_str,
+            "receiver_zipcode": str(addr.get("zipCode", "") or ""),
             # ── 기존 발송 정보 ───────────────────────────────────
             "invoice_number":   str(po.get("invoiceNumber") or ""),
             # ── 도매처 처리 상태 (발주 후 채워짐) ────────────────
