@@ -447,15 +447,27 @@ class DomaemaeClient:
 
         return order_no
 
+    # setOrdDeny result 값 → 의미
+    _DENY_RESULT_LABELS = {
+        "complete": "즉시취소완료",
+        "true":     "공급사승인대기",
+        "req":      "취소요청접수",
+    }
+
     def cancel_order(self, order_no: str) -> dict:
-        """발주 취소 (setOrdDeny).
+        """발주 취소 (setOrdDeny, ver=1.0).
 
         배송 시작 전에만 취소 가능. 이미 발송된 경우 API가 오류를 반환합니다.
+        반환값: root dict (result 필드 포함)
         """
         # PreparedRequest로 실제 전송 URL·body 캡처
         self._ensure_session()
-        _full_d = {"mode": "setOrdDeny", "ver": "4.0", "om": "json",
-                   "aid": self.api_key, "sId": self._sid, "no": order_no}
+        _full_d = {
+            "mode": "setOrdDeny", "ver": "1.0", "om": "json", "ie": "utf8",
+            "aid":  self.api_key,  "sId": self._sid,
+            "type": "buy",         "id":  self.user_id,
+            "no":   order_no,
+        }
         _req = requests.Request("POST", API_URL, data=_full_d).prepare()
         print("=" * 60, flush=True)
         print(f"[setOrdDeny PreparedRequest] URL : {_req.url}", flush=True)
@@ -464,16 +476,33 @@ class DomaemaeClient:
         logger.info("[setOrdDeny] URL=%s", _req.url)
         logger.info("[setOrdDeny] Body=%s", _req.body)
 
-        root = self._post("setOrdDeny", "4.0", {"no": order_no})
+        root = self._post("setOrdDeny", "1.0",
+                          {"type": "buy", "id": self.user_id, "no": order_no, "ie": "utf8"})
         logger.info("[setOrdDeny] 응답 원문: %s", root)
         print(f"[setOrdDeny 응답] {root}", flush=True)
 
+        # errors 객체가 있으면 무조건 실패
+        errors = root.get("errors", {})
+        if isinstance(errors, dict) and errors:
+            code = errors.get("code", "") or errors.get("dcode", "")
+            msg  = errors.get("dmessage") or errors.get("msg", "") or errors.get("message", "")
+            raise RuntimeError(f"도매매 취소 실패 (errors): code={code} msg={msg} (원문: {root})")
+
+        # 루트 레벨 오류 필드 확인
         err = root.get("error") or root.get("errCode") or root.get("errMsg")
         if err:
-            raise RuntimeError(f"도매매 발주 취소 실패: {err}")
-        result_val = str(root.get("result", "")).upper()
-        if result_val and result_val not in ("SUCCESS", "OK", "1", "TRUE"):
-            raise RuntimeError(f"도매매 발주 취소 응답 result 비정상: {result_val} (원문: {root})")
+            raise RuntimeError(f"도매매 취소 실패: {err} (원문: {root})")
+
+        # result 값으로 성공 여부 확인
+        result_val = str(root.get("result", "")).lower().strip()
+        label = self._DENY_RESULT_LABELS.get(result_val)
+        if label:
+            logger.info("[setOrdDeny] 성공 — result=%s (%s) order_no=%s", result_val, label, order_no)
+        elif result_val:
+            raise RuntimeError(
+                f"도매매 취소 응답 result 알 수 없음: '{result_val}' (원문: {root})"
+            )
+        # result 없는 경우도 오류 필드 없으면 성공으로 간주
         return root
 
     def get_cancel_result(self, order_no: str) -> str:
