@@ -1806,22 +1806,19 @@ def backfill_option_mappings(
     Returns:
         {"updated": int, "failed": [option_label,...], "total": int}
     """
-    # 1. origin_product_no 조회 (기존 매핑 우선, 없으면 ss_product_id 직접 시도)
+    # origin_product_no는 로그·매핑 기록용으로만 조회
     origin_prod_id = ""
     for m in mapping_repo.all():
         if m.get("ss_product_id") == ss_product_id and m.get("origin_product_no"):
             origin_prod_id = m["origin_product_no"]
             break
-    if not origin_prod_id:
-        origin_prod_id = ss_product_id
-        logger.warning("backfill: 기존 매핑에서 origin_product_no 없음 — ss_product_id(%s)로 시도",
-                       ss_product_id)
 
-    # 2. SS 옵션 조합 목록 조회
+    # 1. SS 옵션 조합 목록 조회 — get_product는 originProductNo 사용
+    lookup_id = origin_prod_id or ss_product_id
     try:
-        confirmed = smartstore_api.get_product(origin_prod_id)
+        confirmed = smartstore_api.get_product(lookup_id)
     except Exception as e:
-        raise RuntimeError(f"SS 상품 조회 실패 (origin={origin_prod_id}): {e}") from e
+        raise RuntimeError(f"SS 상품 조회 실패 (originProductNo={lookup_id}): {e}") from e
 
     opt_info     = (confirmed.get("originProduct", {})
                              .get("detailAttribute", {})

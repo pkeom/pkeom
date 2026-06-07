@@ -400,9 +400,9 @@ class SmartstoreAPI:
         return resp.json()
 
     def get_product(self, product_id: str) -> dict:
-        """상품 정보 조회 — GET /v2/channels/products/{channelProductNo}"""
+        """상품 정보 조회 — GET /v2/products/origin-products/{originProductNo}"""
         resp = requests.get(
-            f"{self.BASE_URL}/v2/channels/products/{product_id}",
+            f"{self.BASE_URL}/v2/products/origin-products/{product_id}",
             headers=self._headers(),
             timeout=10,
         )
