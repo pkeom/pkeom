@@ -389,13 +389,22 @@ class SmartstoreAPI:
         return resp.json()
 
     def set_product_sale_status(self, origin_product_no: str, on_sale: bool):
-        """상품 판매 상태 변경 — PUT /v2/products/{originProductNo}"""
+        """상품 판매 상태 변경 — PUT /v2/products/{originProductNo}
+        404 응답 시: 엔드포인트 미지원으로 간주해 경고 로그만 출력하고 정상 반환.
+        """
         resp = requests.put(
             f"{self.BASE_URL}/v2/products/{origin_product_no}",
             headers=self._headers(),
             json={"saleStatus": "ON_SALE" if on_sale else "SUSPENSION"},
             timeout=10,
         )
+        if resp.status_code == 404:
+            logger.warning(
+                "판매상태 변경 404 — 엔드포인트 미지원, 건너뜀 "
+                "(origin_product_no=%s on_sale=%s)",
+                origin_product_no, on_sale,
+            )
+            return {}
         resp.raise_for_status()
         return resp.json()
 

@@ -148,6 +148,8 @@ class CancelMonitor:
             entry["cancel_state"] = "SS_AUTO_FAILED"
             entry["result_label"] = f"SS 취소 승인 실패: {e}"
             logger.error("SS 취소 승인 실패 (order_id=%s): %s", order_id, e)
+        # orders.json을 CANCELLED로 → OrderPlacer가 재발주하지 않도록
+        self._update_supplier_status(order_id, "CANCELLED")
 
     def _route_shipped(self, entry: dict, sup: dict):
         """case c: DB SHIPPED → SS dispatch(CANCEL_REJECT)."""
