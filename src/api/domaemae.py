@@ -13,10 +13,12 @@ _RENEW_BUFFER = 30  # sIdRenewDate 만료 N초 전에 갱신
 
 class DomaemaeClient:
 
-    def __init__(self, api_key: str, user_id: str = "", password: str = "", **_):
-        self.api_key  = api_key
-        self.user_id  = user_id
-        self.password = password
+    def __init__(self, api_key: str, user_id: str = "", password: str = "",
+                 store_name: str = "엘에이(LA)", **_):
+        self.api_key    = api_key
+        self.user_id    = user_id
+        self.password   = password
+        self.store_name = store_name or "엘에이(LA)"
 
         self._sid: str = ""
         self._sid_renew_date: datetime.datetime | None = None
@@ -378,7 +380,7 @@ class DomaemaeClient:
         if detail_address == phone:
             detail_address = ""
         # 형식: "이름|이메일|우편번호|기본주소|상세주소|휴대폰|전화번호|상호명"  (8번째 상호명 필수)
-        deliinfo = f"{name}|{email}|{zipcode}|{base_address}|{detail_address}|{phone}|{phone}|{name}"
+        deliinfo = f"{name}|{email}|{zipcode}|{base_address}|{detail_address}|{phone}|{phone}|{self.store_name}"
         logger.info(
             "[deliinfo 슬롯] 이름=%r 우편번호=%r 기본주소=%r 상세주소=%r 휴대폰=%r → %s",
             name, zipcode, base_address, detail_address, phone, deliinfo,
@@ -387,6 +389,7 @@ class DomaemaeClient:
             f"item[{product_id}]": item_value,
             "deliinfo":            deliinfo,
             "receipt":             "0",
+            "id":                  self.user_id,
         }
 
         logger.debug("도매매 setOrder 요청 파라미터: %s", data)

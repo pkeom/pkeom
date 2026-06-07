@@ -192,9 +192,10 @@ def main():
     dk_api   = DomaekkukAPI(**cfg["domaekkuk"])
     _dm = cfg.get("domaemae", {})
     dm_cli = DomaemaeClient(
-        api_key  = _dm.get("api_key") or cfg["domaekkuk"].get("api_key", ""),
-        user_id  = _dm.get("user_id", ""),
-        password = _dm.get("password", ""),
+        api_key    = _dm.get("api_key") or cfg["domaekkuk"].get("api_key", ""),
+        user_id    = _dm.get("user_id", ""),
+        password   = _dm.get("password", ""),
+        store_name = cfg.get("store_name", "엘에이(LA)"),
     )
     notifier = _build_notifier(cfg)
 
