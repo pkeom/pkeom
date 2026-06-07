@@ -506,28 +506,57 @@ class DomaemaeClient:
         # result 없는 경우도 오류 필드 없으면 성공으로 간주
         return root
 
+    _CANCEL_APPROVED_KEYWORDS = ["cancel_ok", "취소승인", "cancel_accept", "deny_ok", "refund",
+                                  "취소완료", "환불", "취소처리완료"]
+    _CANCEL_REJECTED_KEYWORDS = ["cancel_deny", "취소거부", "deny_fail", "cancel_reject", "취소거절"]
+
     def get_cancel_result(self, order_no: str) -> str:
         """setOrdDeny 후 도매처 취소 처리 결과 확인 (getOrderView).
 
         반환: 'APPROVED' | 'REJECTED' | 'PENDING'
-        ※ 실제 status 값은 API 문서 확인 후 아래 키워드 목록 조정 필요.
         """
+        # 요청 URL 로깅
+        self._ensure_session()
+        _params = {"mode": "getOrderView", "ver": "4.0", "om": "json",
+                   "aid": self.api_key, "sId": self._sid, "for": "buy", "no": order_no}
+        _req = requests.Request("GET", API_URL, params=_params).prepare()
+        logger.info("[getOrderView] URL=%s", _req.url)
+        print(f"[getOrderView] URL={_req.url}", flush=True)
+
         try:
             root  = self._get("getOrderView", "4.0", {"for": "buy", "no": order_no})
+            logger.info("[getOrderView] 응답 원문 (order_no=%s): %s", order_no, root)
+            print(f"[getOrderView 응답] {root}", flush=True)
+
             items = root.get("items", [])
             if isinstance(items, dict):
                 items = list(items.values())
-            item   = items[0] if items and isinstance(items[0], dict) else {}
-            status = (
-                str(item.get("status",         ""))
-                or str(item.get("ordStatus",   ""))
-                or str(item.get("cancelStatus",""))
-                or str(root.get("status",      ""))
-            ).lower()
-            if any(k in status for k in ["cancel_ok", "취소승인", "cancel_accept", "deny_ok", "refund"]):
+            item = items[0] if items and isinstance(items[0], dict) else {}
+
+            # 판별에 사용할 각 필드 값을 명시적으로 로깅
+            f_status        = str(item.get("status",        ""))
+            f_ord_status    = str(item.get("ordStatus",     ""))
+            f_cancel_status = str(item.get("cancelStatus",  ""))
+            f_root_status   = str(root.get("status",        ""))
+            logger.info(
+                "[getOrderView] 판별 필드 — item.status=%r item.ordStatus=%r "
+                "item.cancelStatus=%r root.status=%r (order_no=%s)",
+                f_status, f_ord_status, f_cancel_status, f_root_status, order_no,
+            )
+
+            status = (f_status or f_ord_status or f_cancel_status or f_root_status).lower()
+            logger.info("[getOrderView] 판별 대상 status=%r APPROVED_KW=%s REJECTED_KW=%s",
+                        status, self._CANCEL_APPROVED_KEYWORDS, self._CANCEL_REJECTED_KEYWORDS)
+
+            if any(k in status for k in self._CANCEL_APPROVED_KEYWORDS):
+                logger.info("[getOrderView] → APPROVED (order_no=%s status=%r)", order_no, status)
                 return "APPROVED"
-            if any(k in status for k in ["cancel_deny", "취소거부", "deny_fail", "cancel_reject"]):
+            if any(k in status for k in self._CANCEL_REJECTED_KEYWORDS):
+                logger.info("[getOrderView] → REJECTED (order_no=%s status=%r)", order_no, status)
                 return "REJECTED"
+
+            logger.info("[getOrderView] → PENDING (일치 키워드 없음, order_no=%s status=%r)",
+                        order_no, status)
         except Exception as e:
             logger.warning("도매매 취소 결과 조회 실패 (%s): %s", order_no, e)
         return "PENDING"
