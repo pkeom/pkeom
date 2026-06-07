@@ -14,6 +14,7 @@
 import json
 import logging
 import os
+import time as _time
 from datetime import datetime, timezone, timedelta
 
 from src.api.smartstore import SmartstoreAPI
@@ -125,6 +126,8 @@ class CancelMonitor:
                 self._poll_deny_result(entry)
             elif state == "REJECTED_WAIT_SHIP":
                 self._poll_tracking_for_rejected(entry)
+            elif state == "CANCEL_RECHECK_PENDING":
+                self._recheck_cancel_pre_deny(entry)
 
         # 3. 레이스 컨디션 감지 (발주확인 후 취소 요청)
         self._detect_race_conditions(data, seen_ids)
@@ -185,8 +188,14 @@ class CancelMonitor:
             )
 
         # ── Case 1: setOrdDeny 호출 전 구매자 취소 철회 감지 ────────────
-        ss_status = self._get_ss_order_status(order_id)
-        if ss_status and ss_status != "CANCEL_REQUEST":
+        claim_check = self._get_ss_claim_status(order_id)
+        if claim_check is None:
+            # 429/오류 → 취소 철회로 단정 금지, 다음 회차에 재확인
+            entry["cancel_state"] = "CANCEL_RECHECK_PENDING"
+            entry["result_label"] = "SS claimStatus 조회 실패(429) — 다음 회차 재확인"
+            logger.warning("setOrdDeny 보류 (SS 조회 실패): order_id=%s", order_id)
+            return
+        if claim_check == "WITHDRAWN":
             entry["cancel_state"] = "BUYER_WITHDREW_PRE_DENY"
             entry["result_label"] = "구매자 취소 철회 감지 — setOrdDeny 미전송, 발주 정상 진행"
             self._restore_order_status(order_id, "ORDERED")
@@ -199,6 +208,7 @@ class CancelMonitor:
                 f"  도매처 출고 시 송장이 자동으로 등록됩니다.",
             )
             return
+        # claim_check == "CANCEL_REQUEST" → setOrdDeny 진행
 
         if not order_no:
             entry["cancel_state"] = "DENY_FAILED"
@@ -231,6 +241,59 @@ class CancelMonitor:
                 f"  취소 후 SS에서 취소 승인을 처리하세요.\n{extra}",
             )
 
+    def _recheck_cancel_pre_deny(self, entry: dict):
+        """CANCEL_RECHECK_PENDING: SS claimStatus 재확인 후 setOrdDeny 또는 철회 처리."""
+        order_id    = entry["product_order_id"]
+        supplier    = entry.get("supplier", "")
+        order_no    = entry.get("supplier_order_no", "")
+
+        claim_check = self._get_ss_claim_status(order_id)
+        if claim_check is None:
+            logger.warning("recheck 보류 (SS 조회 실패): order_id=%s", order_id)
+            return  # keep CANCEL_RECHECK_PENDING
+
+        if claim_check == "WITHDRAWN":
+            entry["cancel_state"] = "BUYER_WITHDREW_PRE_DENY"
+            entry["result_label"] = "구매자 취소 철회 확인 (재확인)"
+            self._restore_order_status(order_id, "ORDERED")
+            self._notify(
+                entry,
+                f"[취소철회] 구매자 취소 철회 확인 (재확인) — {entry['product_name']}",
+                f"→ 재확인 결과 취소 요청이 철회됐습니다.\n"
+                f"  도매처 발주({supplier} / {order_no})가 정상 진행됩니다.",
+            )
+            return
+
+        # CANCEL_REQUEST 유지 → setOrdDeny 재시도
+        if not order_no:
+            entry["cancel_state"] = "DENY_FAILED"
+            entry["result_label"] = f"{supplier} 발주번호 없음 — 수동 처리 필요 (재확인 후)"
+            self._notify(
+                entry, f"[긴급] 도매처 취소 요청 실패 (재확인 후) — {entry['product_name']}",
+                f"오류: {supplier} 발주번호 없음\n"
+                f"→ 도매꾹/도매매 사이트에서 직접 취소 처리 후 SS 취소 승인하세요.",
+            )
+            return
+
+        ok, msg = self._call_deny(supplier, order_no)
+        if ok:
+            entry["cancel_state"] = "DENY_SENT"
+            entry["deny_sent_at"] = datetime.now(timezone.utc).isoformat()
+            entry["result_label"] = f"{supplier} 취소 요청 전송 완료 (재확인 후) — 도매처 응답 대기 중"
+            self._notify(
+                entry, f"[취소처리] 도매처 취소 요청 전송 (재확인 후) — {entry['product_name']}",
+                f"→ {supplier} 취소 요청(setOrdDeny)을 전송했습니다.\n"
+                f"  도매처 응답을 10분마다 확인합니다.",
+            )
+        else:
+            entry["cancel_state"] = "DENY_FAILED"
+            entry["result_label"] = f"{supplier} 취소 요청 전송 실패 (재확인 후): {msg}"
+            self._notify(
+                entry, f"[긴급] 도매처 취소 요청 실패 (재확인 후) — {entry['product_name']}",
+                f"오류: {msg}\n"
+                f"→ 도매꾹/도매매 사이트에서 직접 주문({order_no})을 취소하세요.",
+            )
+
     # ── 폴링 ─────────────────────────────────────────────────────
 
     def _poll_deny_result(self, entry: dict):
@@ -248,8 +311,9 @@ class CancelMonitor:
         logger.debug("취소 결과 폴링: %s → %s (영업일 %d일)", order_id, result, bdays)
 
         # ── Case 2: setOrdDeny 후 구매자 취소 철회 감지 ─────────────────
-        ss_status = self._get_ss_order_status(order_id)
-        buyer_withdrew = bool(ss_status and ss_status != "CANCEL_REQUEST")
+        claim_check    = self._get_ss_claim_status(order_id)
+        # None(429/오류)은 철회로 단정 금지 → buyer_withdrew = False
+        buyer_withdrew = (claim_check == "WITHDRAWN")
 
         if buyer_withdrew and result == "APPROVED":
             self._handle_buyer_withdrawal_after_approved(entry)
@@ -473,14 +537,41 @@ class CancelMonitor:
 
     # ── 구매자 취소 철회 처리 ────────────────────────────────────
 
-    def _get_ss_order_status(self, product_order_id: str) -> str:
-        """SS 주문의 현재 productOrderStatus 반환. 조회 실패 시 '' 반환."""
-        try:
-            order_data = self._ss.get_product_order(product_order_id)
-            return order_data.get("productOrder", {}).get("productOrderStatus", "")
-        except Exception as e:
-            logger.warning("SS 주문 상태 조회 실패 (%s): %s", product_order_id, e)
-            return ""
+    _SS_RETRY_DELAYS = (1.0, 2.0)
+
+    def _get_ss_claim_status(self, product_order_id: str) -> str | None:
+        """SS 주문의 claimStatus 반환.
+
+        Returns:
+            "CANCEL_REQUEST" — 취소 요청 유지 중
+            "WITHDRAWN"      — 클레임 없음 (취소 철회)
+            None             — 429/오류 → 철회로 단정 금지, 다음 회차 보류
+        """
+        for attempt, delay in enumerate((*self._SS_RETRY_DELAYS, None)):
+            try:
+                order_data = self._ss.get_product_order(product_order_id)
+                if not order_data:
+                    logger.warning("SS 주문 조회 빈 응답 — 불확실: %s", product_order_id)
+                    return None
+                po = order_data.get("productOrder", {})
+                claim_status = po.get("claimStatus", "")
+                po_status    = po.get("productOrderStatus", "")
+                if claim_status == "CANCEL_REQUEST" or po_status == "CANCEL_REQUEST":
+                    return "CANCEL_REQUEST"
+                return "WITHDRAWN"
+            except Exception as e:
+                _code = getattr(getattr(e, "response", None), "status_code", None)
+                if _code == 429 and delay is not None:
+                    logger.warning(
+                        "SS 주문 조회 429 — %.0f초 후 재시도 (attempt %d): %s",
+                        delay, attempt + 1, product_order_id,
+                    )
+                    _time.sleep(delay)
+                else:
+                    logger.warning("SS claimStatus 조회 실패 — 불확실: %s %s", product_order_id, e)
+                    return None
+        logger.warning("SS 주문 조회 429 반복 실패 — 불확실: %s", product_order_id)
+        return None
 
     def _restore_order_status(self, order_id: str, status: str) -> bool:
         """orders.json의 주문 상태를 변경해 OrderPlacer/InvoiceManager가 재처리하도록 한다."""
