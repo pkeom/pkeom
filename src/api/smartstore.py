@@ -389,31 +389,49 @@ class SmartstoreAPI:
         return resp.json()
 
     def set_product_sale_status(self, origin_product_no: str, on_sale: bool):
-        """상품 판매 상태 변경 — PATCH /v2/products/origin-products/{originProductNo}"""
+        """상품 판매 상태 변경 — GET 후 statusType만 수정해 PUT.
+
+        PATCH /origin-products 미지원 → GET 전체 바디 획득 후 statusType 변경 PUT.
+        """
         status_type = "SALE" if on_sale else "SUSPENSION"
-        url  = f"{self.BASE_URL}/v2/products/origin-products/{origin_product_no}"
-        body = {"originProduct": {"statusType": status_type}}
+        url = f"{self.BASE_URL}/v2/products/origin-products/{origin_product_no}"
+
+        # 1. 현재 상품 전체 데이터 GET
+        get_resp = requests.get(url, headers=self._headers(), timeout=10)
+        logger.info(
+            "[set_product_sale_status] GET %s → status=%s",
+            url, get_resp.status_code,
+        )
+        get_resp.raise_for_status()
+        current = get_resp.json()
+
+        # 2. statusType만 수정
+        put_body = dict(current)
+        put_body["originProduct"] = dict(current.get("originProduct", {}))
+        put_body["originProduct"]["statusType"] = status_type
 
         logger.info(
-            "[set_product_sale_status] PATCH %s body=%s", url, body,
+            "[set_product_sale_status] PUT %s statusType=%s",
+            url, status_type,
         )
 
-        resp = requests.patch(
+        # 3. 전체 바디 PUT
+        put_resp = requests.put(
             url,
             headers=self._headers(),
-            json=body,
-            timeout=10,
+            json=put_body,
+            timeout=15,
         )
 
         logger.info(
-            "[set_product_sale_status] 응답 status=%s body=%s",
-            resp.status_code, resp.text[:500],
+            "[set_product_sale_status] PUT 응답 status=%s body=%s",
+            put_resp.status_code, put_resp.text[:500],
         )
 
         try:
-            data = resp.json()
+            data = put_resp.json()
         except ValueError:
-            data = {"raw": resp.text}
+            data = {"raw": put_resp.text}
 
         errors = data.get("errors") if isinstance(data, dict) else None
         if errors:
@@ -425,7 +443,7 @@ class SmartstoreAPI:
                 f"판매상태 변경 실패 (errors): {errors} (origin_product_no={origin_product_no})"
             )
 
-        resp.raise_for_status()
+        put_resp.raise_for_status()
         return data
 
     def get_product(self, product_id: str) -> dict:
