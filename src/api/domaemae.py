@@ -452,10 +452,28 @@ class DomaemaeClient:
 
         배송 시작 전에만 취소 가능. 이미 발송된 경우 API가 오류를 반환합니다.
         """
+        # PreparedRequest로 실제 전송 URL·body 캡처
+        self._ensure_session()
+        _full_d = {"mode": "setOrdDeny", "ver": "4.0", "om": "json",
+                   "aid": self.api_key, "sId": self._sid, "no": order_no}
+        _req = requests.Request("POST", API_URL, data=_full_d).prepare()
+        print("=" * 60, flush=True)
+        print(f"[setOrdDeny PreparedRequest] URL : {_req.url}", flush=True)
+        print(f"[setOrdDeny PreparedRequest] Body: {_req.body}", flush=True)
+        print("=" * 60, flush=True)
+        logger.info("[setOrdDeny] URL=%s", _req.url)
+        logger.info("[setOrdDeny] Body=%s", _req.body)
+
         root = self._post("setOrdDeny", "4.0", {"no": order_no})
+        logger.info("[setOrdDeny] 응답 원문: %s", root)
+        print(f"[setOrdDeny 응답] {root}", flush=True)
+
         err = root.get("error") or root.get("errCode") or root.get("errMsg")
         if err:
             raise RuntimeError(f"도매매 발주 취소 실패: {err}")
+        result_val = str(root.get("result", "")).upper()
+        if result_val and result_val not in ("SUCCESS", "OK", "1", "TRUE"):
+            raise RuntimeError(f"도매매 발주 취소 응답 result 비정상: {result_val} (원문: {root})")
         return root
 
     def get_cancel_result(self, order_no: str) -> str:

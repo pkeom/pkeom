@@ -120,6 +120,14 @@ class CancelMonitor:
             )
 
         # 2. 진행 중인 취소 요청 폴링
+        _active = [e for e in data["cancellations"]
+                   if e.get("cancel_state", "") in (
+                       "DENY_SENT", "URGENT_3DAY", "BUYER_WITHDREW_DENY_PENDING",
+                       "REJECTED_WAIT_SHIP", "CANCEL_RECHECK_PENDING",
+                   )]
+        logger.info("진행 중인 취소 폴링 대상: %d건 %s",
+                    len(_active),
+                    [(e["product_order_id"], e.get("cancel_state")) for e in _active])
         for entry in data["cancellations"]:
             state = entry.get("cancel_state", "")
             if state in ("DENY_SENT", "URGENT_3DAY", "BUYER_WITHDREW_DENY_PENDING"):
@@ -308,7 +316,7 @@ class CancelMonitor:
         entry["last_checked_at"]       = datetime.now(timezone.utc).isoformat()
 
         result = self._get_cancel_result(supplier, order_no)
-        logger.debug("취소 결과 폴링: %s → %s (영업일 %d일)", order_id, result, bdays)
+        logger.info("취소 결과 폴링: %s / %s → %s (영업일 %d일)", order_id, order_no, result, bdays)
 
         # ── Case 2: setOrdDeny 후 구매자 취소 철회 감지 ─────────────────
         claim_check    = self._get_ss_claim_status(order_id)
@@ -637,12 +645,14 @@ class CancelMonitor:
     def _call_deny(self, supplier: str, order_no: str) -> tuple[bool, str]:
         client = self._suppliers.get(supplier)
         if not client:
+            logger.error("setOrdDeny 클라이언트 없음: supplier=%s order_no=%s", supplier, order_no)
             return False, f"도매처 클라이언트 없음: {supplier}"
         try:
-            client.cancel_order(order_no)
+            resp = client.cancel_order(order_no)
+            logger.info("setOrdDeny 성공: supplier=%s order_no=%s resp=%s", supplier, order_no, resp)
             return True, "성공"
         except Exception as e:
-            logger.error("setOrdDeny 실패 (%s/%s): %s", supplier, order_no, e)
+            logger.error("setOrdDeny 실패: supplier=%s order_no=%s error=%s", supplier, order_no, e)
             return False, str(e)
 
     def _get_cancel_result(self, supplier: str, order_no: str) -> str:
