@@ -523,7 +523,28 @@ class OrderPlacer:
                     "재고 조회 실패 — 발주 계속 진행: %s/%s — %s", supplier, supplier_pid, e,
                 )
 
-        # 3. 도매처 발주 API 호출
+        # 3. 멱등성 가드: API 호출 직전에 디스크에서 최신 상태 재확인
+        _fresh = self._orders.find(order_id)
+        if _fresh:
+            _st  = _fresh.get("status", "")
+            _ono = _fresh.get("supplier_order_no", "")
+            if _st in ("ORDERED", "INVOICED", "DONE"):
+                logger.warning(
+                    "발주 중복 방지 스킵: order_id=%s status=%s supplier_order_no=%s",
+                    order_id, _st, _ono,
+                )
+                return "ordered"
+            if _ono:
+                logger.warning(
+                    "발주 중복 방지 스킵(발주번호 존재): order_id=%s supplier_order_no=%s",
+                    order_id, _ono,
+                )
+                return "ordered"
+            if _st == "CANCELLED":
+                logger.info("발주 스킵(취소됨): order_id=%s", order_id)
+                return "error"
+
+        # 4. 도매처 발주 API 호출
         shipping = {
             "name":           order.get("receiver_name", ""),
             "phone":          order.get("receiver_phone", ""),
@@ -595,7 +616,7 @@ class OrderPlacer:
             )
             return "error"
 
-        # 4. 발주 성공 저장
+        # 5. 발주 성공 저장
         try:
             with get_session() as session:
                 session.add(SupplierOrder(

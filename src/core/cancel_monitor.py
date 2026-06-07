@@ -73,17 +73,22 @@ class CancelMonitor:
         seen_ids = {r["product_order_id"] for r in data["cancellations"]}
         new_count = 0
 
-        # 1. 신규 취소 요청 감지 — CANCEL_REQUEST 상태 주문 전체 (최근 3일)
-        try:
-            raw_cancels = self._ss.get_orders(status="CANCEL_REQUEST", days=3)
-        except Exception as e:
-            logger.error("취소 요청 목록 조회 실패: %s", e)
-            raw_cancels = []
+        # 1. 신규 취소 요청 감지 — PAYED/DELIVERING 주문 조회 후 claimStatus 필터
+        # (CANCEL_REQUEST는 productOrderStatuses 유효값이 아닌 claim 상태값 → 400 오류)
+        raw_cancels: list = []
+        for _status in ("PAYED", "DELIVERING"):
+            try:
+                raw_cancels += self._ss.get_orders(status=_status, days=3)
+            except Exception as e:
+                logger.warning("취소 요청 조회 실패 (status=%s): %s", _status, e)
 
         for item in raw_cancels:
             inner    = item.get("content", item)
             po       = inner.get("productOrder", {})
-            # 반품 등 다른 클레임 제외 — CANCEL 타입만 처리
+            # claimStatus == CANCEL_REQUEST 인 건만 처리
+            if po.get("claimStatus") != "CANCEL_REQUEST":
+                continue
+            # 반품·교환 등 제외 — CANCEL 타입만 처리
             if po.get("claimType", "CANCEL") not in ("CANCEL", ""):
                 continue
             order_id = po.get("productOrderId", "")
@@ -404,16 +409,22 @@ class CancelMonitor:
             if not recent_confirmed:
                 return
 
-            # 취소 요청 목록 (최근 1일)
+            # 취소 요청 목록 (최근 1일) — PAYED/DELIVERING 조회 후 claimStatus 필터
             try:
-                raw_24h = self._ss.get_orders(status="CANCEL_REQUEST", days=1)
+                _raw_24h: list = []
+                for _s in ("PAYED", "DELIVERING"):
+                    try:
+                        _raw_24h += self._ss.get_orders(status=_s, days=1)
+                    except Exception:
+                        pass
                 cancel_24h = set()
-                for _c in raw_24h:
+                for _c in _raw_24h:
                     _inner = _c.get("content", _c)
                     _po    = _inner.get("productOrder", {})
-                    _pid   = _po.get("productOrderId", "")
-                    if _pid:
-                        cancel_24h.add(_pid)
+                    if _po.get("claimStatus") == "CANCEL_REQUEST":
+                        _pid = _po.get("productOrderId", "")
+                        if _pid:
+                            cancel_24h.add(_pid)
             except Exception:
                 cancel_24h = set()
 

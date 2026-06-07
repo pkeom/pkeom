@@ -22,6 +22,20 @@ venv/
 # 로그
 data/logs/
 
+# 런타임 상태 파일 — 매 실행마다 바뀌므로 git 추적 제외
+# (data/mappings.json 은 공유 설정이므로 추적 유지)
+data/orders.json
+data/stock_cache.json
+data/pending_orders.json
+data/returns.json
+data/stock_pending_orders.json
+data/budget.json
+data/category_mapping_cache.json
+data/price_alerts.json
+data/cancellations.json
+data/confirm_log.json
+data/stock_pending.json
+
 # 개발 도구
 .idea/
 .vscode/
