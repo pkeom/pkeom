@@ -506,6 +506,100 @@ def _fetch_kc_cert_detail(cert_url: str) -> tuple[str, str]:
         return "", ""
 
 
+# ── rraCert 내부 페이지 파싱 ──────────────────────────────────────
+
+def _fetch_rra_cert(link_url: str) -> dict:
+    """item_rraCert.php 페이지(UTF-8)에서 KC 방송통신기자재 상세 정보 파싱.
+
+    Returns: {company_name, manufacturer_name, model_name, cert_date}
+    """
+    result = {
+        "company_name": "", "manufacturer_name": "",
+        "model_name": "",   "cert_date": "",
+    }
+    try:
+        session = _make_session(referer="https://domeme.domeggook.com/")
+        resp = _retry_get(session, link_url)
+        if not resp.ok:
+            logger.warning("rraCert 요청 실패: HTTP %s (%s)", resp.status_code, link_url)
+            return result
+        # 페이지는 UTF-8 (Content-Type: text/html;charset=UTF-8)
+        soup = BeautifulSoup(resp.content.decode("utf-8", errors="replace"), "lxml")
+        label_map = {
+            "상호":       "company_name",
+            "제조자":     "manufacturer_name",
+            "모델명":     "model_name",
+            "인증연월일": "cert_date",
+        }
+        for th in soup.find_all("th"):
+            label = th.get_text(strip=True)
+            td    = th.find_next_sibling("td") or th.find_next("td")
+            val   = td.get_text(strip=True) if td else ""
+            for key, field in label_map.items():
+                if key in label and val and not result[field]:
+                    result[field] = val
+        logger.info("rraCert 파싱: %r", result)
+    except Exception as e:
+        logger.warning("rraCert 파싱 실패 (%s): %s", link_url, e)
+    return result
+
+
+def _scrape_all_kc_certs(soup: BeautifulSoup,
+                          base_domain: str = "https://domeme.domeggook.com") -> list[dict]:
+    """div.lCert.lHasImg 전체 순회 → KC 인증 목록 반환.
+
+    각 항목 키: cert_type, cert_no, link_type ("rra"|"safetykorea"|""),
+                agency, cert_type_detail,
+                company_name, manufacturer_name, model_name, cert_date
+    """
+    certs: list[dict] = []
+    for blk in soup.select("div.lCert.lHasImg"):
+        title_el = blk.select_one("div.lCertTitle")
+        num_el   = blk.select_one("div.lCertNum")
+        link_el  = blk.select_one("div.lCertNum a[href]")
+
+        raw_title = title_el.get_text(strip=True) if title_el else ""
+        m = re.search(r"\[(.+?)\]", raw_title)
+        cert_type = m.group(1).strip() if m else raw_title
+
+        raw_num = num_el.get_text(strip=True) if num_el else ""
+        cert_no = re.split(r"자세히", raw_num)[0].strip()
+
+        link_href = (link_el["href"] or "").strip() if link_el else ""
+        if link_href.startswith("/"):
+            link_href = base_domain + link_href
+
+        entry: dict = {
+            "cert_type": cert_type, "cert_no": cert_no,
+            "link_type": "", "agency": "", "cert_type_detail": "",
+            "company_name": "", "manufacturer_name": "",
+            "model_name": "",  "cert_date": "",
+        }
+
+        if "safetykorea.kr" in link_href:
+            entry["link_type"] = "safetykorea"
+            agency, type_detail = _fetch_kc_cert_detail(link_href)
+            entry["agency"]           = agency
+            entry["cert_type_detail"] = type_detail
+            if type_detail:
+                entry["cert_type"] = type_detail
+        elif "rraCert" in link_href or "item_rra" in link_href:
+            entry["link_type"] = "rra"
+            rra = _fetch_rra_cert(link_href)
+            entry.update(rra)
+
+        if cert_no:
+            certs.append(entry)
+
+    # rraCert 상호를 safetykorea 인증에도 복사 (companyName 공통화)
+    rra_company = next((c["company_name"] for c in certs if c.get("company_name")), "")
+    for cert in certs:
+        if not cert["company_name"] and rra_company:
+            cert["company_name"] = rra_company
+
+    return certs
+
+
 # ── 도매꾹 ─────────────────────────────────────────────────────────
 
 def _domaekkuk_api(product_id: str, api_key: str) -> dict:
@@ -605,34 +699,14 @@ def _scrape_domaekkuk(product_id: str) -> dict:
     else:
         result["min_qty"] = 1
 
-    # ── 8. KC 인증 ────────────────────────────────────────────────
-    # lCertTitle 형식: "[인증유형] 제품분류" (예: "[안전인증] 선풍기")
-    # 인증기관명은 "자세히보기" 링크(safetykorea.kr)에서 수집
-    cert_el = soup.select_one("div.lCert.lHasImg")
-    if cert_el:
-        cert_title = cert_el.select_one("div.lCertTitle")
-        if cert_title:
-            m = re.search(r"\[(.+?)\]", cert_title.get_text(strip=True))
-            if m:
-                cert_type = m.group(1).strip()
-                if cert_type:
-                    result["kc_cert_type"] = cert_type
-        cert_num = cert_el.select_one("div.lCertNum")
-        if cert_num:
-            raw_num = cert_num.get_text(strip=True)
-            raw_num = re.split(r"자세히", raw_num)[0].strip()
-            if raw_num:
-                result["kc_cert_no"] = raw_num
-            # safetykorea.kr "자세히보기" 링크에서 인증기관명·인증구분 수집
-            cert_link = cert_num.select_one("a[href]")
-            if cert_link:
-                detail_url = cert_link.get("href", "").strip()
-                if detail_url and "safetykorea.kr" in detail_url:
-                    agency, type_detail = _fetch_kc_cert_detail(detail_url)
-                    if agency:
-                        result["kc_cert_agency"] = agency
-                    if type_detail:
-                        result["kc_cert_type"] = type_detail
+    # ── 8. KC 인증 (select_all — 복수 인증 대응) ─────────────────
+    kc_certs = _scrape_all_kc_certs(soup, base_domain="https://www.domeggook.com")
+    result["kc_certs"] = kc_certs
+    if kc_certs:
+        first = kc_certs[0]
+        result["kc_cert_no"]     = first.get("cert_no", "")
+        result["kc_cert_type"]   = first.get("cert_type_detail") or first.get("cert_type", "")
+        result["kc_cert_agency"] = first.get("agency", "")
 
     # ── 9. 카테고리 (breadcrumb #lPath) ──────────────────────────
     cat_parts: list[str] = []
@@ -809,33 +883,14 @@ def _scrape_domaemae(product_id: str) -> dict:
                         pass
     result["min_qty"] = min_qty
 
-    # ── 8. KC 인증 (동일 구조) ────────────────────────────────────
-    # lCertTitle 형식: "[인증유형] 제품분류" — 인증기관명은 safetykorea.kr에서 수집
-    cert_el = soup.select_one("div.lCert.lHasImg")
-    if cert_el:
-        cert_title = cert_el.select_one("div.lCertTitle")
-        if cert_title:
-            m = re.search(r"\[(.+?)\]", cert_title.get_text(strip=True))
-            if m:
-                cert_type = m.group(1).strip()
-                if cert_type:
-                    result["kc_cert_type"] = cert_type
-        cert_num = cert_el.select_one("div.lCertNum")
-        if cert_num:
-            raw_num = cert_num.get_text(strip=True)
-            raw_num = re.split(r"자세히", raw_num)[0].strip()
-            if raw_num:
-                result["kc_cert_no"] = raw_num
-            # safetykorea.kr "자세히보기" 링크에서 인증기관명·인증구분 수집
-            cert_link = cert_num.select_one("a[href]")
-            if cert_link:
-                detail_url = cert_link.get("href", "").strip()
-                if detail_url and "safetykorea.kr" in detail_url:
-                    agency, type_detail = _fetch_kc_cert_detail(detail_url)
-                    if agency:
-                        result["kc_cert_agency"] = agency
-                    if type_detail:
-                        result["kc_cert_type"] = type_detail
+    # ── 8. KC 인증 (select_all — 복수 인증 대응) ─────────────────
+    kc_certs = _scrape_all_kc_certs(soup, base_domain="https://domeme.domeggook.com")
+    result["kc_certs"] = kc_certs
+    if kc_certs:
+        first = kc_certs[0]
+        result["kc_cert_no"]     = first.get("cert_no", "")
+        result["kc_cert_type"]   = first.get("cert_type_detail") or first.get("cert_type", "")
+        result["kc_cert_agency"] = first.get("agency", "")
 
     # ── 9. 카테고리 (동일 breadcrumb #lPath 구조) ─────────────────
     cat_parts: list[str] = []
@@ -941,6 +996,7 @@ def fetch_product_info(url: str, client) -> dict:
     kc_cert_type   = basis.get("kc_cert_type") or basis.get("kcCertType") or ""
     kc_cert_agency = (basis.get("kc_cert_agency") or basis.get("kcCertAgency")
                       or basis.get("certAgency") or basis.get("certOrgName") or "")
+    kc_certs: list = []  # HTML 스크래핑으로 수집 (API에는 없음)
     min_qty      = int(basis.get("minQty") or basis.get("min_qty") or 1)
     cat_name     = _parse_category(raw.get("category", {}))
     options          = _parse_options(raw.get("selectOpt", {}))
@@ -983,6 +1039,8 @@ def fetch_product_info(url: str, client) -> dict:
             kc_cert_type = scraped.get("kc_cert_type", "")
         if not kc_cert_agency:
             kc_cert_agency = scraped.get("kc_cert_agency", "")
+        if not kc_certs:
+            kc_certs = scraped.get("kc_certs", [])
         if not origin:
             origin = scraped.get("origin", "")
         if min_qty <= 1:
@@ -1011,6 +1069,7 @@ def fetch_product_info(url: str, client) -> dict:
         "kc_cert_no":     kc_cert_no,
         "kc_cert_type":   kc_cert_type,
         "kc_cert_agency": kc_cert_agency,
+        "kc_certs":       kc_certs,
         "main_image":    main_image,
         "sub_images":    sub_images,
         "detail_images": detail_images,
@@ -1378,40 +1437,85 @@ def build_smartstore_payload(info: dict, selling_price: int,
         },
     }
 
+    # naverShoppingSearchInfo: rraCert 데이터 우선, 없으면 API 값
+    rra_model = rra_maker = ""
+    for _cert in info.get("kc_certs", []):
+        if _cert.get("link_type") == "rra":
+            rra_model = _cert.get("model_name", "")
+            rra_maker = _cert.get("manufacturer_name", "")
+            break
     naver_search_info: dict = {}
-    if info.get("model"):
-        naver_search_info["modelName"] = info["model"]
+    model_val = info.get("model") or rra_model
+    maker_val = info.get("manufacturer") or rra_maker
+    if model_val:
+        naver_search_info["modelName"] = model_val
     if info.get("brand"):
         naver_search_info["brandName"] = info["brand"]
-    if info.get("manufacturer"):
-        naver_search_info["manufacturerName"] = info["manufacturer"]
+    if maker_val:
+        naver_search_info["manufacturerName"] = maker_val
     if naver_search_info:
         payload["originProduct"]["detailAttribute"]["naverShoppingSearchInfo"] = naver_search_info
 
-    # KC인증: certificationInfoId + certificationKindType + 인증번호
-    # certificationInfoId는 register_product에서 get_kc_cert_status로 조회해 info에 저장
+    # manufactureDate: 수동입력 우선, 없으면 rraCert 인증연월일
+    mfg_date = (info.get("manufacture_date") or "").strip()
+    if not mfg_date:
+        for _cert in info.get("kc_certs", []):
+            if _cert.get("cert_date"):
+                mfg_date = _cert["cert_date"]
+                break
+    if mfg_date:
+        origin_product["detailAttribute"]["manufactureDate"] = mfg_date
+
+    # KC인증 payload 구성 (복수 인증 대응)
     # certificationKindType (kindType 아님!) + certificationTargetExcludeContent 필수
-    kc_no      = (info.get("kc_cert_no") or "").strip()
-    kc_agency  = (info.get("kc_cert_agency") or "").strip()
-    kc_info_id = int(info.get("kc_cert_info_id") or 0)
-    if kc_no and kc_info_id:
-        cert_entry: dict = {
-            "certificationInfoId":   kc_info_id,
+    rra_agency    = (info.get("rra_agency") or "").strip()  # 수동입력: 방송통신기자재 인증기관
+    cert_entries: list[dict] = []
+
+    for _cert in info.get("kc_certs", []):
+        _cert_info_id = int(_cert.get("cert_info_id") or 0)
+        _cert_no      = (_cert.get("cert_no") or "").strip()
+        if not (_cert_no and _cert_info_id):
+            continue
+        _entry: dict = {
+            "certificationInfoId":   _cert_info_id,
             "certificationKindType": "KC_CERTIFICATION",
-            "certificationNumber":   kc_no,
+            "certificationNumber":   _cert_no,
         }
-        if kc_agency:
-            cert_entry["name"] = kc_agency
-        origin_product["detailAttribute"]["productCertificationInfos"] = [cert_entry]
-        # KC인증 상품임을 명시 (kcCertifiedProductExclusionYn="N" → KC인증 제외 아님)
-        # Boolean이 아닌 Enum 문자열: "Y"=제외, "N"=제외 아님(KC인증 적용)
+        # name: safetykorea 인증기관, 또는 방송통신기자재 수동입력값
+        _agency = (_cert.get("agency") or "").strip()
+        if not _agency and _cert.get("link_type") == "rra":
+            _agency = rra_agency
+        if _agency:
+            _entry["name"] = _agency
+        # companyName: rraCert 상호 (두 인증 모두 동일)
+        _company = (_cert.get("company_name") or "").strip()
+        if _company:
+            _entry["companyName"] = _company
+        cert_entries.append(_entry)
+
+    # 단일 인증 폴백 (kc_certs 없는 구형 상품)
+    if not cert_entries:
+        kc_no      = (info.get("kc_cert_no") or "").strip()
+        kc_agency  = (info.get("kc_cert_agency") or "").strip()
+        kc_info_id = int(info.get("kc_cert_info_id") or 0)
+        if kc_no and kc_info_id:
+            _fb: dict = {
+                "certificationInfoId":   kc_info_id,
+                "certificationKindType": "KC_CERTIFICATION",
+                "certificationNumber":   kc_no,
+            }
+            if kc_agency:
+                _fb["name"] = kc_agency
+            cert_entries.append(_fb)
+
+    if cert_entries:
+        origin_product["detailAttribute"]["productCertificationInfos"] = cert_entries
         origin_product["detailAttribute"]["certificationTargetExcludeContent"] = {
             "kcCertifiedProductExclusionYn": "N"
         }
-        logger.info("KC인증 payload 포함: certInfoId=%s, certificationKindType=KC_CERTIFICATION, no=%r, agency=%r",
-                    kc_info_id, kc_no, kc_agency)
+        logger.info("KC인증 payload: %d건 포함", len(cert_entries))
     else:
-        logger.info("KC인증 payload 제외 (no=%r, certInfoId=%s)", kc_no, kc_info_id)
+        logger.info("KC인증 payload 제외 (인증 없음)")
 
     if info.get("options"):
         groups = info["options"][:3]
@@ -1545,35 +1649,62 @@ def register_product(url: str, selling_price: int, smartstore_api,
     # notice type 결정을 위해 Naver 카테고리명 저장
     info["naver_category_name"] = category_match
 
-    # KC인증 필수 카테고리 사전 확인 + certificationInfoId 조회
+    # KC인증 필수 카테고리 사전 확인 + certificationInfoId 조회 (인증별 개별 조회)
     if category_id:
         try:
-            kc_cert_type_hint = (info.get("kc_cert_type") or "").strip()
-            kc_required, kc_cert_info_id = smartstore_api.get_kc_cert_status(
-                category_id, kc_cert_type_hint
-            )
-            if kc_required:
-                kc_no     = (info.get("kc_cert_no") or "").strip()
-                kc_agency = (info.get("kc_cert_agency") or "").strip()
-                if not (kc_no and kc_cert_info_id):
-                    logger.warning(
-                        "KC인증 정보 누락 - 등록 불가 "
-                        "(category=%s, no=%r, agency=%r, certInfoId=%s)",
-                        category_id, kc_no, kc_agency, kc_cert_info_id,
+            kc_certs = info.get("kc_certs", [])
+            if kc_certs:
+                kc_error = False
+                for cert in kc_certs:
+                    hint = (cert.get("cert_type_detail") or cert.get("cert_type") or "").strip()
+                    kc_required, cert_info_id = smartstore_api.get_kc_cert_status(
+                        category_id, hint
                     )
+                    cert["cert_info_id"] = cert_info_id
+                    if kc_required and not (cert.get("cert_no") and cert_info_id):
+                        logger.warning(
+                            "KC인증 정보 누락 (category=%s, cert_no=%r, certInfoId=%s)",
+                            category_id, cert.get("cert_no"), cert_info_id,
+                        )
+                        kc_error = True
+                if kc_error:
                     return {
                         "success": False,
                         "error": "KC인증 정보 누락 - 등록 불가",
                         "detail": (
                             f"카테고리 [{category_match}]({category_id})는 KC인증 필수 카테고리입니다. "
-                            f"인증번호(kc_cert_no)·인증정보ID(kc_cert_info_id) 확인이 필요합니다."
+                            f"인증번호·certificationInfoId 확인이 필요합니다."
                         ),
                         "info": info,
                         "category_id": category_id,
                         "category_match": category_match,
                     }
-                # payload 구성에 사용할 certificationInfoId 저장
-                info["kc_cert_info_id"] = kc_cert_info_id
+            else:
+                # 단일 인증 폴백 (kc_certs 없는 구형 상품)
+                kc_cert_type_hint = (info.get("kc_cert_type") or "").strip()
+                kc_required, kc_cert_info_id = smartstore_api.get_kc_cert_status(
+                    category_id, kc_cert_type_hint
+                )
+                if kc_required:
+                    kc_no = (info.get("kc_cert_no") or "").strip()
+                    if not (kc_no and kc_cert_info_id):
+                        logger.warning(
+                            "KC인증 정보 누락 - 등록 불가 "
+                            "(category=%s, no=%r, certInfoId=%s)",
+                            category_id, kc_no, kc_cert_info_id,
+                        )
+                        return {
+                            "success": False,
+                            "error": "KC인증 정보 누락 - 등록 불가",
+                            "detail": (
+                                f"카테고리 [{category_match}]({category_id})는 KC인증 필수 카테고리입니다. "
+                                f"인증번호(kc_cert_no)·인증정보ID(kc_cert_info_id) 확인이 필요합니다."
+                            ),
+                            "info": info,
+                            "category_id": category_id,
+                            "category_match": category_match,
+                        }
+                    info["kc_cert_info_id"] = kc_cert_info_id
         except Exception as e:
             logger.warning("KC인증 필수 여부 확인 실패 (계속 진행): %s", e)
 
