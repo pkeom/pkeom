@@ -1,9 +1,10 @@
 """운송장 SS 등록 실제 테스트 (1회성 디버그)
 
-ORDERED 상태 주문의 도매처 운송장을 조회하고 SS에 발송처리 등록한다.
-dispatch_order 호출 시 PreparedRequest URL/Body와 응답 전체를 출력한다.
-
 실행:
+    # 특정 주문 강제 dispatch (status 무시)
+    python scripts/debug_invoice_register.py 2026060895134531
+
+    # ORDERED 전체 처리 (기존 동작)
     python scripts/debug_invoice_register.py
 """
 import io
@@ -27,7 +28,7 @@ SEP = "=" * 70
 
 
 class DebugSmartstoreAPI(SmartstoreAPI):
-    """dispatch_order에 PreparedRequest 로깅을 추가한 디버그용 서브클래스."""
+    """dispatch_order에 요청/응답 전체 로깅을 추가한 디버그용 서브클래스."""
 
     def dispatch_order(
         self,
@@ -47,32 +48,55 @@ class DebugSmartstoreAPI(SmartstoreAPI):
             ]
         }
 
-        # PreparedRequest로 실제 전송 URL·body 캡처
-        req = requests.Request("POST", url, headers=self._headers(), json=body)
+        headers = self._headers()
+
+        # 요청 전체 출력 (인증 헤더 마스킹)
+        masked_headers = {
+            k: ("[MASKED]" if k.lower() == "authorization" else v)
+            for k, v in headers.items()
+        }
+        print(f"[Request] POST {url}", flush=True)
+        print(f"[Request] Headers: {masked_headers}", flush=True)
+        print(
+            f"[Request] Body:\n{json.dumps(body, ensure_ascii=False, indent=2)}",
+            flush=True,
+        )
+
+        req = requests.Request("POST", url, headers=headers, json=body)
         prepared = req.prepare()
-
-        print(f"[PreparedRequest] URL : {prepared.url}", flush=True)
-        print(f"[PreparedRequest] Body: {prepared.body}", flush=True)
-
         resp = requests.Session().send(prepared, timeout=10)
 
+        # 응답 전체 출력 (raise 전에 반드시 출력)
         print(f"[Response] HTTP {resp.status_code}", flush=True)
-        try:
-            resp_body = resp.json()
-            print(
-                f"[Response] Body:\n{json.dumps(resp_body, ensure_ascii=False, indent=2)}",
-                flush=True,
-            )
-        except Exception:
-            print(f"[Response] Body(raw): {resp.text}", flush=True)
+        print(f"[Response] Body(raw):\n{resp.text}", flush=True)
 
         resp.raise_for_status()
         return resp.json()
 
 
-def main():
-    cfg = load_config()
+class DebugInvoiceManager(InvoiceManager):
+    """_sync_one에 도매처 운송장값 로깅을 추가한 디버그용 서브클래스."""
 
+    def _sync_one(self, order: dict) -> str:
+        supplier          = order.get("supplier", "")
+        supplier_order_no = order.get("supplier_order_no", "")
+
+        if supplier and supplier_order_no:
+            try:
+                client   = self.clients[supplier]
+                tracking = client.get_order_tracking(supplier_order_no)
+                print(
+                    f"[도매처 운송장] 택배사={tracking.get('delivery_company', '')}  "
+                    f"송장번호={tracking.get('tracking_number', '')}",
+                    flush=True,
+                )
+            except Exception as e:
+                print(f"[도매처 운송장] 조회 실패: {e}", flush=True)
+
+        return super()._sync_one(order)
+
+
+def _build_manager(cfg) -> tuple[DebugInvoiceManager, OrderRepository]:
     ss_cfg = {k: v for k, v in cfg["smartstore"].items()
               if k in ("client_id", "client_secret", "account_type")}
     api = DebugSmartstoreAPI(**ss_cfg)
@@ -88,12 +112,53 @@ def main():
     )
 
     order_repo = OrderRepository(Path(__file__).parent.parent / "data" / "orders.json")
-    manager = InvoiceManager(
+    manager = DebugInvoiceManager(
         ss_api     = api,
         domaekkuk  = dk_api,
         domaemae   = dm_cli,
         order_repo = order_repo,
     )
+    return manager, order_repo
+
+
+def run_single(order_id: str):
+    """특정 order_id 강제 dispatch (status 무시)."""
+    cfg = load_config()
+    manager, order_repo = _build_manager(cfg)
+
+    order = next(
+        (o for o in order_repo.all() if o["order_id"] == order_id),
+        None,
+    )
+
+    if order is None:
+        print(f"orders.json에서 order_id={order_id} 를 찾을 수 없습니다.")
+        return
+
+    print(f"[현재 status] {order.get('status', '(없음)')}  order_id={order_id}")
+    print(SEP)
+    print(
+        f"[주문] order_id={order_id}"
+        f"  supplier={order.get('supplier', '')}"
+        f"  supplier_order_no={order.get('supplier_order_no', '')}"
+    )
+
+    result = manager._sync_one(order)
+    print(f"[결과] {result}", flush=True)
+
+    # dispatch 후 실제로 status가 어떻게 바뀌었는지 확인
+    updated = next(
+        (o for o in order_repo.all() if o["order_id"] == order_id),
+        None,
+    )
+    if updated:
+        print(f"[dispatch 후 status] {updated.get('status', '(없음)')}", flush=True)
+
+
+def run_all_ordered():
+    """ORDERED 상태 전체 처리 (기존 동작)."""
+    cfg = load_config()
+    manager, order_repo = _build_manager(cfg)
 
     ordered = order_repo.find_by_status("ORDERED")
     print(f"\nORDERED 주문 {len(ordered)}건 대상\n")
@@ -115,6 +180,13 @@ def main():
 
     print(SEP)
     print(f"완료: {len(ordered)}건 처리")
+
+
+def main():
+    if len(sys.argv) >= 2:
+        run_single(sys.argv[1])
+    else:
+        run_all_ordered()
 
 
 if __name__ == "__main__":
