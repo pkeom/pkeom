@@ -1494,30 +1494,57 @@ def build_smartstore_payload(info: dict, selling_price: int,
         origin_product["detailAttribute"]["manufactureDate"] = mfg_date
 
     # KC인증 payload 구성 (복수 인증 대응)
-    # certificationKindType (kindType 아님!) + certificationTargetExcludeContent 필수
-    rra_agency    = (info.get("rra_agency") or "").strip()  # 수동입력: 방송통신기자재 인증기관
+    # 네이버 규칙:
+    #   - KC_CERTIFICATION은 상품당 최대 1개 → 방송통신기자재 우선, 없으면 첫 번째
+    #   - 나머지 인증은 ETC
+    #   - 전기용품 안전확인류는 companyName 미지원 → 키 자체 제거
+    rra_agency    = (info.get("rra_agency") or "").strip()
     cert_entries: list[dict] = []
 
-    for _cert in info.get("kc_certs", []):
+    def _is_rra_type(cert: dict) -> bool:
+        """방송통신기자재 계열 인증 여부 (cert_type 기준, info_id 하드코딩 금지)."""
+        combined = (cert.get("cert_type_detail") or cert.get("cert_type") or "")
+        return "방송통신기자재" in combined
+
+    valid_certs = [
+        c for c in info.get("kc_certs", [])
+        if (c.get("cert_no") or "").strip() and int(c.get("cert_info_id") or 0)
+    ]
+
+    # KC_CERTIFICATION 담당 인덱스: 방송통신기자재가 있으면 그것, 없으면 0번
+    kc_main_idx = next(
+        (i for i, c in enumerate(valid_certs) if _is_rra_type(c)),
+        0 if valid_certs else -1,
+    )
+
+    for idx, _cert in enumerate(valid_certs):
         _cert_info_id = int(_cert.get("cert_info_id") or 0)
         _cert_no      = (_cert.get("cert_no") or "").strip()
-        if not (_cert_no and _cert_info_id):
-            continue
+        is_rra        = _is_rra_type(_cert)
+        kind_type     = "KC_CERTIFICATION" if idx == kc_main_idx else "ETC"
+
         _entry: dict = {
             "certificationInfoId":   _cert_info_id,
-            "certificationKindType": "KC_CERTIFICATION",
+            "certificationKindType": kind_type,
             "certificationNumber":   _cert_no,
         }
-        # name: safetykorea 인증기관, 또는 방송통신기자재 수동입력값
+        # name (인증기관)
         _agency = (_cert.get("agency") or "").strip()
-        if not _agency and _cert.get("link_type") == "rra":
+        if not _agency and is_rra:
             _agency = rra_agency or "국립전파연구원"
         if _agency:
             _entry["name"] = _agency
-        # companyName: rraCert 상호 (두 인증 모두 동일)
-        _company = (_cert.get("company_name") or "").strip()
-        if _company:
-            _entry["companyName"] = _company
+        # companyName: 방송통신기자재류만 포함, 전기용품 안전확인류는 키 자체 제거
+        if is_rra:
+            _company = (_cert.get("company_name") or "").strip()
+            if _company:
+                _entry["companyName"] = _company
+
+        logger.info(
+            "KC인증 entry: cert_no=%r  certInfoId=%s  kindType=%s  companyName=%s",
+            _cert_no, _cert_info_id, kind_type,
+            repr(_entry.get("companyName", "(제외)")),
+        )
         cert_entries.append(_entry)
 
     # 단일 인증 폴백 (kc_certs 없는 구형 상품)
