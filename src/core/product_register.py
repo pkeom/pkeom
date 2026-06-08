@@ -1555,7 +1555,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
             if kc_required:
                 kc_no     = (info.get("kc_cert_no") or "").strip()
                 kc_agency = (info.get("kc_cert_agency") or "").strip()
-                if not (kc_no and kc_agency and kc_cert_info_id):
+                if not (kc_no and kc_cert_info_id):
                     logger.warning(
                         "KC인증 정보 누락 - 등록 불가 "
                         "(category=%s, no=%r, agency=%r, certInfoId=%s)",
@@ -1566,7 +1566,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
                         "error": "KC인증 정보 누락 - 등록 불가",
                         "detail": (
                             f"카테고리 [{category_match}]({category_id})는 KC인증 필수 카테고리입니다. "
-                            f"인증번호·인증기관명·인증정보ID 확인이 필요합니다."
+                            f"인증번호(kc_cert_no)·인증정보ID(kc_cert_info_id) 확인이 필요합니다."
                         ),
                         "info": info,
                         "category_id": category_id,
@@ -1678,7 +1678,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
         logger.debug("전송 payload (optionInfo): %s",
                      _json_log.dumps(opt_info_log, ensure_ascii=False) if opt_info_log else "없음")
         resp = _post_product(payload)
-        logger.info("스마트스토어 API 응답: HTTP %s", resp.status_code)
+        logger.info("스마트스토어 API 응답: HTTP %s  body=%s", resp.status_code, resp.text)
         if not resp.ok:
             try:
                 err_body = resp.json()
