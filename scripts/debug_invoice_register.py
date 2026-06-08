@@ -27,51 +27,29 @@ from src.core.order_repository import OrderRepository
 SEP = "=" * 70
 
 
-class DebugSmartstoreAPI(SmartstoreAPI):
-    """dispatch_order에 요청/응답 전체 로깅을 추가한 디버그용 서브클래스."""
+# ── requests.post 로깅 패치 (/dispatch 요청만 대상) ──────────────────────
+_orig_post = requests.post
 
-    def dispatch_order(
-        self,
-        product_order_id: str,
-        delivery_company_code: str,
-        tracking_number: str,
-    ) -> dict:
-        url = f"{self.BASE_URL}/v1/pay-order/seller/product-orders/dispatch"
-        body = {
-            "dispatchProductOrders": [
-                {
-                    "productOrderId":      product_order_id,
-                    "deliveryMethod":      "DELIVERY",
-                    "deliveryCompanyCode": delivery_company_code,
-                    "trackingNumber":      tracking_number,
-                }
-            ]
-        }
-
-        headers = self._headers()
-
-        # 요청 전체 출력 (인증 헤더 마스킹)
-        masked_headers = {
+def _logged_post(url, **kwargs):
+    if "/dispatch" in url:
+        headers = kwargs.get("headers", {})
+        masked  = {
             k: ("[MASKED]" if k.lower() == "authorization" else v)
             for k, v in headers.items()
         }
         print(f"[Request] POST {url}", flush=True)
-        print(f"[Request] Headers: {masked_headers}", flush=True)
+        print(f"[Request] Headers: {masked}", flush=True)
         print(
-            f"[Request] Body:\n{json.dumps(body, ensure_ascii=False, indent=2)}",
+            f"[Request] Body:\n{json.dumps(kwargs.get('json', {}), ensure_ascii=False, indent=2)}",
             flush=True,
         )
-
-        req = requests.Request("POST", url, headers=headers, json=body)
-        prepared = req.prepare()
-        resp = requests.Session().send(prepared, timeout=10)
-
-        # 응답 전체 출력 (raise 전에 반드시 출력)
+    resp = _orig_post(url, **kwargs)
+    if "/dispatch" in url:
         print(f"[Response] HTTP {resp.status_code}", flush=True)
         print(f"[Response] Body(raw):\n{resp.text}", flush=True)
+    return resp
 
-        resp.raise_for_status()
-        return resp.json()
+requests.post = _logged_post
 
 
 class DebugInvoiceManager(InvoiceManager):
@@ -99,7 +77,7 @@ class DebugInvoiceManager(InvoiceManager):
 def _build_manager(cfg) -> tuple[DebugInvoiceManager, OrderRepository]:
     ss_cfg = {k: v for k, v in cfg["smartstore"].items()
               if k in ("client_id", "client_secret", "account_type")}
-    api = DebugSmartstoreAPI(**ss_cfg)
+    api = SmartstoreAPI(**ss_cfg)
 
     dk_api = DomaekkukAPI(**cfg["domaekkuk"])
 
@@ -146,7 +124,6 @@ def run_single(order_id: str):
     result = manager._sync_one(order)
     print(f"[결과] {result}", flush=True)
 
-    # dispatch 후 실제로 status가 어떻게 바뀌었는지 확인
     updated = next(
         (o for o in order_repo.all() if o["order_id"] == order_id),
         None,
