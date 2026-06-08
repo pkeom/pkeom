@@ -11,7 +11,7 @@ from src.api.smartstore import SmartstoreAPI
 from src.api.domaekkuk import DomaekkukAPI
 from src.api.domaemae import DomaemaeClient
 from src.core.order_repository import OrderRepository
-from src.db.database import get_session
+from src.db.database import get_session, is_db_initialized
 from src.db.models import SupplierOrder
 
 logger = logging.getLogger(__name__)
@@ -141,20 +141,21 @@ class InvoiceManager:
             )
             return "error"
 
-        # 3. SupplierOrder DB 업데이트
-        try:
-            with get_session() as session:
-                sup = (
-                    session.query(SupplierOrder)
-                    .filter_by(ss_order_id=order_id, supplier=supplier)
-                    .first()
-                )
-                if sup:
-                    sup.tracking_number  = tracking_number
-                    sup.delivery_company = delivery_company
-                    sup.status           = "SHIPPED"
-        except Exception as e:
-            logger.error("SupplierOrder DB 업데이트 실패: order_id=%s, %s", order_id, e)
+        # 3. SupplierOrder DB 업데이트 (DB 초기화된 경우에만)
+        if is_db_initialized():
+            try:
+                with get_session() as session:
+                    sup = (
+                        session.query(SupplierOrder)
+                        .filter_by(ss_order_id=order_id, supplier=supplier)
+                        .first()
+                    )
+                    if sup:
+                        sup.tracking_number  = tracking_number
+                        sup.delivery_company = delivery_company
+                        sup.status           = "SHIPPED"
+            except Exception as e:
+                logger.error("SupplierOrder DB 업데이트 실패: order_id=%s, %s", order_id, e)
 
         # 4. orders.json INVOICED
         self._orders.update_status(order_id, "INVOICED")

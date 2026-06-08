@@ -390,7 +390,18 @@ class SmartstoreAPI:
             timeout=10,
         )
         resp.raise_for_status()
-        return resp.json()
+        data        = resp.json()
+        success_ids = data.get("successProductOrderIds", [])
+        fail_infos  = data.get("failProductOrderInfos", [])
+        if product_order_id not in success_ids:
+            fail_detail = next(
+                (f for f in fail_infos if f.get("productOrderId") == product_order_id),
+                fail_infos,
+            )
+            raise ValueError(
+                f"dispatch 실패 응답: productOrderId={product_order_id}, detail={fail_detail}"
+            )
+        return data
 
     def set_product_sale_status(self, origin_product_no: str, on_sale: bool):
         """상품 판매 상태 변경 — GET 후 statusType만 수정해 PUT.

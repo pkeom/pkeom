@@ -16,8 +16,14 @@ def init_db(db_path: str):
     _SessionFactory = sessionmaker(bind=_engine)
 
 
+def is_db_initialized() -> bool:
+    return _SessionFactory is not None
+
+
 @contextmanager
 def get_session():
+    if _SessionFactory is None:
+        raise RuntimeError("DB 미초기화 — init_db()를 먼저 호출하세요")
     session = _SessionFactory()
     try:
         yield session
