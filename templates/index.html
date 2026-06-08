@@ -615,6 +615,16 @@ tbody tr:hover td { background: #FAFBFC; }
           <div class="hint">카테고리 ID는 네이버 커머스 API /v1/product-attributes/categories 에서 확인</div>
         </div>
 
+        <div class="fg">
+          <label class="fl">제조일자 <span style="font-weight:400;text-transform:none">— 미리보기 후 자동 채워짐 (rraCert 인증연월일)</span></label>
+          <input class="fi" id="reg-mfg-date" type="text" placeholder="예: 2025-04-09  —  비우면 rraCert 인증연월일 사용">
+        </div>
+
+        <div class="fg">
+          <label class="fl">방송통신기자재 인증기관 <span style="font-weight:400;text-transform:none">— 비우면 "국립전파연구원" 자동 적용</span></label>
+          <input class="fi" id="reg-rra-agency" type="text" placeholder="국립전파연구원">
+        </div>
+
         <div style="display:flex;gap:8px;margin-top:6px">
           <button class="btn btn-ghost" id="reg-preview-btn" onclick="regPreview()" style="flex:1">
             🔍 미리보기
@@ -1217,7 +1227,21 @@ function regShowPreview(info, sellingPrice) {
   const userInputName = $('reg-name-input').value.trim();
   const displayName   = userInputName || info.title || '-';
 
+  // 제조일자: rraCert 인증연월일로 자동 채우기 (이미 입력된 값은 유지)
+  const certDate = (info.kc_certs || []).map(c => c.cert_date).find(d => d) || '';
+  if (certDate && !$('reg-mfg-date').value) {
+    $('reg-mfg-date').value = certDate;
+  }
+
   // 상세 테이블
+  const kcRows = (info.kc_certs || []).length > 0
+    ? (info.kc_certs || []).map((c, i) =>
+        [`KC인증${i+1}`, `[${c.cert_type||''}] ${c.cert_no||''} | 기관=${c.agency||(c.link_type==='rra'?'(수동입력)':'-')} | 상호=${c.company_name||'-'} | 제조자=${c.manufacturer_name||'-'} | 모델=${c.model_name||'-'}`]
+      )
+    : [['KC인증번호', info.kc_cert_no || '(없음)'],
+       ['KC인증유형', info.kc_cert_type || '-'],
+       ['KC인증기관', info.kc_cert_agency || '-']];
+
   const rows = [
     ['공급사',       info.supplier === 'domaekkuk' ? '도매꾹' : '도매매'],
     ['상품명',       displayName + (userInputName ? ' <span style="color:var(--blue);font-size:11px">(직접 입력)</span>' : '')],
@@ -1225,9 +1249,7 @@ function regShowPreview(info, sellingPrice) {
     ['재고',         fmtN(info.stock || 0) + '개'],
     ['원산지',       info.origin || '-'],
     ['모델명',       info.model  || '-'],
-    ['KC인증번호',   info.kc_cert_no   || '(없음)'],
-    ['KC인증유형',   info.kc_cert_type  || '-'],
-    ['KC인증기관',   info.kc_cert_agency || '-'],
+    ...kcRows,
     ['카테고리',     info.category_name || '-'],
     ['대표이미지',   info.main_image
         ? `<a href="${info.main_image}" target="_blank" style="color:var(--blue)">확인</a>`
@@ -1289,9 +1311,11 @@ async function regSubmit() {
   const title = product_name || _regInfo.title || '이 상품';
   if (!confirm(`"${title.slice(0,30)}"을(를) 스마트스토어에 등록하시겠습니까?\n\n실제 API 호출이 발생합니다.`)) return;
 
-  const url           = $('reg-url').value.trim();
-  const selling_price = parseInt($('reg-sell-input').value || '0');
-  const catId         = $('reg-cat').value.trim();
+  const url              = $('reg-url').value.trim();
+  const selling_price    = parseInt($('reg-sell-input').value || '0');
+  const catId            = $('reg-cat').value.trim();
+  const manufacture_date = $('reg-mfg-date').value.trim();
+  const rra_agency       = $('reg-rra-agency').value.trim();
 
   $('reg-submit-btn').disabled  = true;
   $('reg-preview-btn').disabled = true;
@@ -1299,7 +1323,7 @@ async function regSubmit() {
   $('reg-result').style.display = 'none';
 
   try {
-    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name});
+    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name, manufacture_date, rra_agency});
     const resultDiv = $('reg-result');
 
     if (d.success) {

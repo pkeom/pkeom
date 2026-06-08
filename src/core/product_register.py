@@ -1484,7 +1484,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
         # name: safetykorea 인증기관, 또는 방송통신기자재 수동입력값
         _agency = (_cert.get("agency") or "").strip()
         if not _agency and _cert.get("link_type") == "rra":
-            _agency = rra_agency
+            _agency = rra_agency or "국립전파연구원"
         if _agency:
             _entry["name"] = _agency
         # companyName: rraCert 상호 (두 인증 모두 동일)
@@ -1630,12 +1630,19 @@ def _save_option_mappings(
 
 def register_product(url: str, selling_price: int, smartstore_api,
                      supplier_client, settings: dict, mapping_repo,
-                     category_id: str = "", product_name: str = "") -> dict:
+                     category_id: str = "", product_name: str = "",
+                     manufacture_date: str = "", rra_agency: str = "") -> dict:
     """수집 → 스마트스토어 등록 → 매핑 저장."""
     try:
         info = fetch_product_info(url, supplier_client)
     except Exception as e:
         return {"success": False, "error": f"상품 정보 수집 실패: {e}"}
+
+    # 수동입력 값 주입 (build_smartstore_payload에서 읽음)
+    if manufacture_date:
+        info["manufacture_date"] = manufacture_date
+    if rra_agency:
+        info["rra_agency"] = rra_agency
 
     if not info.get("title"):
         return {"success": False, "error": "상품명을 가져오지 못했습니다.", "info": info}

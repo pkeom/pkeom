@@ -450,25 +450,29 @@ def api_register_preview():
 @app.route("/api/register/submit", methods=["POST"])
 def api_register_submit():
     from src.core.product_register import register_product
-    d             = request.json or {}
-    url           = d.get("url", "").strip()
-    selling_price = int(d.get("selling_price", 0))
-    category_id   = d.get("category_id", "").strip()
-    product_name  = d.get("product_name", "").strip()
+    d                = request.json or {}
+    url              = d.get("url", "").strip()
+    selling_price    = int(d.get("selling_price", 0))
+    category_id      = d.get("category_id", "").strip()
+    product_name     = d.get("product_name", "").strip()
+    manufacture_date = d.get("manufacture_date", "").strip()
+    rra_agency       = d.get("rra_agency", "").strip()
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
     if not _ss_api or not _dm_cli:
         return jsonify({"error": "스마트스토어/도매처 API 미초기화"}), 500
     try:
         result = register_product(
-            url             = url,
-            selling_price   = selling_price,
-            smartstore_api  = _ss_api,
-            supplier_client = _dm_cli,
-            settings        = _cfg or {},
-            mapping_repo    = _mapping_repo,
-            category_id     = category_id,
-            product_name    = product_name,
+            url              = url,
+            selling_price    = selling_price,
+            smartstore_api   = _ss_api,
+            supplier_client  = _dm_cli,
+            settings         = _cfg or {},
+            mapping_repo     = _mapping_repo,
+            category_id      = category_id,
+            product_name     = product_name,
+            manufacture_date = manufacture_date,
+            rra_agency       = rra_agency,
         )
         if result.get("success"):
             _git_push_mappings()

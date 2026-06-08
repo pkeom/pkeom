@@ -1,5 +1,4 @@
 """상품 자동 등록 탭 GUI"""
-import datetime
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -36,8 +35,6 @@ class ProductRegisterFrame:
     def __init__(self, parent):
         self.frame = ttk.Frame(parent)
         self._info: dict | None = None  # 미리보기로 수집한 상품 정보
-        self._mfg_date_var  = tk.StringVar()
-        self._rra_agency_var = tk.StringVar(value="국립전파연구원")
         self._build()
 
     # ── UI 구성 ──────────────────────────────────────────────────────
@@ -77,25 +74,11 @@ class ProductRegisterFrame:
         ttk.Label(pane, text="  (비워두면 카테고리 자동 감지)", foreground="#666").grid(
             row=2, column=2, sticky="w", pady=3)
 
-        # 제조일자 (수동 입력, 기본값 = rraCert 인증연월일)
-        ttk.Label(pane, text="제조일자:").grid(row=3, column=0, sticky="w", pady=3)
-        ttk.Entry(pane, textvariable=self._mfg_date_var, width=20).grid(
-            row=3, column=1, sticky="w", padx=(6, 0), pady=3)
-        ttk.Label(pane, text="  (기본값: rraCert 인증연월일, 형식 YYYY-MM-DD)", foreground="#666").grid(
-            row=3, column=2, sticky="w", pady=3)
-
-        # 방송통신기자재 인증기관 (수동 입력)
-        ttk.Label(pane, text="방송통신기자재 인증기관:").grid(row=4, column=0, sticky="w", pady=3)
-        ttk.Entry(pane, textvariable=self._rra_agency_var, width=30).grid(
-            row=4, column=1, sticky="w", padx=(6, 0), pady=3)
-        ttk.Label(pane, text="  (기본값: 국립전파연구원)", foreground="#666").grid(
-            row=4, column=2, sticky="w", pady=3)
-
         pane.columnconfigure(1, weight=1)
 
         # 버튼
         btn_row = ttk.Frame(pane)
-        btn_row.grid(row=5, column=0, columnspan=4, pady=(8, 2), sticky="w")
+        btn_row.grid(row=3, column=0, columnspan=4, pady=(8, 2), sticky="w")
         ttk.Button(btn_row, text="미리보기", command=self._on_preview, width=14).pack(
             side="left", padx=(0, 8))
         self._register_btn = ttk.Button(
@@ -155,16 +138,6 @@ class ProductRegisterFrame:
         self._tree.delete(*self._tree.get_children())
         margin = self._margin_var.get() / 100
 
-        # rraCert 인증연월일을 제조일자 기본값으로 설정
-        cert_date = ""
-        for cert in info.get("kc_certs", []):
-            if cert.get("cert_date"):
-                cert_date = cert["cert_date"]
-                break
-        self._mfg_date_var.set(
-            cert_date or datetime.date.today().strftime("%Y-%m-%d")
-        )
-
         rows = [
             ("공급사",      info.get("supplier", "")),
             ("상품명",      info.get("title", "")),
@@ -181,20 +154,7 @@ class ProductRegisterFrame:
             ("옵션 수",     str(len(info.get("options", [])))),
         ]
 
-        # KC 인증 목록
-        kc_certs = info.get("kc_certs", [])
-        if kc_certs:
-            for i, cert in enumerate(kc_certs, 1):
-                rows.append((
-                    f"KC인증{i}",
-                    f"[{cert.get('cert_type','')}] {cert.get('cert_no','')} | "
-                    f"기관={cert.get('agency') or '(수동입력)'} | "
-                    f"상호={cert.get('company_name','')} | "
-                    f"제조자={cert.get('manufacturer_name','')} | "
-                    f"모델={cert.get('model_name','')}",
-                ))
-        else:
-            rows.append(("KC인증번호", info.get("kc_cert_no", "(없음)")))
+        rows.append(("KC인증번호", info.get("kc_cert_no", "(없음)")))
 
         # 옵션 목록
         for i, opt in enumerate(info.get("options", [])[:20], 1):
@@ -228,25 +188,19 @@ class ProductRegisterFrame:
 
         self._register_btn.config(state="disabled")
         self._set_status("스마트스토어 등록 중...")
-        margin           = self._margin_var.get() / 100
-        cat_id           = self._cat_var.get().strip()
-        manufacture_date = self._mfg_date_var.get().strip()
-        rra_agency       = self._rra_agency_var.get().strip()
+        margin    = self._margin_var.get() / 100
+        cat_id    = self._cat_var.get().strip()
         info_snap = self._info.copy()
         threading.Thread(
             target=self._do_register,
-            args=(info_snap, margin, cat_id, manufacture_date, rra_agency),
+            args=(info_snap, margin, cat_id),
             daemon=True,
         ).start()
 
-    def _do_register(self, info: dict, margin: float, category_id: str,
-                     manufacture_date: str, rra_agency: str):
+    def _do_register(self, info: dict, margin: float, category_id: str):
         try:
             ss_api, client, cfg = _build_clients()
             url = info["supplier_url"]
-            # 수동입력 필드를 info에 주입 (build_smartstore_payload에서 읽음)
-            info["manufacture_date"] = manufacture_date
-            info["rra_agency"]       = rra_agency
             selling_price = calculate_selling_price(
                 info["supply_price"], margin=margin
             )
