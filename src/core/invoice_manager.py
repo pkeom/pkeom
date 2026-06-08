@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 DELIVERY_COMPANY_MAP = {
     "CJ대한통운":         "CJGLS",
     "CJ로지스틱스":       "CJGLS",
-    "롯데택배":           "LOTTE",
-    "롯데글로벌로지스틱스": "LOTTE",
+    "롯데택배":           "HYUNDAI",
+    "롯데글로벌로지스틱스": "HYUNDAI",
     "한진택배":           "HANJIN",
     "우체국택배":         "EPOST",
     "로젠택배":           "LOGEN",
