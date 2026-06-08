@@ -206,7 +206,7 @@ class CancelMonitor:
         if claim_check == "WITHDRAWN":
             entry["cancel_state"] = "BUYER_WITHDREW_PRE_DENY"
             entry["result_label"] = "구매자 취소 철회 감지 — setOrdDeny 미전송, 발주 정상 진행"
-            self._restore_order_status(order_id, "ORDERED")
+            # order는 이미 ORDERED + supplier_order_no 존재 → 상태 변경 불필요
             self._notify(
                 entry,
                 f"[취소철회] 구매자 취소 철회 감지 (setOrdDeny 전) — {entry['product_name']}",
@@ -263,7 +263,7 @@ class CancelMonitor:
         if claim_check == "WITHDRAWN":
             entry["cancel_state"] = "BUYER_WITHDREW_PRE_DENY"
             entry["result_label"] = "구매자 취소 철회 확인 (재확인)"
-            self._restore_order_status(order_id, "ORDERED")
+            # order는 이미 ORDERED + supplier_order_no 존재 → 상태 변경 불필요
             self._notify(
                 entry,
                 f"[취소철회] 구매자 취소 철회 확인 (재확인) — {entry['product_name']}",
@@ -551,9 +551,9 @@ class CancelMonitor:
         """SS 주문의 claimStatus 반환.
 
         Returns:
-            "CANCEL_REQUEST" — 취소 요청 유지 중
-            "WITHDRAWN"      — 클레임 없음 (취소 철회)
-            None             — 429/오류 → 철회로 단정 금지, 다음 회차 보류
+            "CANCEL_REQUEST" — 취소 요청 유지 중 (claimStatus=CANCEL_REQUEST)
+            "WITHDRAWN"      — 취소 철회 (claimStatus=CANCEL_REJECT)
+            None             — 429/오류/미지값 → 철회로 단정 금지, 다음 회차 보류
         """
         for attempt, delay in enumerate((*self._SS_RETRY_DELAYS, None)):
             try:
@@ -561,12 +561,18 @@ class CancelMonitor:
                 if not order_data:
                     logger.warning("SS 주문 조회 빈 응답 — 불확실: %s", product_order_id)
                     return None
-                po = order_data.get("productOrder", {})
+                po           = order_data.get("productOrder", {})
                 claim_status = po.get("claimStatus", "")
-                po_status    = po.get("productOrderStatus", "")
-                if claim_status == "CANCEL_REQUEST" or po_status == "CANCEL_REQUEST":
+                if claim_status == "CANCEL_REQUEST":
                     return "CANCEL_REQUEST"
-                return "WITHDRAWN"
+                if claim_status == "CANCEL_REJECT":
+                    return "WITHDRAWN"
+                # 빈 문자열, CANCELING, CANCEL_DONE 등 예상 외 값 → 불확실 처리
+                logger.warning(
+                    "SS claimStatus 예상 외 값 — 불확실로 처리: %s claimStatus=%r",
+                    product_order_id, claim_status,
+                )
+                return None
             except Exception as e:
                 _code = getattr(getattr(e, "response", None), "status_code", None)
                 if _code == 429 and delay is not None:
@@ -602,7 +608,12 @@ class CancelMonitor:
         """Case 2-A: 도매처 취소 승인 + 구매자 SS 취소 철회 → 재발주."""
         order_id = entry["product_order_id"]
         supplier = entry.get("supplier", "")
-        self._update_supplier_status(order_id, "CANCELLED")
+        # supplier_order_no 초기화 (도매처 취소 완료 → 재발주 시 새 번호 발급)
+        if self._order_repo is not None:
+            try:
+                self._order_repo.update_supplier_info(order_id, supplier, "")
+            except Exception as e:
+                logger.warning("supplier_order_no 초기화 실패 (%s): %s", order_id, e)
         restored = self._restore_order_status(order_id, "NEW")
         if restored:
             entry["cancel_state"] = "BUYER_WITHDREW_REORDER"
@@ -611,8 +622,8 @@ class CancelMonitor:
                 entry,
                 f"[취소철회] 구매자 취소 철회 + 도매처 취소 승인 → 재발주 예정 — {entry['product_name']}",
                 f"→ 구매자가 취소 요청을 철회했으나 도매처({supplier})는 이미 취소를 승인했습니다.\n"
-                f"  도매처 발주 상태를 CANCELLED로 변경했습니다.\n"
-                f"  주문을 NEW로 복원 — 다음 발주 주기에 자동 재발주됩니다.",
+                f"  supplier_order_no를 초기화하고 주문을 NEW로 복원했습니다.\n"
+                f"  다음 발주 주기에 자동 재발주됩니다.",
             )
         else:
             entry["cancel_state"] = "BUYER_WITHDREW_REORDER_FAILED"

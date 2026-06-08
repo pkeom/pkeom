@@ -210,11 +210,27 @@ class OrderCollector:
                 logger.info("ERROR → NEW 재시도: order_id=%s", err_order["order_id"])
 
             added = self._repo.add_many(parsed)
+
+            # 취소 철회(CANCEL_REJECT) 복원: CANCELLED로 저장된 주문이 다시 활성 상태면 복원
+            # (order_collector에서 CANCEL_REQUEST → CANCELLED 저장 후 구매자가 철회한 경우)
+            restored_count = 0
+            for order in parsed:
+                if order.get("status") == "NEW":
+                    existing = self._repo.find(order["order_id"])
+                    if existing and existing.get("status") == "CANCELLED":
+                        restore_to = "ORDERED" if existing.get("supplier_order_no") else "NEW"
+                        self._repo.update_status(order["order_id"], restore_to)
+                        restored_count += 1
+                        logger.info(
+                            "[취소철회 복원] CANCELLED → %s: order_id=%s product=%r",
+                            restore_to, order["order_id"], order.get("product_name", ""),
+                        )
+
             logger.info(
-                "주문 수집 완료: API %d건 중 파싱성공 %d건 / 신규저장 %d건 / ERROR→NEW 재시도 %d건",
-                len(raw_orders), len(parsed), added, retried,
+                "주문 수집 완료: API %d건 중 파싱성공 %d건 / 신규저장 %d건 / ERROR→NEW 재시도 %d건 / 취소철회복원 %d건",
+                len(raw_orders), len(parsed), added, retried, restored_count,
             )
-            return added + retried
+            return added + retried + restored_count
 
         except Exception as e:
             logger.error("주문 수집 오류: %s\n%s", e, traceback.format_exc())
