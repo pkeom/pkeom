@@ -19,18 +19,30 @@ logger = logging.getLogger(__name__)
 DELIVERY_COMPANY_MAP = {
     "CJ대한통운":         "CJGLS",
     "CJ로지스틱스":       "CJGLS",
-    "롯데택배":           "HYUNDAI",
+    "롯데택배":           "HYUNDAI",   # 레거시: 현대택배→롯데택배, 네이버 코드는 HYUNDAI
     "롯데글로벌로지스틱스": "HYUNDAI",
     "한진택배":           "HANJIN",
     "우체국택배":         "EPOST",
-    "로젠택배":           "LOGEN",
-    "GS편의점택배":       "GS25",
-    "쿠팡로지스틱스":     "COUPANG",
-    "홈픽":               "HOMEPICK",
+    "로젠택배":           "KGB",       # 레거시: 로젠=KGB (구 KGB택배)
     "경동택배":           "KDEXP",
     "대신택배":           "DAESIN",
     "일양로지스":         "ILYANG",
+    "천일택배":           "CHUNIL",
+    "합동택배":           "HAPDONG",
+    "GTX로지스":          "GTX",
+    "건영택배":           "KUNYOUNG",
+    "CVSnet편의점택배":   "CVSNET",
+    "CU편의점택배":       "CU",
+    # 아래 3개는 네이버 공식 코드 미확인 — 104119 발생 시 알림으로 잡힘
+    "GS편의점택배":       "GS25",
+    "쿠팡로지스틱스":     "COUPANG",
+    "홈픽":               "HOMEPICK",
 }
+
+def _is_courier_code_error(exc: Exception) -> bool:
+    """104119(택배사코드 확인) 에러 여부 판정."""
+    resp_text = getattr(getattr(exc, "response", None), "text", "") or ""
+    return "104119" in resp_text or "104119" in str(exc)
 
 
 def _invoice_summary(order: dict) -> str:
@@ -122,8 +134,14 @@ class InvoiceManager:
             logger.debug("미발송: order_id=%s (도매발주번호=%s)", order_id, supplier_order_no)
             return "pending"
 
-        # 2. 스마트스토어 송장 등록 (dry_run: 실제 전송 없이 로그만)
+        # 2. 택배사 코드 매핑 확인 — 미등록이면 알림 후 보류
+        if delivery_company and delivery_company not in DELIVERY_COMPANY_MAP:
+            self._notify_courier_missing(order, delivery_company, mapped_code=None)
+            return "pending"
+
         company_code = DELIVERY_COMPANY_MAP.get(delivery_company, delivery_company)
+
+        # 3. 스마트스토어 송장 등록 (dry_run: 실제 전송 없이 로그만)
         if self._dry_run:
             logger.info(
                 "[DRY_RUN] 송장 등록 스킵: order_id=%s, 택배사=%s(%s), 송장=%s",
@@ -134,6 +152,9 @@ class InvoiceManager:
         try:
             self.ss_api.dispatch_order(order_id, company_code, tracking_number)
         except Exception as e:
+            if _is_courier_code_error(e):
+                self._notify_courier_missing(order, delivery_company, mapped_code=company_code)
+                return "pending"
             self._handle_error(
                 order,
                 "스마트스토어 송장 등록 오류",
@@ -141,7 +162,7 @@ class InvoiceManager:
             )
             return "error"
 
-        # 3. SupplierOrder DB 업데이트 (DB 초기화된 경우에만)
+        # 4. SupplierOrder DB 업데이트 (DB 초기화된 경우에만)
         if is_db_initialized():
             try:
                 with get_session() as session:
@@ -157,7 +178,7 @@ class InvoiceManager:
             except Exception as e:
                 logger.error("SupplierOrder DB 업데이트 실패: order_id=%s, %s", order_id, e)
 
-        # 4. orders.json INVOICED
+        # 5. orders.json INVOICED
         self._orders.update_status(order_id, "INVOICED")
         logger.info(
             "송장 등록 완료: order_id=%s, 택배사=%s(%s), 송장번호=%s",
@@ -166,6 +187,37 @@ class InvoiceManager:
         return "invoiced"
 
     # ── 오류 처리 ────────────────────────────────────────────
+
+    def _notify_courier_missing(self, order: dict, delivery_company: str, mapped_code: str | None):
+        order_id = order["order_id"]
+        if mapped_code:
+            reason  = f"택배사 코드 매핑 오류: {delivery_company} → {mapped_code} (104119)"
+            detail  = (f"네이버 deliveryCompanyCode '{mapped_code}'이(가) 유효하지 않습니다.\n"
+                       f"DELIVERY_COMPANY_MAP에서 '{delivery_company}' 매핑을 수정하세요.")
+        else:
+            reason  = f"택배사 코드 매핑 필요: {delivery_company}"
+            detail  = (f"도매처에서 받은 택배사명 '{delivery_company}'이(가) DELIVERY_COMPANY_MAP에\n"
+                       f"등록되어 있지 않습니다. 네이버 deliveryCompanyCode를 확인 후 추가하세요.")
+        logger.warning("택배사 코드 매핑 필요: %s (mapped=%s), order_id=%s",
+                       delivery_company, mapped_code, order_id)
+        if self._notifier:
+            subject = f"[위탁판매] 택배사 코드 매핑 필요 — {delivery_company}"
+            body = "\n".join([
+                f"■ 알림 종류 : 택배사 코드 매핑 필요",
+                f"■ 택배사명  : {delivery_company}",
+                f"■ order_id  : {order_id}",
+                f"■ 현재 상태 : 송장등록 보류 (다음 회차에 자동 재시도)",
+                "",
+                "■ 주문 정보",
+                _invoice_summary(order),
+                "",
+                "■ 필요한 조치",
+                detail,
+            ])
+            try:
+                self._notifier.send(subject=subject, body=body)
+            except Exception as e:
+                logger.error("택배사매핑 이메일 전송 오류: %s", e)
 
     def _handle_error(self, order: dict, reason: str, detail: str):
         order_id = order["order_id"]
