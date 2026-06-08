@@ -72,7 +72,10 @@ class InvoiceManager:
         """ORDERED 상태 주문 송장 동기화.
         반환값: {"total": n, "invoiced": n, "pending": n, "error": n}
         """
-        ordered = self._orders.find_by_status("ORDERED")
+        ordered = (
+            self._orders.find_by_status("ORDERED")
+            + self._orders.find_by_status("ERROR")
+        )
         stats   = {"total": len(ordered), "invoiced": 0, "pending": 0, "error": 0}
 
         if not ordered:

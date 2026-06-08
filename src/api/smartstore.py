@@ -3,6 +3,7 @@ import base64
 import difflib
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 import bcrypt
 import requests
 
@@ -380,6 +381,9 @@ class SmartstoreAPI:
                         "deliveryMethod":    "DELIVERY",
                         "deliveryCompanyCode": delivery_company_code,
                         "trackingNumber":    tracking_number,
+                        "dispatchDate":      datetime.now(
+                            timezone(timedelta(hours=9))
+                        ).isoformat(timespec="milliseconds"),
                     }
                 ]
             },
