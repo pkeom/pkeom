@@ -508,6 +508,29 @@ def _fetch_kc_cert_detail(cert_url: str) -> tuple[str, str]:
 
 # ── rraCert 내부 페이지 파싱 ──────────────────────────────────────
 
+# 방송통신기자재 인증번호 접두사 → 세부 유형 매핑
+_RRA_PREFIX_MAP: dict[str, str] = {
+    "R-C-": "방송통신기자재 적합인증",
+    "R-R-": "방송통신기자재 적합등록",
+    "R-I-": "방송통신기자재 잠정인증",
+    "R-S-": "방송통신기자재 자기적합확인",
+}
+
+
+def _rra_cert_subtype(cert_no: str) -> str:
+    """인증번호 접두사로 방송통신기자재 세부 유형 반환.
+    모르는 접두사면 빈 문자열 반환 + 경고 로그 (폴백: '방송통신기자재' 광역 hint).
+    """
+    no = cert_no.upper()
+    for prefix, subtype in _RRA_PREFIX_MAP.items():
+        if no.startswith(prefix):
+            return subtype
+    logger.warning(
+        "알 수 없는 방송통신기자재 인증번호 접두사: %r — '방송통신기자재' 광역 hint로 폴백", cert_no
+    )
+    return ""
+
+
 def _fetch_rra_cert(link_url: str) -> dict:
     """item_rraCert.php 페이지(UTF-8)에서 KC 방송통신기자재 상세 정보 파싱.
 
@@ -587,6 +610,10 @@ def _scrape_all_kc_certs(soup: BeautifulSoup,
             entry["link_type"] = "rra"
             rra = _fetch_rra_cert(link_href)
             entry.update(rra)
+            # 인증번호 접두사로 세부 유형 확정 (hint 정밀도 향상)
+            subtype = _rra_cert_subtype(cert_no)
+            if subtype:
+                entry["cert_type_detail"] = subtype
 
         if cert_no:
             certs.append(entry)

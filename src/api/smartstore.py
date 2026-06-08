@@ -163,11 +163,16 @@ class SmartstoreAPI:
                 if kc_infos:
                     if cert_type_hint:
                         _KW = ["전기용품", "생활용품", "어린이제품", "방송통신기자재",
-                               "안전인증", "안전확인", "공급자적합성확인"]
+                               "안전인증", "안전확인", "공급자적합성확인",
+                               "적합등록", "적합인증", "잠정인증", "자기적합확인"]
                         def _score(ci):
                             n = ci.get("name", "")
-                            return sum(1 for kw in _KW
-                                       if kw in cert_type_hint and kw in n)
+                            kw_score = sum(1 for kw in _KW
+                                           if kw in cert_type_hint and kw in n)
+                            # 동점 tiebreaker: hint와 name의 문자열 유사도
+                            sim = difflib.SequenceMatcher(
+                                None, cert_type_hint, n).ratio()
+                            return (kw_score, sim)
                         cert_info_id = max(kc_infos, key=_score)["id"]
                     else:
                         cert_info_id = kc_infos[0]["id"]
