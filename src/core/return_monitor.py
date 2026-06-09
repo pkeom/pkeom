@@ -143,7 +143,7 @@ class ReturnMonitor:
         """반품 신청 감지 및 알림. 반환값: {"new": n, "total": n}"""
         logger.info("반품 감지 시작")
         try:
-            raw = self._ss.get_returns(hours=1)
+            raw = self._ss.get_returns(hours=24)
         except Exception as e:
             logger.error("반품 목록 조회 실패: %s", e)
             return {"new": 0, "total": 0}

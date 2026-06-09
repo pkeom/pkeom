@@ -547,7 +547,8 @@ class SmartstoreAPI:
             timeout=10,
         )
         resp.raise_for_status()
-        changed = resp.json().get("lastChangeStatuses", [])
+        # 실제 응답: {"data": {"lastChangeStatuses": [...], "count": N}, ...}
+        changed = resp.json().get("data", {}).get("lastChangeStatuses", [])
         product_order_ids = [item["productOrderId"] for item in changed]
 
         if not product_order_ids:
@@ -587,27 +588,45 @@ class SmartstoreAPI:
         resp.raise_for_status()
         return resp.json()
 
-    def get_returns(self, hours: int = 1) -> list:
-        """반품 신청 목록 조회 (최근 hours시간 이내 RETURN_REQUEST 상태)"""
+    def get_returns(self, hours: int = 24) -> list:
+        """반품/교환 신청 목록 조회 (최근 hours시간 이내).
+
+        RETURN_REQUEST · EXCHANGE_REQUEST 상태로 변경된 주문 ID를 수집하고,
+        product-orders/query로 상세 조회한 뒤 현재 claimStatus가
+        RETURN_REQUEST 또는 EXCHANGE_REQUEST인 것만 반환한다.
+
+        API 제한: last-changed-statuses 조회 창은 최대 ~48h 이내.
+        """
         from datetime import datetime, timedelta, timezone
-        now = datetime.now(timezone.utc)
+        now          = datetime.now(timezone.utc)
         window_start = now - timedelta(hours=hours)
+        from_str     = window_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        to_str       = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-        resp = requests.get(
-            f"{self.BASE_URL}/v1/pay-order/seller/product-orders/last-changed-statuses",
-            headers=self._headers(),
-            params={
-                "lastChangedFrom": window_start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                "lastChangedTo":   now.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                "productOrderStatuses": "RETURN_REQUEST",
-                "limitCount": 100,
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        changed = resp.json().get("lastChangeStatuses", [])
-        product_order_ids = [item["productOrderId"] for item in changed]
+        product_order_ids: list[str] = []
+        for status in ("RETURN_REQUEST", "EXCHANGE_REQUEST"):
+            try:
+                resp = requests.get(
+                    f"{self.BASE_URL}/v1/pay-order/seller/product-orders/last-changed-statuses",
+                    headers=self._headers(),
+                    params={
+                        "lastChangedFrom":      from_str,
+                        "lastChangedTo":        to_str,
+                        "productOrderStatuses": status,
+                        "limitCount":           300,
+                    },
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                # 실제 응답: {"data": {"lastChangeStatuses": [...], "count": N}, ...}
+                changed = resp.json().get("data", {}).get("lastChangeStatuses", [])
+                ids = [item["productOrderId"] for item in changed if item.get("productOrderId")]
+                product_order_ids += ids
+                logger.debug("반품/교환 ID 조회 (%s): %d건", status, len(ids))
+            except Exception as e:
+                logger.warning("반품/교환 목록 조회 실패 (status=%s): %s", status, e)
 
+        product_order_ids = list(dict.fromkeys(product_order_ids))  # 중복 제거
         if not product_order_ids:
             return []
 
@@ -618,4 +637,19 @@ class SmartstoreAPI:
             timeout=10,
         )
         resp.raise_for_status()
-        return resp.json().get("data", [])
+        items = resp.json().get("data", [])
+
+        # 현재 claimStatus가 실제 반품/교환인 것만 필터 (해소된 건 제외)
+        _ACTIVE = {"RETURN_REQUEST", "EXCHANGE_REQUEST"}
+        filtered = [
+            item for item in items
+            if (
+                item.get("claim", {}).get("claimStatus")
+                or item.get("productOrder", {}).get("claimStatus", "")
+            ) in _ACTIVE
+        ]
+        logger.debug(
+            "반품/교환 상세 조회: 총 %d건 -> 활성(RETURN/EXCHANGE_REQUEST) %d건",
+            len(items), len(filtered),
+        )
+        return filtered
