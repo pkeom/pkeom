@@ -135,14 +135,21 @@ def _parse_order_item(raw) -> dict | None:
 
     delivery_memo = str(po.get("deliveryMemo", "") or raw.get("deliveryMemo", "") or "")
 
-    # claimStatus 확인 — 활성 취소/반품 클레임이면 발주 대상에서 제외
+    # claimStatus 확인 — 활성 클레임 종류별로 초기 상태 분류
+    #   CANCEL_REQUEST        → CANCELLED       (취소 요청: cancel_monitor가 처리)
+    #   RETURN/EXCHANGE_REQUEST → RETURN_REQUESTED (반품/교환: return_monitor가 처리)
+    #   그 외                 → NEW             (정상 발주 대상)
     _claim_status = po.get("claimStatus", "")
-    _SKIP_CLAIMS  = {"CANCEL_REQUEST", "RETURN_REQUEST", "EXCHANGE_REQUEST"}
-    _initial_status = "CANCELLED" if _claim_status in _SKIP_CLAIMS else "NEW"
-    if _initial_status == "CANCELLED":
+    if _claim_status == "CANCEL_REQUEST":
+        _initial_status = "CANCELLED"
+    elif _claim_status in ("RETURN_REQUEST", "EXCHANGE_REQUEST"):
+        _initial_status = "RETURN_REQUESTED"
+    else:
+        _initial_status = "NEW"
+    if _initial_status != "NEW":
         logger.info(
-            "[claimStatus=%s] 발주 제외(CANCELLED 저장): order_id=%s product=%r",
-            _claim_status, order_id, po.get("productName", ""),
+            "[claimStatus=%s] 발주 제외(%s 저장): order_id=%s product=%r",
+            _claim_status, _initial_status, order_id, po.get("productName", ""),
         )
 
     logger.info(
