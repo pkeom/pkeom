@@ -649,13 +649,7 @@ def _cc_text_content(text: str) -> str:
                 "content": {"render_type": "solid", "solid": {"color": [0, 0, 0]}},
                 "width": _STROKE_WIDTH,
             }],
-            "shadows": [{
-                "content": {"render_type": "solid", "solid": {"color": [0, 0, 0]}},
-                "alpha": 1.0,
-                "smoothing": 0.0,
-                "distance": 15.0,
-                "angle": -45.0,
-            }],
+            "shadows": [],
             "size": _FONT_SIZE,
             "useLetterColor": True,
             "range": [0, len(text)],
@@ -810,6 +804,7 @@ def save_capcut_project(
         t_mat_id  = _cc_uid()
         t_seg_id  = _cc_uid()
         t_trk_id  = _cc_uid()
+        t_anim_id = _cc_uid()
         s_us  = int(start * 1_000_000)
         d_us  = max(1, int((end - start) * 1_000_000))
 
@@ -830,19 +825,7 @@ def save_capcut_project(
                 "is_new": False, "source_platform": 0,
             },
             "layer_weight": 1, "letter_spacing": 0.0,
-            "line_spacing": 0.02, "has_shadow": True,
-            # 그림자: 체크박스 ON, 검정, 불투명도 100%, 흐림 0%, 거리 15, 각도 -45도
-            "shadow_color": "#000000", "shadow_alpha": 1.0,
-            # shadow_smoothing 스케일: display_blur = stored × (1/0.03) ≈ stored × 33.3
-            # 흐림  0% → stored = 0.0   (선명한 그림자)
-            # 흐림 15% → stored = 0.45  (기본값)
-            # 흐림 30% → stored = 0.888 (이전 잘못된 값)
-            "shadow_smoothing": 0.0, "shadow_distance": 15.0,
-            "shadow_point": {"x": 0.6363961030678928, "y": -0.6363961030678928},
-            "shadow_angle": -45.0,
-            "shadow_thickness_projection_enable": False,
-            "shadow_thickness_projection_angle": 0.0,
-            "shadow_thickness_projection_distance": 0.0,
+            "line_spacing": 0.02, "has_shadow": False,
             # 획: 체크박스 ON, 검정, 두께 40 (JSON scale: UI값/100 = 0.40)
             # content.strokes 배열에도 동일 값 반영 (실제 렌더링 기준)
             "border_alpha": 1.0, "border_color": "#000000",
@@ -904,12 +887,42 @@ def save_capcut_project(
             "sub_template_id": -1, "translate_original_text": "",
         })
 
+        # IN 애니메이션: 즉시 표시 (resource_id 실측값)
+        mat_animations.append({
+            "id": t_anim_id,
+            "type": "sticker_animation",
+            "multi_language_current": "none",
+            "animations": [
+                {
+                    "anim_adjust_params": None,
+                    "category_id":   "ruchang",
+                    "category_name": "인",
+                    "duration":      100000,
+                    "id":            "7646372780786650389",
+                    "material_type": "sticker",
+                    "name":          "즉시 표시",
+                    "panel":         "",
+                    "path": (
+                        "C:/Users/user/AppData/Local/CapCut/User Data"
+                        "/Cache/effect/7646372780786650389"
+                        "/bdd066df9741b90f8b5fd3103170c1d0"
+                    ),
+                    "platform":          "all",
+                    "request_id":        "",
+                    "resource_id":       "7646372780786650389",
+                    "source_platform":   1,
+                    "start":             0,
+                    "third_resource_id": "0",
+                    "type":              "in",
+                },
+            ],
+        })
 
         tseg = _cc_seg_base(t_seg_id, t_mat_id, s_us, d_us)
         tseg["source_timerange"] = None          # 텍스트 세그먼트는 source null
         tseg["render_index"]     = 14000
         tseg["enable_video_mask"] = True
-        tseg["extra_material_refs"] = []
+        tseg["extra_material_refs"] = [t_anim_id]
         # 실측 scale: transform.x × 1080 = CapCut X 표시값, transform.y × 1920 = CapCut Y 표시값
         tseg["clip"]["transform"]["x"] = round(subtitle_x / 1080, 10)
         tseg["clip"]["transform"]["y"] = round(subtitle_y / 1920, 10)
