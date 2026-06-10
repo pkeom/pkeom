@@ -620,10 +620,10 @@ def _cc_uid() -> str:
     return str(uuid.uuid4()).upper()
 
 
-_FONT_RES_ID  = "7577614738658479376"
+_FONT_RES_ID  = "7616275633244491009"
 _FONT_PATH    = (
     "C:/Users/user/AppData/Local/CapCut/User Data/Cache/effect"
-    "/7577614738658479376/af10207f3446e8642b54f1db39264c8f/font.ttf"
+    "/7616275633244491009/e1e85c188ab76a0a08f09dc583cef42a/font.ttf"
 )
 _FONT_SIZE    = 15        # 글꼴 크기
 # 획 두께 스케일: CapCut UI값 × 500 = JSON stored값
@@ -847,11 +847,11 @@ def save_capcut_project(
             # content.strokes 배열에도 동일 값 반영 (실제 렌더링 기준)
             "border_alpha": 1.0, "border_color": "#000000",
             "border_width": _STROKE_WIDTH, "border_mode": 0,
-            # 글꼴: 학교안심사물함R (resource_id=7577614738658479376)
+            # 글꼴: 지우개 (resource_id=7616275633244491009)
             # font_path + font_id 필수 — content 필드의 font와 동기화
             "style_name": "", "text_color": "#FFFFFF",
-            "text_alpha": 1.0, "font_name": "학교안심사물함R",
-            "font_title": "학교안심사물함R", "font_size": float(_FONT_SIZE),
+            "text_alpha": 1.0, "font_name": "",
+            "font_title": "none", "font_size": float(_FONT_SIZE),
             "font_path": _FONT_PATH, "font_id": _FONT_RES_ID,
             "font_resource_id": _FONT_RES_ID, "initial_scale": 1.0,
             "font_url": "", "typesetting": 0, "alignment": 1,
