@@ -897,7 +897,7 @@ def save_capcut_project(
                     "anim_adjust_params": None,
                     "category_id":   "ruchang",
                     "category_name": "인",
-                    "duration":      100000,
+                    "duration":      200000,
                     "id":            "7646372780786650389",
                     "material_type": "sticker",
                     "name":          "즉시 표시",
