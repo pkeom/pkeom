@@ -800,13 +800,16 @@ def save_capcut_project(
     mat_animations: list[dict] = []
     text_tracks:    list[dict] = []
 
-    for start, end, text in subtitle_entries:
+    _entries = list(subtitle_entries)
+    for _i, (start, end, text) in enumerate(_entries):
         t_mat_id  = _cc_uid()
         t_seg_id  = _cc_uid()
         t_trk_id  = _cc_uid()
-        t_anim_id = _cc_uid()
-        s_us  = int(start * 1_000_000)
-        d_us  = max(1, int((end - start) * 1_000_000))
+        s_us = int(start * 1_000_000)
+        if _i + 1 < len(_entries):
+            d_us = max(1, int(_entries[_i + 1][0] * 1_000_000) - s_us)
+        else:
+            d_us = max(1, int((end - start) * 1_000_000))
 
         text_materials.append({
             "id": t_mat_id, "type": "text", "name": "",
@@ -887,42 +890,11 @@ def save_capcut_project(
             "sub_template_id": -1, "translate_original_text": "",
         })
 
-        # IN 애니메이션: 즉시 표시 (resource_id 실측값)
-        mat_animations.append({
-            "id": t_anim_id,
-            "type": "sticker_animation",
-            "multi_language_current": "none",
-            "animations": [
-                {
-                    "anim_adjust_params": None,
-                    "category_id":   "ruchang",
-                    "category_name": "인",
-                    "duration":      200000,
-                    "id":            "7646372780786650389",
-                    "material_type": "sticker",
-                    "name":          "즉시 표시",
-                    "panel":         "",
-                    "path": (
-                        "C:/Users/user/AppData/Local/CapCut/User Data"
-                        "/Cache/effect/7646372780786650389"
-                        "/bdd066df9741b90f8b5fd3103170c1d0"
-                    ),
-                    "platform":          "all",
-                    "request_id":        "",
-                    "resource_id":       "7646372780786650389",
-                    "source_platform":   1,
-                    "start":             0,
-                    "third_resource_id": "0",
-                    "type":              "in",
-                },
-            ],
-        })
-
         tseg = _cc_seg_base(t_seg_id, t_mat_id, s_us, d_us)
         tseg["source_timerange"] = None          # 텍스트 세그먼트는 source null
         tseg["render_index"]     = 14000
         tseg["enable_video_mask"] = True
-        tseg["extra_material_refs"] = [t_anim_id]
+        tseg["extra_material_refs"] = []
         # 실측 scale: transform.x × 1080 = CapCut X 표시값, transform.y × 1920 = CapCut Y 표시값
         tseg["clip"]["transform"]["x"] = round(subtitle_x / 1080, 10)
         tseg["clip"]["transform"]["y"] = round(subtitle_y / 1920, 10)
