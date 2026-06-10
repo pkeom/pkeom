@@ -625,11 +625,11 @@ _FONT_PATH    = (
     "C:/Users/user/AppData/Local/CapCut/User Data/Cache/effect"
     "/7577614738658479376/af10207f3446e8642b54f1db39264c8f/font.ttf"
 )
-_FONT_SIZE    = 20        # 글꼴 크기
+_FONT_SIZE    = 15        # 글꼴 크기
 # 획 두께 스케일: CapCut UI값 × 500 = JSON stored값
-# UI 두께 40 → stored = 40 / 500 = 0.08
+# UI 두께 50 → stored = 50 / 500 = 0.10
 # (실측: stored 0.40 → CapCut 표시 200 = 0.40×500 확인)
-_STROKE_WIDTH = 40 / 500  # = 0.08
+_STROKE_WIDTH = 50 / 500  # = 0.10
 
 
 def _cc_text_content(text: str) -> str:
@@ -810,7 +810,6 @@ def save_capcut_project(
         t_mat_id  = _cc_uid()
         t_seg_id  = _cc_uid()
         t_trk_id  = _cc_uid()
-        t_anim_id = _cc_uid()
         s_us  = int(start * 1_000_000)
         d_us  = max(1, int((end - start) * 1_000_000))
 
@@ -905,65 +904,12 @@ def save_capcut_project(
             "sub_template_id": -1, "translate_original_text": "",
         })
 
-        # 인/아웃 애니메이션: 밀기 D, 길이 0.1s (100000μs)
-        # resource_id는 CapCut 프로젝트 파일에서 실측 확인한 값
-        mat_animations.append({
-            "id": t_anim_id,
-            "type": "sticker_animation",
-            "multi_language_current": "none",
-            "animations": [
-                {
-                    "anim_adjust_params": None,
-                    "category_id":   "ruchang",
-                    "category_name": "인",
-                    "duration":      100000,
-                    "id":            "7403256520537805329",
-                    "material_type": "sticker",
-                    "name":          "밀기 D",
-                    "panel":         "",
-                    "path": (
-                        "C:/Users/user/AppData/Local/CapCut/User Data"
-                        "/Cache/effect/7403256520537805329"
-                        "/cf042bc2dd475dc6166e33f43b116641"
-                    ),
-                    "platform":        "all",
-                    "request_id":      "",
-                    "resource_id":     "7403256520537805329",
-                    "source_platform": 1,
-                    "start":           0,
-                    "third_resource_id": "7403256520537805329",
-                    "type":            "in",
-                },
-                {
-                    "anim_adjust_params": None,
-                    "category_id":   "chuchang",
-                    "category_name": "아웃",
-                    "duration":      100000,
-                    "id":            "6724919284893487619",
-                    "material_type": "sticker",
-                    "name":          "밀기 D",
-                    "panel":         "",
-                    "path": (
-                        "C:/Users/user/AppData/Local/CapCut/User Data"
-                        "/Cache/effect/6724919284893487619"
-                        "/4b1190ca81551d872f1d6b0e2ce5db2b"
-                    ),
-                    "platform":        "all",
-                    "request_id":      "",
-                    "resource_id":     "6724919284893487619",
-                    "source_platform": 1,
-                    "start":           0,
-                    "third_resource_id": "6724919284893487619",
-                    "type":            "out",
-                },
-            ],
-        })
 
         tseg = _cc_seg_base(t_seg_id, t_mat_id, s_us, d_us)
         tseg["source_timerange"] = None          # 텍스트 세그먼트는 source null
         tseg["render_index"]     = 14000
         tseg["enable_video_mask"] = True
-        tseg["extra_material_refs"] = [t_anim_id]
+        tseg["extra_material_refs"] = []
         # 실측 scale: transform.x × 1080 = CapCut X 표시값, transform.y × 1920 = CapCut Y 표시값
         tseg["clip"]["transform"]["x"] = round(subtitle_x / 1080, 10)
         tseg["clip"]["transform"]["y"] = round(subtitle_y / 1920, 10)
