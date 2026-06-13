@@ -1,20 +1,6 @@
 {
   "mappings": [
     {
-      "id": 24,
-      "ss_product_id": "13625419924",
-      "ss_option_id": "58930246754",
-      "origin_product_no": "13565829180",
-      "supplier": "domaemae",
-      "supplier_product_id": "5972525",
-      "supplier_url": "https://domeme.domeggook.com/s/5972525",
-      "supplier_option_id": "18",
-      "price_margin_rate": 0.210526,
-      "is_active": true,
-      "memo": "자동등록 필드런 무봉제 쿨토시(일반형) [필드런 무봉제 쿨토시(손등커버형)블랙]",
-      "created_at": "2026-06-07T16:52:38"
-    },
-    {
       "id": 25,
       "ss_product_id": "13625419924",
       "ss_option_id": "58930246755",
