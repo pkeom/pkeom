@@ -1,20 +1,6 @@
 {
   "mappings": [
     {
-      "id": 1,
-      "ss_product_id": "13622932026",
-      "ss_option_id": "58911247464",
-      "origin_product_no": "",
-      "supplier": "domaemae",
-      "supplier_product_id": "https://domeme.domeggook.com/s/63641452",
-      "supplier_url": "https://domeme.domeggook.com/s/63641452",
-      "supplier_option_id": "00_00",
-      "price_margin_rate": 1.0,
-      "is_active": true,
-      "memo": "",
-      "created_at": "2026-06-05T16:39:57"
-    },
-    {
       "id": 2,
       "ss_product_id": "13625392732",
       "ss_option_id": "",
