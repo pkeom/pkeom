@@ -79,31 +79,6 @@ _CATEGORY_MAP = {
 }
 
 
-_ISLAND_FEE_FALLBACK = (5000, 7000)  # 제주, 도서산간 기본값
-
-
-def _parse_island_fees(text: str) -> tuple[int, int]:
-    """배송 조건 텍스트에서 제주/도서산간 추가배송비 파싱.
-
-    예) "추가배송비 제주지역 +4,000원 / 도서산간 +4,000원"
-         → (4000, 4000)
-    한쪽만 기재된 경우 나머지도 같은 값으로 채움.
-    Returns: (jeju_fee, island_fee)  — 파싱 실패 시 (0, 0)
-    """
-    if not text:
-        return 0, 0
-    clean = text.replace(",", "")
-    jeju_m   = re.search(r"제주[^0-9+]*\+?\s*([0-9]+)\s*원", clean)
-    island_m = re.search(r"(?:도서산간|도서|산간)[^0-9+]*\+?\s*([0-9]+)\s*원", clean)
-    jeju_fee   = int(jeju_m.group(1))   if jeju_m   else 0
-    island_fee = int(island_m.group(1)) if island_m else 0
-    if jeju_fee and not island_fee:
-        island_fee = jeju_fee
-    if island_fee and not jeju_fee:
-        jeju_fee = island_fee
-    return jeju_fee, island_fee
-
-
 def _parse_price(raw) -> int:
     """가격 파싱: 단순 정수 또는 수량별 가격 형식(예: '1+2700|10+2650|...')을 처리.
 
@@ -810,24 +785,6 @@ def _scrape_domaekkuk(product_id: str) -> dict:
     except Exception as e:
         logger.debug("도매꾹 상세이미지 수집 실패: %s", e)
 
-    # ── 11. 추가배송비 (제주/도서산간) ────────────────────────────
-    _jeju, _island = 0, 0
-    for _sel in ("div.lInfoDeliv", "tr.lInfoDeliv", "#lDelivInfo", "div.lDeliv",
-                 "table.lInfoTable", "div#lInfo"):
-        _el = soup.select_one(_sel)
-        if _el:
-            _jeju, _island = _parse_island_fees(_el.get_text(" ", strip=True))
-            if _jeju or _island:
-                break
-    if not _jeju and not _island:
-        _jeju, _island = _parse_island_fees(soup.get_text(" ", strip=True))
-    if _jeju:
-        result["jeju_extra_fee"]   = _jeju
-        result["island_extra_fee"] = _island
-        logger.info("도매꾹 추가배송비 수집: 제주=%d원, 도서산간=%d원", _jeju, _island)
-    else:
-        logger.debug("도매꾹 추가배송비 파싱 실패 → fallback 사용")
-
     return result
 
 
@@ -1012,24 +969,6 @@ def _scrape_domaemae(product_id: str) -> dict:
     except Exception as e:
         logger.debug("도매매 상세이미지 수집 실패: %s", e)
 
-    # ── 11. 추가배송비 (제주/도서산간) ────────────────────────────
-    _jeju, _island = 0, 0
-    for _sel in ("div.lInfoDeliv", "tr.lInfoDeliv", "#lDelivInfo", "div.lDeliv",
-                 "table.lInfoTable", "div#lInfo"):
-        _el = soup.select_one(_sel)
-        if _el:
-            _jeju, _island = _parse_island_fees(_el.get_text(" ", strip=True))
-            if _jeju or _island:
-                break
-    if not _jeju and not _island:
-        _jeju, _island = _parse_island_fees(soup.get_text(" ", strip=True))
-    if _jeju:
-        result["jeju_extra_fee"]   = _jeju
-        result["island_extra_fee"] = _island
-        logger.info("도매매 추가배송비 수집: 제주=%d원, 도서산간=%d원", _jeju, _island)
-    else:
-        logger.debug("도매매 추가배송비 파싱 실패 → fallback 사용")
-
     return result
 
 
@@ -1086,12 +1025,6 @@ def fetch_product_info(url: str, client) -> dict:
                       or basis.get("certAgency") or basis.get("certOrgName") or "")
     kc_certs: list = []  # HTML 스크래핑으로 수집 (API에는 없음)
     min_qty      = int(basis.get("minQty") or basis.get("min_qty") or 1)
-    # API delivery 필드 파싱 (도매꾹 API에 delivery 객체가 있으면 사용)
-    jeju_extra_fee, island_extra_fee = 0, 0
-    _deliv_raw = raw.get("delivery", {})
-    if isinstance(_deliv_raw, dict) and _deliv_raw:
-        _deliv_text = " ".join(str(v) for v in _deliv_raw.values() if isinstance(v, str))
-        jeju_extra_fee, island_extra_fee = _parse_island_fees(_deliv_text)
     cat_name     = _parse_category(raw.get("category", {}))
     options          = _parse_options(raw.get("selectOpt", {}))
     option_code_map  = _parse_option_code_map(raw.get("selectOpt", {}))
@@ -1144,12 +1077,9 @@ def fetch_product_info(url: str, client) -> dict:
         if not cat_name:
             cat_name = scraped.get("category_name", "")
         category_code = scraped.get("category_code", "")
-        if not jeju_extra_fee and not island_extra_fee:
-            jeju_extra_fee   = scraped.get("jeju_extra_fee", 0)
-            island_extra_fee = scraped.get("island_extra_fee", 0)
 
-    logger.info("수집 완료: title=%r, price=%s, options=%d개, 추가배송비(제주=%s, 도서산간=%s)",
-                title, supply_price, len(options), jeju_extra_fee or "fallback", island_extra_fee or "fallback")
+    logger.info("수집 완료: title=%r, price=%s, options=%d개",
+                title, supply_price, len(options))
 
     return {
         "supplier":      supplier,
@@ -1176,8 +1106,6 @@ def fetch_product_info(url: str, client) -> dict:
         "category_id":      cat_name,
         "category_name": cat_name,
         "category_code": category_code,
-        "jeju_extra_fee":   jeju_extra_fee,
-        "island_extra_fee": island_extra_fee,
     }
 
 
@@ -1499,8 +1427,8 @@ def build_smartstore_payload(info: dict, selling_price: int,
                 "deliveryFeePayType": "PREPAID",
                 "deliveryFeeByArea": {
                     "deliveryAreaType": "AREA_3",
-                    "area2extraFee":    info.get("jeju_extra_fee")   or _ISLAND_FEE_FALLBACK[0],
-                    "area3extraFee":    info.get("island_extra_fee") or _ISLAND_FEE_FALLBACK[1],
+                    "area2extraFee":    5000,
+                    "area3extraFee":    7000,
                 },
             },
             "claimDeliveryInfo": {
