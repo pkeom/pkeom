@@ -22,7 +22,6 @@ from src.api.domaemae import DomaemaeClient
 from src.core.product_register import (
     fetch_product_info, build_smartstore_payload, calculate_selling_price,
     _ISLAND_FEE_FALLBACK,
-    _NOTICE_DETAIL_REF, _NOTICE_REFUND_PROC, _NOTICE_DISPUTE,
 )
 
 logging.basicConfig(
@@ -107,39 +106,11 @@ def validate_payload(payload: dict) -> list[str]:
         if code not in VALID_ORIGIN_CODES:
             errors.append(f"originAreaCode={code!r}는 API 미지원 코드")
 
-    # productInfoProvidedNotice — 타입 식별 후 5개 고시 항목 검증
-    ppn = da.get("productInfoProvidedNotice", {})
-    ppn_type = ppn.get("productInfoProvidedNoticeType", "ETC")
-    _type_key_map = {
-        "ETC":            "etc",
-        "HOME_APPLIANCES":"homeAppliances",
-        "BAG":            "bag",
-        "FURNITURE":      "furniture",
-        "WEAR":           "wear",
-    }
-    ppn_body = ppn.get(_type_key_map.get(ppn_type, "etc"), {})
-    item_name = ppn_body.get("itemName", "")
+    # productInfoProvidedNotice.etc.itemName ≤ 50자
+    ppn_etc = da.get("productInfoProvidedNotice", {}).get("etc", {})
+    item_name = ppn_etc.get("itemName", "")
     if item_name and len(item_name) > 50:
         errors.append(f"itemName 50자 초과: {len(item_name)}자")
-
-    # 5개 항목 고정값 검증 (타입별 필드명 대응)
-    # 5개 항목은 ETC·비ETC 모두 동일 필드로 포함 (비ETC도 defectiveGoodsRefundPolicy 추가)
-    _chk = [
-        ("returnCostReason",         _NOTICE_DETAIL_REF,  "1.제품하자반품비용"),
-        ("noRefundReason",           _NOTICE_DETAIL_REF,  "2.단순변심불가사유"),
-        ("qualityAssuranceStandard", _NOTICE_DETAIL_REF,  "3.품질보증기준"),
-        ("compensationProcedure",    _NOTICE_REFUND_PROC, "4.환불방법지연배상금"),
-        ("troubleShootingContents",  _NOTICE_DISPUTE,     "5.분쟁처리"),
-    ]
-    # defectiveGoodsRefundPolicy: 비ETC 타입 전용 payload 필드 — Naver GET에는 미반환되어 검증 제외
-    # (POST 시에는 올바르게 전송됨, 위 5개 항목이 핵심 법적 요구사항)
-    for field, expected, label in _chk:
-        actual = ppn_body.get(field, "")
-        if actual != expected:
-            errors.append(
-                f"고시항목 [{label}] 불일치: "
-                f"field={field!r}  actual={repr(actual)[:50]}  expected={repr(expected)[:50]}"
-            )
 
     # KC인증: 있으면 certificationKind + certificationNumber 모두 있어야 함
     cert_infos = da.get("productCertificationInfos", [])

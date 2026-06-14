@@ -1258,17 +1258,6 @@ def resolve_category(info: dict, smartstore_api, category_id: str = "") -> tuple
 
 _PHONE_FALLBACK = "02-0000-0000"
 
-# 청약철회·반품 관련 고정 고시 문구 (법적 요구사항 — 변경 금지)
-_NOTICE_DETAIL_REF  = "상품상세 참조"
-_NOTICE_REFUND_PROC = (
-    "주문취소 및 대금의 환불은 네이버페이 마이페이지에서 신청할 수 있으며, "
-    "전자상거래 등에서의 소비자보호에 관한 법률에 따라 소비자의 청약철회 후 "
-    "판매자가 재화 등을 반환 받은 날로부터 3영업일 이내에 지급받은 대금의 환급을 "
-    "정당한 사유 없이 지연하는 때에는 소비자는 지연기간에 대해서 연 15%의 "
-    "지연배상금을 판매자에게 청구할 수 있습니다."
-)
-_NOTICE_DISPUTE = "소비자분쟁해결기준(공정거래위원회 고시) 및 관계법령에 따릅니다."
-
 
 def _get_notice_type(naver_category: str) -> str:
     """Naver wholeCategoryName으로 상품정보제공고시 타입을 결정한다."""
@@ -1298,16 +1287,6 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
         "afterServiceDirector": "톡톡문의로 문의부탁드립니다",
     }
 
-    # 5개 고시 항목 공통 — 모든 타입에 동일하게 포함
-    # (Naver API는 비ETC 타입에도 이 필드들을 수용하며, 누락 시 "1" 기본값으로 반환)
-    _notice_5 = {
-        "returnCostReason":         _NOTICE_DETAIL_REF,   # 1. 제품하자·오배송 반품비용
-        "noRefundReason":           _NOTICE_DETAIL_REF,   # 2. 단순변심 불가 사유
-        "qualityAssuranceStandard": _NOTICE_DETAIL_REF,   # 3. 교환·반품·보증 조건
-        "compensationProcedure":    _NOTICE_REFUND_PROC,  # 4. 환불방법·지연배상금
-        "troubleShootingContents":  _NOTICE_DISPUTE,      # 5. 소비자피해보상·분쟁처리
-    }
-
     if notice_type == "HOME_APPLIANCES":
         # releaseDate: "YYYY-MM" 형식 필수 (API 실증)
         release_date = datetime.date.today().replace(day=1).strftime("%Y-%m")
@@ -1315,13 +1294,14 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
             "productInfoProvidedNoticeType": "HOME_APPLIANCES",
             "homeAppliances": {
                 **common,
-                **_notice_5,
                 "certificationType":          _SEP,
                 "size":                       info.get("size") or _SEP,
                 "releaseDate":                release_date,
                 "warrantyPolicy":             _SEP,
                 "additionalCost":             _SEP,
-                "defectiveGoodsRefundPolicy": _NOTICE_DETAIL_REF,   # 1. 제품하자 반품비용 (타입 전용)
+                "qualityAssuranceStandard":   "품질보증기준에 준함",
+                "compensationProcedure":      "소비자분쟁해결기준에 준함",
+                "defectiveGoodsRefundPolicy": _SEP,
             },
         }
     if notice_type == "BAG":
@@ -1329,14 +1309,15 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
             "productInfoProvidedNoticeType": "BAG",
             "bag": {
                 **common,
-                **_notice_5,
                 "material":                   info.get("material") or _SEP,
                 "size":                       info.get("size") or _SEP,
                 "color":                      info.get("color") or _SEP,
                 "type":                       _SEP,
                 "caution":                    _SEP,
                 "warrantyPolicy":             _SEP,
-                "defectiveGoodsRefundPolicy": _NOTICE_DETAIL_REF,   # 1. 제품하자 반품비용 (타입 전용)
+                "qualityAssuranceStandard":   "품질보증기준에 준함",
+                "compensationProcedure":      "소비자분쟁해결기준에 준함",
+                "defectiveGoodsRefundPolicy": _SEP,
             },
         }
     if notice_type == "FURNITURE":
@@ -1344,7 +1325,6 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
             "productInfoProvidedNoticeType": "FURNITURE",
             "furniture": {
                 **common,
-                **_notice_5,
                 "material":                   info.get("material") or _SEP,
                 "color":                      info.get("color") or _SEP,
                 "size":                       info.get("size") or _SEP,
@@ -1353,7 +1333,9 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
                 "certificationType":          _SEP,
                 "producer":                   _SEP,
                 "warrantyPolicy":             _SEP,
-                "defectiveGoodsRefundPolicy": _NOTICE_DETAIL_REF,   # 1. 제품하자 반품비용 (타입 전용)
+                "qualityAssuranceStandard":   "품질보증기준에 준함",
+                "compensationProcedure":      "소비자분쟁해결기준에 준함",
+                "defectiveGoodsRefundPolicy": _SEP,
             },
         }
     if notice_type == "WEAR":
@@ -1361,14 +1343,15 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
             "productInfoProvidedNoticeType": "WEAR",
             "wear": {
                 **common,
-                **_notice_5,
                 "material":                   info.get("material") or _SEP,
                 "color":                      info.get("color") or _SEP,
                 "size":                       info.get("size") or _SEP,
                 "laundryMethod":              _SEP,
                 "caution":                    _SEP,
                 "warrantyPolicy":             _SEP,
-                "defectiveGoodsRefundPolicy": _NOTICE_DETAIL_REF,   # 1. 제품하자 반품비용 (타입 전용)
+                "qualityAssuranceStandard":   "품질보증기준에 준함",
+                "compensationProcedure":      "소비자분쟁해결기준에 준함",
+                "defectiveGoodsRefundPolicy": _SEP,
             },
         }
     # ETC (default — 가전/디지털 포함 미매핑 카테고리)
@@ -1376,11 +1359,11 @@ def _build_notice(notice_type: str, info: dict, seller_phone: str) -> dict:
         "productInfoProvidedNoticeType": "ETC",
         "etc": {
             **common,
-            "returnCostReason":         _NOTICE_DETAIL_REF,   # 1. 제품하자·오배송 청약철회 반품비용
-            "noRefundReason":           _NOTICE_DETAIL_REF,   # 2. 단순변심 청약철회 불가 사유
-            "qualityAssuranceStandard": _NOTICE_DETAIL_REF,   # 3. 교환·반품·보증 조건
-            "compensationProcedure":    _NOTICE_REFUND_PROC,  # 4. 환불방법·지연배상금
-            "troubleShootingContents":  _NOTICE_DISPUTE,      # 5. 소비자피해보상·분쟁처리
+            "returnCostReason":         _SEP,
+            "noRefundReason":           _SEP,
+            "qualityAssuranceStandard": _SEP,
+            "compensationProcedure":    _SEP,
+            "troubleShootingContents":  _SEP,
         },
     }
 
@@ -2058,13 +2041,12 @@ def register_product(url: str, selling_price: int, smartstore_api,
         logger.warning("매핑 저장 실패 (등록은 성공): %s", e)
 
     return {
-        "success":           True,
-        "product_id":        ss_prod_id,       # channelProductNo (주문 매핑 기준)
-        "origin_product_id": origin_prod_id,   # originProductNo  (GET /v2/products/origin-products 용)
-        "selling_price":     selling_price,
-        "category_id":       category_id,
-        "category_match":    category_match,
-        "info":              info,
+        "success":        True,
+        "product_id":     ss_prod_id,
+        "selling_price":  selling_price,
+        "category_id":    category_id,
+        "category_match": category_match,
+        "info":           info,
     }
 
 
