@@ -3,6 +3,7 @@
 - 실제 Naver 상품등록 API 호출 없이 payload 구조·필드 유효성만 검증
 - 도매꾹 5개 + 도매매 5개 상품, 각 5회씩 = 총 50회 연속 통과해야 완료
 - 이미지 업로드는 mock (placeholder Naver CDN URL 사용)
+- 추가배송비(제주/도서산간) 파싱 결과를 수집 단계에서 출력
 
 실행: python test_dryrun.py
 """
@@ -20,6 +21,7 @@ from src.utils.config_loader import load_config
 from src.api.domaemae import DomaemaeClient
 from src.core.product_register import (
     fetch_product_info, build_smartstore_payload, calculate_selling_price,
+    _ISLAND_FEE_FALLBACK,
 )
 
 logging.basicConfig(
@@ -130,6 +132,17 @@ def validate_payload(payload: dict) -> list[str]:
         fee = di.get("deliveryFee", {})
         if not fee.get("deliveryFeeType"):
             errors.append("deliveryFee.deliveryFeeType 누락")
+        fee_by_area = fee.get("deliveryFeeByArea", {})
+        if fee_by_area.get("deliveryAreaType") != "AREA_3":
+            errors.append(f"deliveryAreaType이 AREA_3 아님: {fee_by_area.get('deliveryAreaType')!r}")
+        jeju   = fee_by_area.get("area2extraFee", 0)
+        island = fee_by_area.get("area3extraFee", 0)
+        if not isinstance(jeju, int) or jeju <= 0:
+            errors.append(f"area2extraFee(제주) 유효하지 않음: {jeju}")
+        if not isinstance(island, int) or island <= 0:
+            errors.append(f"area3extraFee(도서산간) 유효하지 않음: {island}")
+        if fee.get("deliveryFeePayType") != "PREPAID":
+            errors.append(f"deliveryFeePayType이 PREPAID 아님: {fee.get('deliveryFeePayType')!r}")
 
     return errors
 
@@ -163,15 +176,23 @@ def collect_products(urls: list[str], client, settings: dict) -> list[dict]:
     products = []
     for url in urls:
         try:
-            logger.warning("[수집] %s", url)
+            print(f"  [수집] {url}")
             info = fetch_product_info(url, client)
             if not info.get("title") or not info.get("supply_price"):
-                logger.warning("  → 상품명/가격 없음, 스킵: %s", url)
+                print(f"  → 상품명/가격 없음, 스킵: {url}")
                 continue
+            jeju   = info.get("jeju_extra_fee")
+            island = info.get("island_extra_fee")
+            fee_src   = "수집" if jeju else "fallback"
+            jeju_val   = jeju   or _ISLAND_FEE_FALLBACK[0]
+            island_val = island or _ISLAND_FEE_FALLBACK[1]
+            print(
+                f"  → OK: {info['title'][:35]:<35} | 공급가={info['supply_price']:,}원"
+                f" | 제주={jeju_val:,}원 도서산간={island_val:,}원 [{fee_src}]"
+            )
             products.append(info)
-            logger.warning("  → OK: %s / 공급가=%s", info["title"][:40], info["supply_price"])
         except Exception as e:
-            logger.warning("  → 수집 실패 (%s): %s", url, e)
+            print(f"  → 수집 실패 ({url}): {e}")
     return products
 
 
