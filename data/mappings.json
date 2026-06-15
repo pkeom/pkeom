@@ -265,6 +265,62 @@
       "is_active": true,
       "memo": "자동등록 뚜또가또 강아지 고양이 스팀 브러쉬",
       "created_at": "2026-06-15T20:53:57"
+    },
+    {
+      "id": 76,
+      "ss_product_id": "13634576811",
+      "ss_option_id": "58984597713",
+      "origin_product_no": "13574889565",
+      "supplier": "domaemae",
+      "supplier_product_id": "62876715",
+      "supplier_url": "https://domeme.domeggook.com/s/62876715",
+      "supplier_option_id": "00",
+      "price_margin_rate": 1.285714,
+      "is_active": true,
+      "memo": "자동등록 [POIPOI]자동차 팔걸이 콘솔쿠션 멀티 수납 거치대 [01.맘편한쿠션블랙]",
+      "created_at": "2026-06-16T01:36:39"
+    },
+    {
+      "id": 77,
+      "ss_product_id": "13634576811",
+      "ss_option_id": "58984597714",
+      "origin_product_no": "13574889565",
+      "supplier": "domaemae",
+      "supplier_product_id": "62876715",
+      "supplier_url": "https://domeme.domeggook.com/s/62876715",
+      "supplier_option_id": "01",
+      "price_margin_rate": 1.285714,
+      "is_active": true,
+      "memo": "자동등록 [POIPOI]자동차 팔걸이 콘솔쿠션 멀티 수납 거치대 [01.맘편한쿠션베이지]",
+      "created_at": "2026-06-16T01:36:39"
+    },
+    {
+      "id": 78,
+      "ss_product_id": "13634576811",
+      "ss_option_id": "58984597716",
+      "origin_product_no": "13574889565",
+      "supplier": "domaemae",
+      "supplier_product_id": "62876715",
+      "supplier_url": "https://domeme.domeggook.com/s/62876715",
+      "supplier_option_id": "02",
+      "price_margin_rate": 1.285714,
+      "is_active": true,
+      "memo": "자동등록 [POIPOI]자동차 팔걸이 콘솔쿠션 멀티 수납 거치대 [01.맘편한쿠션라이트브라운]",
+      "created_at": "2026-06-16T01:36:39"
+    },
+    {
+      "id": 79,
+      "ss_product_id": "13634576811",
+      "ss_option_id": "",
+      "origin_product_no": "13574889565",
+      "supplier": "domaemae",
+      "supplier_product_id": "62876715",
+      "supplier_url": "https://domeme.domeggook.com/s/62876715",
+      "supplier_option_id": "",
+      "price_margin_rate": 1.285714,
+      "is_active": true,
+      "memo": "자동등록 [POIPOI]자동차 팔걸이 콘솔쿠션 멀티 수납 거치대 차량용 콘솔박스 ",
+      "created_at": "2026-06-16T01:36:39"
     }
   ]
 }
