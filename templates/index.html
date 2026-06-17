@@ -625,6 +625,36 @@ tbody tr:hover td { background: #FAFBFC; }
           <input class="fi" id="reg-rra-agency" type="text" placeholder="국립전파연구원">
         </div>
 
+        <!-- 수동 KC 입력 — 자동 스크랩 KC 0개일 때만 노출 -->
+        <div id="reg-manual-kc-wrap" style="display:none;border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--bg2);margin-top:4px">
+          <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">
+            🔒 수동 KC 인증 입력 <span style="font-weight:400">(자동 스크랩 KC 없음 — 필요 시 직접 입력)</span>
+          </div>
+          <div class="fg" style="margin-bottom:6px">
+            <label class="fl">인증유형</label>
+            <select class="fi" id="reg-kc-type">
+              <option value="전기용품 안전확인" selected>전기용품 안전확인</option>
+              <option value="전기용품 안전인증">전기용품 안전인증</option>
+              <option value="전기용품 공급자적합성확인">전기용품 공급자적합성확인</option>
+              <option value="생활용품 안전확인">생활용품 안전확인</option>
+              <option value="생활용품 안전인증">생활용품 안전인증</option>
+              <option value="생활용품 공급자적합성확인">생활용품 공급자적합성확인</option>
+              <option value="어린이제품 안전확인">어린이제품 안전확인</option>
+              <option value="어린이제품 안전인증">어린이제품 안전인증</option>
+              <option value="어린이제품 공급자적합성확인">어린이제품 공급자적합성확인</option>
+              <option value="방송통신기자재 적합등록">방송통신기자재 적합등록</option>
+              <option value="방송통신기자재 적합인증">방송통신기자재 적합인증</option>
+              <option value="방송통신기자재 잠정인증">방송통신기자재 잠정인증</option>
+              <option value="방송통신기자재 자기적합확인">방송통신기자재 자기적합확인</option>
+            </select>
+          </div>
+          <div class="fg" style="margin-bottom:0">
+            <label class="fl">인증번호</label>
+            <input class="fi" id="reg-kc-no" type="text" placeholder="예: XU101030-19013A  또는  R-R-abc-XYZ123"
+              oninput="regUpdateKcPreview()">
+          </div>
+        </div>
+
         <div style="display:flex;gap:8px;margin-top:6px">
           <button class="btn btn-ghost" id="reg-preview-btn" onclick="regPreview()" style="flex:1">
             🔍 미리보기
@@ -1234,13 +1264,23 @@ function regShowPreview(info, sellingPrice) {
   }
 
   // 상세 테이블
-  const kcRows = (info.kc_certs || []).length > 0
-    ? (info.kc_certs || []).map((c, i) =>
-        [`KC인증${i+1}`, `[${c.cert_type||''}] ${c.cert_no||''} | 기관=${c.agency||(c.link_type==='rra'?'(수동입력)':'-')} | 상호=${c.company_name||'-'} | 제조자=${c.manufacturer_name||'-'} | 모델=${c.model_name||'-'}`]
-      )
-    : [['KC인증번호', info.kc_cert_no || '(없음)'],
-       ['KC인증유형', info.kc_cert_type || '-'],
-       ['KC인증기관', info.kc_cert_agency || '-']];
+  const hasAutoKc = (info.kc_certs || []).length > 0;
+  $('reg-manual-kc-wrap').style.display = hasAutoKc ? 'none' : '';
+
+  let kcRows;
+  if (hasAutoKc) {
+    kcRows = (info.kc_certs || []).map((c, i) =>
+      [`KC인증${i+1}`, `[${c.cert_type||''}] ${c.cert_no||''} | 기관=${c.agency||(c.link_type==='rra'?'(수동입력)':'-')} | 상호=${c.company_name||'-'} | 제조자=${c.manufacturer_name||'-'} | 모델=${c.model_name||'-'}`]
+    );
+  } else {
+    const kcNo   = $('reg-kc-no').value.trim();
+    const kcType = $('reg-kc-type').value;
+    kcRows = [
+      ['KC인증번호 (자동)', '(스크랩 없음)'],
+      ['KC인증유형 (수동)', kcType],
+      ['KC인증번호 (수동)', kcNo || '(미입력)'],
+    ];
+  }
 
   const rows = [
     ['공급사',       info.supplier === 'domaekkuk' ? '도매꾹' : '도매매'],
@@ -1271,6 +1311,21 @@ function regShowPreview(info, sellingPrice) {
     .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
     .join('');
   $('reg-info-table').style.display = '';
+}
+
+function regUpdateKcPreview() {
+  if (!_regInfo) return;
+  // 수동 KC 입력 변경 시 미리보기 테이블의 KC 행만 실시간 갱신
+  const tbody = $('reg-info-body');
+  if (!tbody) return;
+  const kcNo   = $('reg-kc-no').value.trim();
+  const kcType = $('reg-kc-type').value;
+  const rows   = tbody.querySelectorAll('tr');
+  rows.forEach(tr => {
+    const key = tr.cells[0] && tr.cells[0].textContent;
+    if (key === 'KC인증유형 (수동)') tr.cells[1].textContent = kcType;
+    if (key === 'KC인증번호 (수동)') tr.cells[1].textContent = kcNo || '(미입력)';
+  });
 }
 
 async function regPreview() {
@@ -1316,6 +1371,9 @@ async function regSubmit() {
   const catId            = $('reg-cat').value.trim();
   const manufacture_date = $('reg-mfg-date').value.trim();
   const rra_agency       = $('reg-rra-agency').value.trim();
+  const hasAutoKc        = (_regInfo.kc_certs || []).length > 0;
+  const manual_kc_no     = hasAutoKc ? '' : $('reg-kc-no').value.trim();
+  const manual_kc_type   = hasAutoKc ? '' : $('reg-kc-type').value;
 
   $('reg-submit-btn').disabled  = true;
   $('reg-preview-btn').disabled = true;
@@ -1323,7 +1381,7 @@ async function regSubmit() {
   $('reg-result').style.display = 'none';
 
   try {
-    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name, manufacture_date, rra_agency});
+    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name, manufacture_date, rra_agency, manual_kc_no, manual_kc_type});
     const resultDiv = $('reg-result');
 
     if (d.success) {

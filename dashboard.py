@@ -457,6 +457,8 @@ def api_register_submit():
     product_name     = d.get("product_name", "").strip()
     manufacture_date = d.get("manufacture_date", "").strip()
     rra_agency       = d.get("rra_agency", "").strip()
+    manual_kc_no     = d.get("manual_kc_no", "").strip()
+    manual_kc_type   = d.get("manual_kc_type", "").strip()
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
     if not _ss_api or not _dm_cli:
@@ -473,6 +475,8 @@ def api_register_submit():
             product_name     = product_name,
             manufacture_date = manufacture_date,
             rra_agency       = rra_agency,
+            manual_kc_no     = manual_kc_no,
+            manual_kc_type   = manual_kc_type,
         )
         if result.get("success"):
             _git_push_mappings()
