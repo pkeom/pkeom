@@ -1685,7 +1685,8 @@ def _save_option_mappings(
 def register_product(url: str, selling_price: int, smartstore_api,
                      supplier_client, settings: dict, mapping_repo,
                      category_id: str = "", product_name: str = "",
-                     manufacture_date: str = "", rra_agency: str = "") -> dict:
+                     manufacture_date: str = "", rra_agency: str = "",
+                     manual_kc_no: str = "", manual_kc_type: str = "") -> dict:
     """수집 → 스마트스토어 등록 → 매핑 저장."""
     try:
         info = fetch_product_info(url, supplier_client)
@@ -1740,6 +1741,53 @@ def register_product(url: str, selling_price: int, smartstore_api,
                         "category_id": category_id,
                         "category_match": category_match,
                     }
+            elif manual_kc_no and manual_kc_type:
+                # 수동 KC 입력 (자동 스크랩 0건일 때 대시보드에서 직접 입력)
+                kc_required, cert_info_id = smartstore_api.get_kc_cert_status(
+                    category_id, manual_kc_type
+                )
+                is_rra = "방송통신기자재" in manual_kc_type
+                if is_rra:
+                    agency = "국립전파연구원"
+                else:
+                    sk_url = (
+                        f"https://www.safetykorea.kr/search/searchPop"
+                        f"?certNum={manual_kc_no}&menu=search"
+                    )
+                    agency, _ = _fetch_kc_cert_detail(sk_url)
+                if kc_required and not cert_info_id:
+                    logger.warning(
+                        "수동 KC 인증 certInfoId 조회 실패 (category=%s, no=%r, type=%r)",
+                        category_id, manual_kc_no, manual_kc_type,
+                    )
+                    return {
+                        "success": False,
+                        "error": "KC인증 정보 누락 - 등록 불가",
+                        "detail": (
+                            f"카테고리 [{category_match}]({category_id})는 KC인증 필수입니다. "
+                            f"인증번호 {manual_kc_no!r}의 certificationInfoId를 확인할 수 없습니다. "
+                            f"카테고리 ID 또는 인증유형을 다시 확인해주세요."
+                        ),
+                        "info": info,
+                        "category_id": category_id,
+                        "category_match": category_match,
+                    }
+                info["kc_certs"] = [{
+                    "cert_no":           manual_kc_no,
+                    "cert_type":         manual_kc_type,
+                    "cert_type_detail":  manual_kc_type,
+                    "cert_info_id":      cert_info_id,
+                    "agency":            agency,
+                    "link_type":         "rra" if is_rra else "safetykorea",
+                    "company_name":      "",
+                    "manufacturer_name": "",
+                    "model_name":        "",
+                    "cert_date":         "",
+                }]
+                logger.info(
+                    "수동 KC 입력 사용: cert_no=%r, type=%r, agency=%r, cert_info_id=%s",
+                    manual_kc_no, manual_kc_type, agency, cert_info_id,
+                )
             else:
                 # 단일 인증 폴백 (kc_certs 없는 구형 상품)
                 kc_cert_type_hint = (info.get("kc_cert_type") or "").strip()

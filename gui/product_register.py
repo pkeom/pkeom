@@ -3,6 +3,22 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
+_KC_TYPE_OPTIONS = [
+    "전기용품 안전확인",
+    "전기용품 안전인증",
+    "전기용품 공급자적합성확인",
+    "생활용품 안전확인",
+    "생활용품 안전인증",
+    "생활용품 공급자적합성확인",
+    "어린이제품 안전확인",
+    "어린이제품 안전인증",
+    "어린이제품 공급자적합성확인",
+    "방송통신기자재 적합등록",
+    "방송통신기자재 적합인증",
+    "방송통신기자재 잠정인증",
+    "방송통신기자재 자기적합확인",
+]
+
 from src.utils.config_loader import load_config
 from src.api.smartstore import SmartstoreAPI
 from src.api.domaemae import DomaemaeClient
@@ -35,6 +51,8 @@ class ProductRegisterFrame:
     def __init__(self, parent):
         self.frame = ttk.Frame(parent)
         self._info: dict | None = None  # 미리보기로 수집한 상품 정보
+        self._kc_type_iid: str | None = None   # 수동 KC 인증유형 tree item id
+        self._kc_no_iid:   str | None = None   # 수동 KC 인증번호 tree item id
         self._build()
 
     # ── UI 구성 ──────────────────────────────────────────────────────
@@ -76,9 +94,30 @@ class ProductRegisterFrame:
 
         pane.columnconfigure(1, weight=1)
 
+        # 수동 KC 인증 입력 (자동 스크랩 KC 0개일 때만 표시)
+        self._manual_kc_type_var = tk.StringVar(value=_KC_TYPE_OPTIONS[0])
+        self._manual_kc_no_var   = tk.StringVar()
+        self._manual_kc_type_var.trace_add("write", self._on_manual_kc_change)
+        self._manual_kc_no_var.trace_add("write", self._on_manual_kc_change)
+
+        kc_pane = ttk.LabelFrame(pane, text="수동 KC 인증 입력 (자동 스크랩 없을 때만 노출)", padding=6)
+        kc_pane.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(6, 2))
+        kc_pane.grid_remove()   # 초기엔 숨김
+        self._manual_kc_pane = kc_pane
+
+        ttk.Label(kc_pane, text="인증유형:").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Combobox(
+            kc_pane, textvariable=self._manual_kc_type_var,
+            values=_KC_TYPE_OPTIONS, state="readonly", width=32,
+        ).grid(row=0, column=1, sticky="w", padx=(6, 0), pady=2)
+
+        ttk.Label(kc_pane, text="인증번호:").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Entry(kc_pane, textvariable=self._manual_kc_no_var, width=40).grid(
+            row=1, column=1, sticky="w", padx=(6, 0), pady=2)
+
         # 버튼
         btn_row = ttk.Frame(pane)
-        btn_row.grid(row=3, column=0, columnspan=4, pady=(8, 2), sticky="w")
+        btn_row.grid(row=4, column=0, columnspan=4, pady=(8, 2), sticky="w")
         ttk.Button(btn_row, text="미리보기", command=self._on_preview, width=14).pack(
             side="left", padx=(0, 8))
         self._register_btn = ttk.Button(
@@ -111,6 +150,13 @@ class ProductRegisterFrame:
                   font=("", 9), anchor="w").pack(fill="x")
 
     # ── 이벤트 핸들러 ─────────────────────────────────────────────────
+
+    def _on_manual_kc_change(self, *_):
+        if self._kc_type_iid:
+            self._tree.set(self._kc_type_iid, "내용", self._manual_kc_type_var.get())
+        if self._kc_no_iid:
+            val = self._manual_kc_no_var.get() or "(미입력)"
+            self._tree.set(self._kc_no_iid, "내용", val)
 
     def _on_preview(self):
         url = self._url_var.get().strip()
@@ -154,7 +200,15 @@ class ProductRegisterFrame:
             ("옵션 수",     str(len(info.get("options", [])))),
         ]
 
-        rows.append(("KC인증번호", info.get("kc_cert_no", "(없음)")))
+        kc_certs = info.get("kc_certs", [])
+        if kc_certs:
+            rows.append(("KC인증 (자동)", f"{len(kc_certs)}건 — {kc_certs[0].get('cert_no', '')}"))
+            self._manual_kc_pane.grid_remove()
+            self._kc_type_iid = None
+            self._kc_no_iid   = None
+        else:
+            rows.append(("KC인증번호 (자동)", "(스크랩 없음)"))
+            self._manual_kc_pane.grid()
 
         # 옵션 목록
         for i, opt in enumerate(info.get("options", [])[:20], 1):
@@ -162,6 +216,13 @@ class ProductRegisterFrame:
 
         for item, val in rows:
             self._tree.insert("", "end", values=(item, val))
+
+        # 수동 KC 행 추가 (kc_certs 없을 때만)
+        if not kc_certs:
+            self._kc_type_iid = self._tree.insert(
+                "", "end", values=("KC인증유형 (수동)", self._manual_kc_type_var.get()))
+            self._kc_no_iid = self._tree.insert(
+                "", "end", values=("KC인증번호 (수동)", self._manual_kc_no_var.get() or "(미입력)"))
 
         if info.get("title") and info.get("supply_price"):
             self._register_btn.config(state="normal")
@@ -188,16 +249,19 @@ class ProductRegisterFrame:
 
         self._register_btn.config(state="disabled")
         self._set_status("스마트스토어 등록 중...")
-        margin    = self._margin_var.get() / 100
-        cat_id    = self._cat_var.get().strip()
-        info_snap = self._info.copy()
+        margin         = self._margin_var.get() / 100
+        cat_id         = self._cat_var.get().strip()
+        info_snap      = self._info.copy()
+        manual_kc_no   = self._manual_kc_no_var.get().strip()
+        manual_kc_type = self._manual_kc_type_var.get().strip()
         threading.Thread(
             target=self._do_register,
-            args=(info_snap, margin, cat_id),
+            args=(info_snap, margin, cat_id, manual_kc_no, manual_kc_type),
             daemon=True,
         ).start()
 
-    def _do_register(self, info: dict, margin: float, category_id: str):
+    def _do_register(self, info: dict, margin: float, category_id: str,
+                     manual_kc_no: str = "", manual_kc_type: str = ""):
         try:
             ss_api, client, cfg = _build_clients()
             url = info["supplier_url"]
@@ -212,6 +276,8 @@ class ProductRegisterFrame:
                 settings        = cfg,
                 mapping_repo    = _mapping_repo,
                 category_id     = category_id,
+                manual_kc_no    = manual_kc_no,
+                manual_kc_type  = manual_kc_type,
             )
             self.frame.after(0, lambda: self._on_register_done(result))
         except Exception as e:
