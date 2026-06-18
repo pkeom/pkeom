@@ -171,7 +171,7 @@ class MockEmailNotifier:
     def __init__(self):
         self.sent: list[dict] = []
 
-    def send(self, subject: str, body: str):
+    def send(self, subject: str, body: str, **kwargs):
         self.sent.append({"subject": subject, "body": body})
 
     def last(self) -> dict | None:

@@ -3,9 +3,19 @@
 인증:       https://www.domeggook.com
 상품/발주/송장: https://domemedb.domeggook.com/ssl/api/
 응답 루트:  body["domeggook"]
+
+재고/가격 조회(get_product):
+  domemedb 호스트가 헤더 없는 요청에 403을 반환하는 문제로,
+  자동등록 스크래퍼(src.core.product_register)의 검증된 브라우저-헤더 API 경로
+  (_domaekkuk_api)를 1차로 사용하고, 실패 시 동일 모듈의 EUC-KR 스크랩
+  (_scrape_domaekkuk)으로 폴백한다. 둘 다 실패하면 None을 담아 반환해
+  상위 동기화 로직이 graceful skip 하도록 한다.
 """
+import logging
 import re
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class DomaekkukAPI:
@@ -49,32 +59,70 @@ class DomaekkukAPI:
         m = re.search(r"domeggook\.com/(\d+)", text) or re.search(r"/s/(\d+)", text)
         return m.group(1) if m else text
 
-    def get_product(self, product_no: str) -> dict:
-        """상품 상세 정보 조회. 반환값: {title, price, stock, seller_id}"""
-        product_no = self._normalize_pid(product_no)
-        resp = requests.get(
-            self.API_URL,
-            params=self._params({"mode": "getItemView", "no": product_no}),
-            timeout=10,
-        )
-        root   = self._root(resp)
-        basis  = root.get("basis", {})
-        price  = root.get("price", {})
-        qty    = root.get("qty", {})
-        seller = root.get("seller", {})
+    @staticmethod
+    def _parse_item_view(root: dict) -> dict:
+        """getItemView 응답 루트 → {title, price, stock, seller_id}.
+
+        price/stock 값이 비어 있으면 None으로 둬 상위 로직이
+        '정보 없음 → skip'으로 처리하도록 한다. (가격 0원 오탐 방지)
+        """
+        if not isinstance(root, dict):
+            return {"title": "", "price": None, "stock": None, "seller_id": ""}
+        basis  = root.get("basis", {})  or {}
+        price  = root.get("price", {})  or {}
+        qty    = root.get("qty", {})    or {}
+        seller = root.get("seller", {}) or {}
+        # 수량별 가격("1+2700|10+2650") 형식까지 처리 (자동등록과 동일 파서 재사용)
+        from src.core.product_register import _parse_price
+        price_val = _parse_price(price.get("dome") or price.get("supply") or 0) or None
+        inv = qty.get("inventory")
         try:
-            price_val = int(price.get("dome") or price.get("supply") or 0)
-        except (TypeError, ValueError):
-            price_val = 0
-        try:
-            stock_val = int(qty.get("inventory", 0))
+            stock_val = int(inv) if inv not in (None, "") else None
         except (TypeError, ValueError):
             stock_val = None
         return {
-            "title":     basis.get("title", ""),
+            "title":     basis.get("title", "") or "",
             "price":     price_val,
             "stock":     stock_val,
-            "seller_id": seller.get("id", ""),
+            "seller_id": seller.get("id", "") or "",
+        }
+
+    def get_product(self, product_no: str) -> dict:
+        """상품 상세 정보 조회. 반환값: {title, price, stock, seller_id}
+
+        1) 자동등록 스크래퍼의 브라우저-헤더 API 경로(_domaekkuk_api) — domemedb
+           403 회피. 2) 실패하면 동일 모듈의 EUC-KR 스크랩(_scrape_domaekkuk).
+           둘 다 실패하면 price/stock=None (상위에서 graceful skip).
+        """
+        product_no = self._normalize_pid(product_no)
+
+        # 1차: 검증된 브라우저-헤더 API 경로 재사용
+        try:
+            from src.core.product_register import _domaekkuk_api
+            raw = _domaekkuk_api(product_no, self.api_key)
+            result = self._parse_item_view(raw)
+            if result["title"] or result["stock"] is not None:
+                return result
+            logger.warning(
+                "도매꾹 API 응답에 상품정보 없음 — 스크랩 폴백: %s", product_no
+            )
+        except Exception as e:
+            logger.warning(
+                "도매꾹 API 조회 실패 — 스크랩 폴백: %s — %s", product_no, e
+            )
+
+        # 2차: 브라우저 헤더 + EUC-KR 스크랩 폴백
+        try:
+            from src.core.product_register import _scrape_domaekkuk
+            scraped = _scrape_domaekkuk(product_no)
+        except Exception as e:
+            logger.warning("도매꾹 스크랩 폴백 실패: %s — %s", product_no, e)
+            scraped = {}
+        return {
+            "title":     scraped.get("title", "") or "",
+            "price":     scraped.get("supply_price") or None,
+            "stock":     scraped.get("stock"),  # 미수집 시 None → 상위 skip
+            "seller_id": "",
         }
 
     def get_stock(self, product_no: str) -> int | None:

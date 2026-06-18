@@ -177,7 +177,7 @@ def _people_by_id(people: list[dict]) -> dict[str, dict]:
 class MockEmailNotifier:
     def __init__(self):
         self.sent: list[dict] = []
-    def send(self, subject: str, body: str):
+    def send(self, subject: str, body: str, **kwargs):
         self.sent.append({"subject": subject, "body": body})
     def clear(self):
         self.sent.clear()

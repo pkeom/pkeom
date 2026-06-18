@@ -34,7 +34,7 @@ _DEFAULT_CACHE_PATH = Path("data/stock_cache.json")
 
 LOW_STOCK_THRESHOLD = 50
 LOW_STOCK_COOLDOWN_MINUTES = 60
-ERROR_COOLDOWN_MINUTES     = 60
+ERROR_ALERT_COOLDOWN_HOURS = 24   # 같은 상품·같은 오류는 24시간에 1통 (EmailNotifier dedup)
 
 
 class InventorySync:
@@ -54,7 +54,6 @@ class InventorySync:
         self._notifier     = notifier
         self._cache_path   = Path(cache_path) if cache_path else _DEFAULT_CACHE_PATH
         self._order_placer     = order_placer
-        self._error_alerted_at: dict = {}  # {f"{ss_product_id}:{reason}": iso_str}
 
     def _load_cache(self) -> tuple[dict, dict]:
         if not self._cache_path.exists():
@@ -242,15 +241,8 @@ class InventorySync:
                       supplier_pid: str, reason: str, detail: str):
         if not self._notifier:
             return
-        # 같은 상품·같은 오류는 60분 내 재발송 방지
-        now = datetime.now(timezone.utc)
-        _key = f"{ss_product_id}:{reason}"
-        _last_str = self._error_alerted_at.get(_key)
-        if _last_str:
-            _last = datetime.fromisoformat(_last_str)
-            if now - _last < timedelta(minutes=ERROR_COOLDOWN_MINUTES):
-                logger.debug("오류 알림 쿨다운 스킵: %s", _key)
-                return
+        # dedup: 같은 (잡종류+상품ID+오류유형)은 24시간에 1통 (EmailNotifier가 영속 관리)
+        dedup_key = f"inventory_sync:{ss_product_id}:{reason}"
         subject = f"[위탁판매] 재고 동기화 오류 — {reason}"
         body = "\n".join([
             f"■ 오류 사유: {reason}",
@@ -262,7 +254,9 @@ class InventorySync:
             detail,
         ])
         try:
-            self._notifier.send(subject=subject, body=body)
-            self._error_alerted_at[_key] = now.isoformat()
+            self._notifier.send(
+                subject=subject, body=body,
+                dedup_key=dedup_key, cooldown_hours=ERROR_ALERT_COOLDOWN_HOURS,
+            )
         except Exception as e:
             logger.error("재고오류 이메일 전송 실패: %s", e)

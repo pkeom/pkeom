@@ -127,6 +127,8 @@ class PriceMonitor:
                       supplier_pid: str, detail: str):
         if not self._notifier:
             return
+        # dedup: 같은 (잡종류+상품ID+오류유형)은 24시간에 1통 (EmailNotifier가 영속 관리)
+        dedup_key = f"price_monitor:{ss_product_id}:price_fetch_error"
         subject = "[위탁판매] 가격 모니터링 오류"
         body = "\n".join([
             "■ 가격 조회 중 오류가 발생했습니다.",
@@ -138,6 +140,9 @@ class PriceMonitor:
             detail,
         ])
         try:
-            self._notifier.send(subject=subject, body=body)
+            self._notifier.send(
+                subject=subject, body=body,
+                dedup_key=dedup_key, cooldown_hours=24,
+            )
         except Exception as e:
             logger.error("가격오류 이메일 전송 실패: %s", e)
