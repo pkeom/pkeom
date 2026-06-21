@@ -2,6 +2,7 @@
 import base64
 import difflib
 import logging
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 import bcrypt
@@ -13,6 +14,14 @@ logger = logging.getLogger(__name__)
 class SmartstoreAPI:
     BASE_URL = "https://api.commerce.naver.com/external"
 
+    # ── 레이트리밋 (네이버 커머스 API 429 GW.RATE_LIMIT 방지) ──────────────
+    # 프로세스 내 전 인스턴스가 공유하는 호출 간 최소 간격 + 429 backoff.
+    MIN_REQUEST_INTERVAL = 0.3   # 호출 사이 최소 간격(초) — 보수적 시작
+    MAX_RETRIES          = 5     # 429 응답 시 최대 재시도 횟수
+    _rate_lock     = threading.Lock()  # throttle 직렬화 (프로세스 공유)
+    _last_request_ts = 0.0             # 마지막 호출 시각 (monotonic, 프로세스 공유)
+    _token_lock    = threading.Lock()  # 동시 토큰 발급 폭주 방지
+
     def __init__(self, client_id: str, client_secret: str, account_type: str = "SELF"):
         # YAML이 int/bool로 파싱하는 경우 대비 str() 변환 후
         # split()+join()으로 앞·뒤·중간에 끼어있는 공백·줄바꿈·제어문자 모두 제거
@@ -22,67 +31,129 @@ class SmartstoreAPI:
         self._token = None
         self._token_expires_at = 0
 
+    # ── 공통 요청 (throttle + 429 backoff) ───────────────────────────────
+
+    @classmethod
+    def _throttle(cls):
+        """직전 호출과 MIN_REQUEST_INTERVAL 이상 간격을 두도록 대기 (프로세스 공유)."""
+        with cls._rate_lock:
+            now  = time.monotonic()
+            wait = cls._last_request_ts + cls.MIN_REQUEST_INTERVAL - now
+            if wait > 0:
+                time.sleep(wait)
+                now = time.monotonic()
+            cls._last_request_ts = now
+
+    @staticmethod
+    def _retry_after_seconds(resp: requests.Response, default: float) -> float:
+        """429 응답의 Retry-After 헤더(초)를 우선 사용, 없으면 default."""
+        ra = resp.headers.get("Retry-After")
+        if ra:
+            try:
+                return float(ra)
+            except (TypeError, ValueError):
+                pass  # HTTP-date 형식 등은 무시하고 default 사용
+        return default
+
+    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+        """네이버 커머스 API 공통 요청 — 레이트리밋 throttle + 429 backoff.
+
+        - 호출 사이 최소 MIN_REQUEST_INTERVAL 간격 보장 (프로세스 공유 리미터).
+        - 429(GW.RATE_LIMIT) 응답 시 0.5→1→2→4초 backoff로 최대 MAX_RETRIES회 재시도.
+          응답에 Retry-After 헤더가 있으면 그 값을 우선 사용.
+        - 429 외 응답(2xx/4xx/5xx)은 그대로 반환 → 호출부의 기존 에러 처리/로깅 유지.
+        """
+        kwargs.setdefault("timeout", 10)
+        backoff = 0.5
+        resp = None
+        for attempt in range(self.MAX_RETRIES):
+            self._throttle()
+            resp = requests.request(method, url, **kwargs)
+            if resp.status_code != 429:
+                return resp
+            if attempt >= self.MAX_RETRIES - 1:
+                break
+            wait = self._retry_after_seconds(resp, default=backoff)
+            logger.warning(
+                "네이버 API 429 (GW.RATE_LIMIT) — %.1f초 후 재시도 (%d/%d): %s %s",
+                wait, attempt + 1, self.MAX_RETRIES, method, url,
+            )
+            time.sleep(wait)
+            backoff = min(backoff * 2, 8.0)
+        logger.error(
+            "네이버 API 429 — %d회 재시도 후에도 RATE_LIMIT 지속: %s %s",
+            self.MAX_RETRIES, method, url,
+        )
+        return resp
+
     def _get_token(self) -> str:
         if self._token and time.time() < self._token_expires_at - 60:
             return self._token
 
-        # ── 네이버 커머스 API 공식 서명 생성 ──────────────────────────────
-        # signature = Base64( bcrypt( "{client_id}_{timestamp}", client_secret ) )
-        # 참고: https://apicenter.commerce.naver.com (인증 토큰 발급 가이드)
-        #
-        # client_secret 은 네이버가 PHP bcrypt 로 생성한 $2y$ 형식 해시값이며,
-        # bcrypt.hashpw() 의 두 번째 인자(salt)로 직접 전달한다.
-        # bcrypt 4.0+ (Rust 백엔드) 는 $2y$/$2a$/$2b$ 모두 허용하므로
-        # prefix 변환 없이 원본 그대로 사용하는 것이 공식 예제와 일치한다.
-        timestamp = str(int(time.time() * 1000))
-        password  = f"{self.client_id}_{timestamp}"
+        # 동시 다발 토큰 발급 방지 — 한 스레드만 갱신하고 나머지는 재사용
+        with SmartstoreAPI._token_lock:
+            # double-check: 락 대기 중 다른 스레드가 이미 갱신했을 수 있음
+            if self._token and time.time() < self._token_expires_at - 60:
+                return self._token
 
-        salt = self.client_secret.encode("utf-8")
+            # ── 네이버 커머스 API 공식 서명 생성 ──────────────────────────────
+            # signature = Base64( bcrypt( "{client_id}_{timestamp}", client_secret ) )
+            # 참고: https://apicenter.commerce.naver.com (인증 토큰 발급 가이드)
+            #
+            # client_secret 은 네이버가 PHP bcrypt 로 생성한 $2y$ 형식 해시값이며,
+            # bcrypt.hashpw() 의 두 번째 인자(salt)로 직접 전달한다.
+            # bcrypt 4.0+ (Rust 백엔드) 는 $2y$/$2a$/$2b$ 모두 허용하므로
+            # prefix 변환 없이 원본 그대로 사용하는 것이 공식 예제와 일치한다.
+            timestamp = str(int(time.time() * 1000))
+            password  = f"{self.client_id}_{timestamp}"
 
-        # 유효성 사전 검사 — 비어있거나 bcrypt 형식이 아닌 경우 명확한 에러 제공
-        if not salt.startswith(b"$2"):
-            raise ValueError(
-                f"client_secret 이 유효한 bcrypt 형식이 아닙니다. "
-                f"네이버 커머스 API 센터에서 발급된 '$2y$...' 형식 시크릿을 "
-                f"config/settings.yaml 의 smartstore.client_secret 에 입력하세요. "
-                f"(현재 앞 10자: {self.client_secret[:10]!r})"
+            salt = self.client_secret.encode("utf-8")
+
+            # 유효성 사전 검사 — 비어있거나 bcrypt 형식이 아닌 경우 명확한 에러 제공
+            if not salt.startswith(b"$2"):
+                raise ValueError(
+                    f"client_secret 이 유효한 bcrypt 형식이 아닙니다. "
+                    f"네이버 커머스 API 센터에서 발급된 '$2y$...' 형식 시크릿을 "
+                    f"config/settings.yaml 의 smartstore.client_secret 에 입력하세요. "
+                    f"(현재 앞 10자: {self.client_secret[:10]!r})"
+                )
+
+            hashed    = bcrypt.hashpw(password.encode("utf-8"), salt)
+            signature = base64.b64encode(hashed).decode("utf-8")
+
+            resp = self._request(
+                "POST",
+                f"{self.BASE_URL}/v1/oauth2/token",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={
+                    "client_id":          self.client_id,
+                    "timestamp":          timestamp,
+                    "client_secret_sign": signature,
+                    "grant_type":         "client_credentials",
+                    "type":               self.account_type,
+                },
+                timeout=10,
             )
 
-        hashed    = bcrypt.hashpw(password.encode("utf-8"), salt)
-        signature = base64.b64encode(hashed).decode("utf-8")
+            if not resp.ok:
+                # Naver 에러 응답 본문을 그대로 로그에 남겨 원인 파악 가능하게 한다
+                try:
+                    body = resp.json()
+                except Exception:
+                    body = resp.text
+                logger.error(
+                    "스마트스토어 토큰 발급 실패 [%s] — Naver 응답: %s",
+                    resp.status_code, body,
+                )
+                raise requests.HTTPError(
+                    f"토큰 발급 실패 {resp.status_code}: {body}",
+                    response=resp,
+                )
 
-        resp = requests.post(
-            f"{self.BASE_URL}/v1/oauth2/token",
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            data={
-                "client_id":          self.client_id,
-                "timestamp":          timestamp,
-                "client_secret_sign": signature,
-                "grant_type":         "client_credentials",
-                "type":               self.account_type,
-            },
-            timeout=10,
-        )
-
-        if not resp.ok:
-            # Naver 에러 응답 본문을 그대로 로그에 남겨 원인 파악 가능하게 한다
-            try:
-                body = resp.json()
-            except Exception:
-                body = resp.text
-            logger.error(
-                "스마트스토어 토큰 발급 실패 [%s] — Naver 응답: %s",
-                resp.status_code, body,
-            )
-            raise requests.HTTPError(
-                f"토큰 발급 실패 {resp.status_code}: {body}",
-                response=resp,
-            )
-
-        data = resp.json()
-        self._token = data["access_token"]
-        self._token_expires_at = time.time() + data["expires_in"]
-        return self._token
+            data = resp.json()
+            self._token = data["access_token"]
+            self._token_expires_at = time.time() + data["expires_in"]
+            return self._token
 
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self._get_token()}"}
@@ -99,7 +170,8 @@ class SmartstoreAPI:
         keyword  = keyword.strip()
         kw_lower = keyword.lower()
         try:
-            resp = requests.get(
+            resp = self._request(
+                "GET",
                 f"{self.BASE_URL}/v1/categories",
                 headers=self._headers(),
                 params={"keyword": keyword},
@@ -143,7 +215,8 @@ class SmartstoreAPI:
         if not category_id:
             return False, 0
         try:
-            resp = requests.get(
+            resp = self._request(
+                "GET",
                 f"{self.BASE_URL}/v1/categories/{category_id}",
                 headers=self._headers(),
                 timeout=10,
@@ -221,6 +294,7 @@ class SmartstoreAPI:
     def upload_image(self, image_url: str) -> str:
         """외부 이미지 URL을 Naver 상품 이미지 CDN에 업로드하고 반환된 URL을 돌려준다."""
         import io
+        # 외부 CDN 다운로드는 네이버 API가 아니므로 throttle 대상 아님 — 직접 호출
         dl = requests.get(image_url, timeout=20,
                           headers=self._download_headers(image_url))
         if not dl.ok:
@@ -249,7 +323,8 @@ class SmartstoreAPI:
         filename = image_url.split("/")[-1].split("?")[0] or f"image{ext}"
         if not any(filename.lower().endswith(e) for e in ext_map.values()):
             filename += ext
-        resp = requests.post(
+        resp = self._request(
+            "POST",
             f"{self.BASE_URL}/v1/product-images/upload",
             headers={"Authorization": f"Bearer {self._get_token()}"},
             files={"imageFiles": (filename, io.BytesIO(dl.content), content_type)},
@@ -268,33 +343,27 @@ class SmartstoreAPI:
     def upload_image_data(self, data: bytes, content_type: str, filename: str) -> str:
         """이미 다운로드된 이미지 바이트를 Naver 상품 이미지 CDN에 업로드하고 URL을 반환한다.
 
-        429 Rate Limit 시 최대 3회 backoff 재시도.
+        429 Rate Limit 재시도는 공통 _request(throttle + backoff)가 처리한다.
         """
         import io
         if not content_type.startswith("image/"):
             raise ValueError(f"유효한 이미지 Content-Type이 아닙니다: {content_type}")
-        for attempt in range(3):
-            resp = requests.post(
-                f"{self.BASE_URL}/v1/product-images/upload",
-                headers={"Authorization": f"Bearer {self._get_token()}"},
-                files={"imageFiles": (filename, io.BytesIO(data), content_type)},
-                timeout=30,
+        resp = self._request(
+            "POST",
+            f"{self.BASE_URL}/v1/product-images/upload",
+            headers={"Authorization": f"Bearer {self._get_token()}"},
+            files={"imageFiles": (filename, io.BytesIO(data), content_type)},
+            timeout=30,
+        )
+        if not resp.ok:
+            try:
+                body = resp.json()
+            except Exception:
+                body = resp.text
+            raise requests.HTTPError(
+                f"이미지 업로드 실패 {resp.status_code}: {body}", response=resp
             )
-            if resp.status_code == 429:
-                wait = (attempt + 1) * 3  # 3s → 6s → 9s
-                logger.warning("이미지 업로드 Rate Limit (429), %d초 후 재시도 (%d/3)", wait, attempt + 1)
-                time.sleep(wait)
-                continue
-            if not resp.ok:
-                try:
-                    body = resp.json()
-                except Exception:
-                    body = resp.text
-                raise requests.HTTPError(
-                    f"이미지 업로드 실패 {resp.status_code}: {body}", response=resp
-                )
-            return resp.json()["images"][0]["url"]
-        raise requests.HTTPError(f"이미지 업로드 Rate Limit — 3회 재시도 후 실패: {filename}")
+        return resp.json()["images"][0]["url"]
 
     def get_orders(self, status: str = "PAYED", days: int = 3) -> list:
         """주문 목록 직접 조회 — GET /v1/pay-order/seller/product-orders
@@ -321,7 +390,8 @@ class SmartstoreAPI:
 
             page = 1
             while True:
-                resp = requests.get(
+                resp = self._request(
+                    "GET",
                     f"{self.BASE_URL}/v1/pay-order/seller/product-orders",
                     headers=self._headers(),
                     params={
@@ -376,7 +446,8 @@ class SmartstoreAPI:
         product_order_id: productOrderId (스마트스토어 상품주문번호)
         delivery_company_code: 네이버 택배사 코드 (예: CJGLS, LOTTE, HANJIN)
         """
-        resp = requests.post(
+        resp = self._request(
+            "POST",
             f"{self.BASE_URL}/v1/pay-order/seller/product-orders/dispatch",
             headers=self._headers(),
             json={
@@ -418,7 +489,7 @@ class SmartstoreAPI:
         url = f"{self.BASE_URL}/v2/products/origin-products/{origin_product_no}"
 
         # 1. 현재 상품 전체 데이터 GET
-        get_resp = requests.get(url, headers=self._headers(), timeout=10)
+        get_resp = self._request("GET", url, headers=self._headers(), timeout=10)
         logger.info(
             "[set_product_sale_status] GET %s → status=%s",
             url, get_resp.status_code,
@@ -437,7 +508,8 @@ class SmartstoreAPI:
         )
 
         # 3. 전체 바디 PUT
-        put_resp = requests.put(
+        put_resp = self._request(
+            "PUT",
             url,
             headers=self._headers(),
             json=put_body,
@@ -469,7 +541,8 @@ class SmartstoreAPI:
 
     def get_product(self, product_id: str) -> dict:
         """상품 정보 조회 — GET /v2/products/origin-products/{originProductNo}"""
-        resp = requests.get(
+        resp = self._request(
+            "GET",
             f"{self.BASE_URL}/v2/products/origin-products/{product_id}",
             headers=self._headers(),
             timeout=10,
@@ -479,7 +552,8 @@ class SmartstoreAPI:
 
     def get_products(self, size: int = 100) -> list:
         """판매자 상품 목록 조회"""
-        resp = requests.get(
+        resp = self._request(
+            "GET",
             f"{self.BASE_URL}/v2/products",
             headers=self._headers(),
             params={"size": size},
@@ -508,7 +582,8 @@ class SmartstoreAPI:
         for i in range(0, len(product_order_ids), BATCH):
             batch = product_order_ids[i : i + BATCH]
             try:
-                resp = requests.post(
+                resp = self._request(
+                    "POST",
                     f"{self.BASE_URL}/v1/pay-order/seller/product-orders/confirm",
                     headers=self._headers(),
                     json={"productOrderIds": batch},
@@ -535,7 +610,8 @@ class SmartstoreAPI:
         now = datetime.now(timezone.utc)
         window_start = now - timedelta(hours=hours)
 
-        resp = requests.get(
+        resp = self._request(
+            "GET",
             f"{self.BASE_URL}/v1/pay-order/seller/product-orders/last-changed-statuses",
             headers=self._headers(),
             params={
@@ -554,7 +630,8 @@ class SmartstoreAPI:
         if not product_order_ids:
             return []
 
-        resp = requests.post(
+        resp = self._request(
+            "POST",
             f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
             headers=self._headers(),
             json={"productOrderIds": product_order_ids},
@@ -565,7 +642,8 @@ class SmartstoreAPI:
 
     def get_product_order(self, product_order_id: str) -> dict:
         """단건 상품주문 상세 조회 — productOrderStatus 등 현재 상태 확인용."""
-        resp = requests.post(
+        resp = self._request(
+            "POST",
             f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
             headers=self._headers(),
             json={"productOrderIds": [product_order_id]},
@@ -579,7 +657,8 @@ class SmartstoreAPI:
         """취소 요청 승인 — 환불 처리.
         발송 전 주문에만 유효. 발송 후에는 반품 절차로 처리해야 함.
         """
-        resp = requests.post(
+        resp = self._request(
+            "POST",
             f"{self.BASE_URL}/v1/pay-order/seller/product-orders"
             f"/{product_order_id}/claim/cancel/approve",
             headers=self._headers(),
@@ -606,7 +685,8 @@ class SmartstoreAPI:
         product_order_ids: list[str] = []
         for status in ("RETURN_REQUEST", "EXCHANGE_REQUEST"):
             try:
-                resp = requests.get(
+                resp = self._request(
+                    "GET",
                     f"{self.BASE_URL}/v1/pay-order/seller/product-orders/last-changed-statuses",
                     headers=self._headers(),
                     params={
@@ -630,7 +710,8 @@ class SmartstoreAPI:
         if not product_order_ids:
             return []
 
-        resp = requests.post(
+        resp = self._request(
+            "POST",
             f"{self.BASE_URL}/v1/pay-order/seller/product-orders/query",
             headers=self._headers(),
             json={"productOrderIds": product_order_ids},

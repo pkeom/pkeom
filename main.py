@@ -226,15 +226,17 @@ def main():
     sched_cfg = cfg["schedule"]
     scheduler = AutomationScheduler()
 
-    # run_now=True: start() 직후 각 작업을 즉시 1회 실행 후 interval 반복
-    scheduler.add_job(collector.run,   sched_cfg["order_collect_interval"],               "order_collect",  run_now=True)
-    # collector 완료 후 placer가 실행되도록 60초 지연 (동시 실행 시 NEW 주문 0건 문제 방지)
+    # run_now=True: start() 직후 각 작업을 즉시 1회 실행 후 interval 반복.
+    # 시작 오프셋(지터)을 잡별로 다르게 줘 동시 발화로 인한 네이버 API 429 버스트를 완화한다.
+    # (잡들이 같은 _run_now_time을 공유하므로, start_delay_seconds로 첫 실행을 분산)
+    scheduler.add_job(collector.run,   sched_cfg["order_collect_interval"],               "order_collect",  run_now=True, start_delay_seconds=0)
+    scheduler.add_job(invoicer.run,    sched_cfg["invoice_sync_interval"],   "invoice_sync",   run_now=True, start_delay_seconds=10)
+    scheduler.add_job(inventory.run,   sched_cfg["inventory_sync_interval"], "inventory_sync", run_now=True, start_delay_seconds=20)
+    scheduler.add_job(price_mon.run,    sched_cfg["price_monitor_interval"],   "price_monitor",  run_now=True, start_delay_seconds=30)
+    scheduler.add_job(return_mon.run,   sched_cfg.get("return_monitor_interval", 60), "return_monitor", run_now=True, start_delay_seconds=40)
+    scheduler.add_job(cancel_mon.run,   sched_cfg.get("cancel_monitor_interval", 10), "cancel_monitor", run_now=True, start_delay_seconds=50)
+    # 자동 발주: collector 완료 후 실행되도록 60초 지연 (동시 실행 시 NEW 주문 0건 문제 방지)
     scheduler.add_job(placer.run,      sched_cfg.get("order_place_interval", 10),         "order_place",    run_now=True, start_delay_seconds=60)
-    scheduler.add_job(invoicer.run,    sched_cfg["invoice_sync_interval"],   "invoice_sync",   run_now=True)
-    scheduler.add_job(inventory.run,   sched_cfg["inventory_sync_interval"], "inventory_sync", run_now=True)
-    scheduler.add_job(price_mon.run,    sched_cfg["price_monitor_interval"],   "price_monitor",  run_now=True)
-    scheduler.add_job(return_mon.run,   sched_cfg.get("return_monitor_interval", 60), "return_monitor", run_now=True)
-    scheduler.add_job(cancel_mon.run,   sched_cfg.get("cancel_monitor_interval", 10), "cancel_monitor", run_now=True)
     scheduler.add_job(_git_pull, 10, "git_pull", run_now=False)
 
     _print_schedule(sched_cfg)
