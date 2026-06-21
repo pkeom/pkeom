@@ -63,7 +63,7 @@ class DomaemaeClient:
             "loginKeep":  "1",
             "ip":         "127.0.0.1",
             "device":     "PC",
-        }, timeout=10)
+        }, timeout=(10, 20))  # 세션 발급 read timeout 완화: connect 10s / read 20s
         resp.raise_for_status()
         try:
             data = resp.json()
@@ -97,7 +97,7 @@ class DomaemaeClient:
             "sIdRenewDate":  self._sid_renew_date.strftime("%Y-%m-%d %H:%M:%S")
                              if self._sid_renew_date else "",
             "loginKeep":     "1",
-        }, timeout=10)
+        }, timeout=(10, 20))  # 세션 갱신 read timeout 완화: connect 10s / read 20s
         resp.raise_for_status()
         try:
             data = resp.json()
@@ -158,7 +158,8 @@ class DomaemaeClient:
                   "aid": self.api_key, "sId": self._sid}
         if extra:
             params.update(extra)
-        resp = requests.get(API_URL, params=params, timeout=10)
+        # 재고·가격·조회 read timeout 완화: connect 10s / read 20s
+        resp = requests.get(API_URL, params=params, timeout=(10, 20))
         resp.raise_for_status()
         try:
             data = resp.json()

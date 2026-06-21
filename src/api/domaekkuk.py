@@ -141,7 +141,7 @@ class DomaekkukAPI:
                 "pg":     page,
                 "sz":     size,
             }),
-            timeout=10,
+            timeout=(10, 20),  # connect 10s / read 20s
         )
         root   = self._root(resp)
         header = root.get("header", {})
@@ -177,7 +177,7 @@ class DomaekkukAPI:
         resp = requests.get(
             self.API_URL,
             params=self._params({"mode": "getItemView", "no": product_no}),
-            timeout=10,
+            timeout=(10, 20),  # connect 10s / read 20s
         )
         root       = self._root(resp)
         select_opt = root.get("selectOpt") or {}
