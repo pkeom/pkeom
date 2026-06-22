@@ -625,7 +625,18 @@ tbody tr:hover td { background: #FAFBFC; }
           <input class="fi" id="reg-rra-agency" type="text" placeholder="국립전파연구원">
         </div>
 
-        <!-- 수동 KC 입력 — 자동 스크랩 KC 0개일 때만 노출 -->
+        <div class="fg">
+          <label class="fl">KC 인증 처리</label>
+          <select class="fi" id="reg-kc-mode" onchange="regOnKcModeChange()">
+            <option value="certified" selected>인증 있음 (자동 스크랩 / 수동 번호입력)</option>
+            <option value="not_target">KC 안전관리대상 아님</option>
+            <option value="overseas">구매대행</option>
+            <option value="safe_criterion">안전기준 준수</option>
+          </select>
+          <div class="hint">USB 직결(배터리 없음) 무드등·스탠드 등 인증 대상이 아닌 제품은 "KC 안전관리대상 아님" 선택 — 인증번호 대신 면제정보(certificationTargetExcludeContent) 전송</div>
+        </div>
+
+        <!-- 수동 KC 입력 — '인증 있음' + 자동 스크랩 KC 0개일 때만 노출 -->
         <div id="reg-manual-kc-wrap" style="display:none;border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--bg2);margin-top:4px">
           <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">
             🔒 수동 KC 인증 입력 <span style="font-weight:400">(자동 스크랩 KC 없음 — 필요 시 직접 입력)</span>
@@ -1264,11 +1275,16 @@ function regShowPreview(info, sellingPrice) {
   }
 
   // 상세 테이블
+  const kcMode    = regKcMode();
+  const kcExcluded = kcMode !== 'certified';   // (2)~(4): 인증 대상 아님/면제
   const hasAutoKc = (info.kc_certs || []).length > 0;
-  $('reg-manual-kc-wrap').style.display = hasAutoKc ? 'none' : '';
+  // 면제 모드면 수동 KC 입력칸 숨김
+  $('reg-manual-kc-wrap').style.display = (kcExcluded || hasAutoKc) ? 'none' : '';
 
   let kcRows;
-  if (hasAutoKc) {
+  if (kcExcluded) {
+    kcRows = [['KC 처리', regKcModeLabel(kcMode) + ' <span style="color:var(--blue);font-size:11px">(인증번호 미전송)</span>']];
+  } else if (hasAutoKc) {
     kcRows = (info.kc_certs || []).map((c, i) =>
       [`KC인증${i+1}`, `[${c.cert_type||''}] ${c.cert_no||''} | 기관=${c.agency||(c.link_type==='rra'?'(수동입력)':'-')} | 상호=${c.company_name||'-'} | 제조자=${c.manufacturer_name||'-'} | 모델=${c.model_name||'-'}`]
     );
@@ -1328,6 +1344,31 @@ function regUpdateKcPreview() {
   });
 }
 
+function regKcMode() {
+  const el = $('reg-kc-mode');
+  return el ? el.value : 'certified';
+}
+
+function regKcModeLabel(m) {
+  return {
+    not_target:     'KC 안전관리대상 아님 (인증대상 아님)',
+    overseas:       '구매대행 (해외 면제)',
+    safe_criterion: '안전기준 준수 (면제)',
+  }[m] || '인증 있음';
+}
+
+// KC 처리 모드 변경 시: 수동입력칸 토글 + 미리보기 갱신
+function regOnKcModeChange() {
+  const kcMode    = regKcMode();
+  const hasAutoKc = !!(_regInfo && (_regInfo.kc_certs || []).length > 0);
+  $('reg-manual-kc-wrap').style.display =
+    (kcMode !== 'certified' || hasAutoKc) ? 'none' : '';
+  if (_regInfo) {
+    const price = parseInt($('reg-sell-input').value) || _regInfo.selling_price || 0;
+    regShowPreview(_regInfo, price);
+  }
+}
+
 async function regPreview() {
   const url           = $('reg-url').value.trim();
   const selling_price = parseInt($('reg-sell-input').value || '0');
@@ -1371,9 +1412,12 @@ async function regSubmit() {
   const catId            = $('reg-cat').value.trim();
   const manufacture_date = $('reg-mfg-date').value.trim();
   const rra_agency       = $('reg-rra-agency').value.trim();
+  const kc_mode          = regKcMode();
   const hasAutoKc        = (_regInfo.kc_certs || []).length > 0;
-  const manual_kc_no     = hasAutoKc ? '' : $('reg-kc-no').value.trim();
-  const manual_kc_type   = hasAutoKc ? '' : $('reg-kc-type').value;
+  // 수동 KC는 '인증 있음' + 자동 스크랩 0건일 때만 전송
+  const useManual        = (kc_mode === 'certified') && !hasAutoKc;
+  const manual_kc_no     = useManual ? $('reg-kc-no').value.trim() : '';
+  const manual_kc_type   = useManual ? $('reg-kc-type').value : '';
 
   $('reg-submit-btn').disabled  = true;
   $('reg-preview-btn').disabled = true;
@@ -1381,7 +1425,7 @@ async function regSubmit() {
   $('reg-result').style.display = 'none';
 
   try {
-    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name, manufacture_date, rra_agency, manual_kc_no, manual_kc_type});
+    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name, manufacture_date, rra_agency, manual_kc_no, manual_kc_type, kc_mode});
     const resultDiv = $('reg-result');
 
     if (d.success) {

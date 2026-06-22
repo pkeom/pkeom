@@ -459,6 +459,7 @@ def api_register_submit():
     rra_agency       = d.get("rra_agency", "").strip()
     manual_kc_no     = d.get("manual_kc_no", "").strip()
     manual_kc_type   = d.get("manual_kc_type", "").strip()
+    kc_mode          = (d.get("kc_mode", "certified") or "certified").strip()
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
     if not _ss_api or not _dm_cli:
@@ -477,6 +478,7 @@ def api_register_submit():
             rra_agency       = rra_agency,
             manual_kc_no     = manual_kc_no,
             manual_kc_type   = manual_kc_type,
+            kc_mode          = kc_mode,
         )
         if result.get("success"):
             _git_push_mappings()

@@ -1369,7 +1369,8 @@ def _build_origin_area(origin_text: str) -> dict:
 
 def build_smartstore_payload(info: dict, selling_price: int,
                              settings: dict, category_id: str = "",
-                             product_name: str = "") -> dict:
+                             product_name: str = "",
+                             kc_mode: str = "certified") -> dict:
     seller_phone   = settings.get("seller_phone", "")
     leaf_cat_id    = category_id  # resolve_category()가 미리 결정한 값 (빈 문자열 가능)
     effective_name = (product_name or info["title"]).strip()
@@ -1493,83 +1494,109 @@ def build_smartstore_payload(info: dict, selling_price: int,
     if mfg_date:
         origin_product["detailAttribute"]["manufactureDate"] = mfg_date
 
-    # KC인증 payload 구성 (복수 인증 대응)
-    # 네이버 규칙:
-    #   - KC_CERTIFICATION은 상품당 최대 1개 → 방송통신기자재 우선, 없으면 첫 번째
-    #   - 나머지 인증은 ETC
-    #   - 전기용품 안전확인류는 companyName 미지원 → 키 자체 제거
-    rra_agency    = (info.get("rra_agency") or "").strip()
-    cert_entries: list[dict] = []
-
-    def _is_rra_type(cert: dict) -> bool:
-        """방송통신기자재 계열 인증 여부 (cert_type 기준, info_id 하드코딩 금지)."""
-        combined = (cert.get("cert_type_detail") or cert.get("cert_type") or "")
-        return "방송통신기자재" in combined
-
-    valid_certs = [
-        c for c in info.get("kc_certs", [])
-        if (c.get("cert_no") or "").strip() and int(c.get("cert_info_id") or 0)
-    ]
-
-    # KC_CERTIFICATION 담당 인덱스: 방송통신기자재가 있으면 그것, 없으면 0번
-    kc_main_idx = next(
-        (i for i, c in enumerate(valid_certs) if _is_rra_type(c)),
-        0 if valid_certs else -1,
-    )
-
-    for idx, _cert in enumerate(valid_certs):
-        _cert_info_id = int(_cert.get("cert_info_id") or 0)
-        _cert_no      = (_cert.get("cert_no") or "").strip()
-        is_rra        = _is_rra_type(_cert)
-        kind_type     = "KC_CERTIFICATION" if idx == kc_main_idx else "ETC"
-
-        _entry: dict = {
-            "certificationInfoId":   _cert_info_id,
-            "certificationKindType": kind_type,
-            "certificationNumber":   _cert_no,
-        }
-        # name (인증기관)
-        _agency = (_cert.get("agency") or "").strip()
-        if not _agency and is_rra:
-            _agency = rra_agency or "국립전파연구원"
-        if _agency:
-            _entry["name"] = _agency
-        # companyName: 방송통신기자재류만 포함, 전기용품 안전확인류는 키 자체 제거
-        if is_rra:
-            _company = (_cert.get("company_name") or "").strip()
-            if _company:
-                _entry["companyName"] = _company
-
-        logger.info(
-            "KC인증 entry: cert_no=%r  certInfoId=%s  kindType=%s  companyName=%s",
-            _cert_no, _cert_info_id, kind_type,
-            repr(_entry.get("companyName", "(제외)")),
-        )
-        cert_entries.append(_entry)
-
-    # 단일 인증 폴백 (kc_certs 없는 구형 상품)
-    if not cert_entries:
-        kc_no      = (info.get("kc_cert_no") or "").strip()
-        kc_agency  = (info.get("kc_cert_agency") or "").strip()
-        kc_info_id = int(info.get("kc_cert_info_id") or 0)
-        if kc_no and kc_info_id:
-            _fb: dict = {
-                "certificationInfoId":   kc_info_id,
-                "certificationKindType": "KC_CERTIFICATION",
-                "certificationNumber":   kc_no,
-            }
-            if kc_agency:
-                _fb["name"] = kc_agency
-            cert_entries.append(_fb)
-
-    if cert_entries:
-        origin_product["detailAttribute"]["productCertificationInfos"] = cert_entries
-        origin_product["detailAttribute"]["certificationTargetExcludeContent"] = {
-            "kcCertifiedProductExclusionYn": "N"
-        }
-        logger.info("KC인증 payload: %d건 포함", len(cert_entries))
+    # ── KC 처리 모드 분기 ───────────────────────────────────────────
+    # kc_mode != "certified" 이면 productCertificationInfos를 보내지 않고,
+    # certificationTargetExcludeContent(인증 대상 아님/면제 정보)만 전송한다.
+    # (productCertificationInfos와 certificationTargetExcludeContent 동시 전송 금지)
+    _KC_EXCLUDE_MAP = {
+        # (2) KC 안전관리대상 아님 — 인증 대상 자체가 아님
+        "not_target":     {"kcCertifiedProductExclusionYn": "TRUE"},
+        # (3) 구매대행 — 해외 직구 면제
+        "overseas":       {"kcExemptionType": "OVERSEAS",
+                           "kcCertifiedProductExclusionYn": "KC_EXEMPTION_OBJECT"},
+        # (4) 안전기준 준수 — 면제
+        "safe_criterion": {"kcExemptionType": "SAFE_CRITERION",
+                           "kcCertifiedProductExclusionYn": "KC_EXEMPTION_OBJECT"},
+    }
+    if kc_mode != "certified":
+        # (2)~(4) 인증 대상 아님/면제 — productCertificationInfos 미전송
+        _exclude = _KC_EXCLUDE_MAP.get(kc_mode)
+        if _exclude is not None:
+            origin_product["detailAttribute"]["certificationTargetExcludeContent"] = _exclude
+            logger.info(
+                "KC 처리 모드=%s → certificationTargetExcludeContent=%s "
+                "(productCertificationInfos 미전송)", kc_mode, _exclude,
+            )
+        else:
+            logger.warning("알 수 없는 kc_mode=%r — KC 처리 생략", kc_mode)
     else:
-        logger.info("KC인증 payload 제외 (인증 없음)")
+        # ── (1) 인증 있음: 기존 productCertificationInfos 구성 (복수 인증 대응) ──
+        # 네이버 규칙:
+        #   - KC_CERTIFICATION은 상품당 최대 1개 → 방송통신기자재 우선, 없으면 첫 번째
+        #   - 나머지 인증은 ETC
+        #   - 전기용품 안전확인류는 companyName 미지원 → 키 자체 제거
+        rra_agency    = (info.get("rra_agency") or "").strip()
+        cert_entries: list[dict] = []
+
+        def _is_rra_type(cert: dict) -> bool:
+            """방송통신기자재 계열 인증 여부 (cert_type 기준, info_id 하드코딩 금지)."""
+            combined = (cert.get("cert_type_detail") or cert.get("cert_type") or "")
+            return "방송통신기자재" in combined
+
+        valid_certs = [
+            c for c in info.get("kc_certs", [])
+            if (c.get("cert_no") or "").strip() and int(c.get("cert_info_id") or 0)
+        ]
+
+        # KC_CERTIFICATION 담당 인덱스: 방송통신기자재가 있으면 그것, 없으면 0번
+        kc_main_idx = next(
+            (i for i, c in enumerate(valid_certs) if _is_rra_type(c)),
+            0 if valid_certs else -1,
+        )
+
+        for idx, _cert in enumerate(valid_certs):
+            _cert_info_id = int(_cert.get("cert_info_id") or 0)
+            _cert_no      = (_cert.get("cert_no") or "").strip()
+            is_rra        = _is_rra_type(_cert)
+            kind_type     = "KC_CERTIFICATION" if idx == kc_main_idx else "ETC"
+
+            _entry: dict = {
+                "certificationInfoId":   _cert_info_id,
+                "certificationKindType": kind_type,
+                "certificationNumber":   _cert_no,
+            }
+            # name (인증기관)
+            _agency = (_cert.get("agency") or "").strip()
+            if not _agency and is_rra:
+                _agency = rra_agency or "국립전파연구원"
+            if _agency:
+                _entry["name"] = _agency
+            # companyName: 방송통신기자재류만 포함, 전기용품 안전확인류는 키 자체 제거
+            if is_rra:
+                _company = (_cert.get("company_name") or "").strip()
+                if _company:
+                    _entry["companyName"] = _company
+
+            logger.info(
+                "KC인증 entry: cert_no=%r  certInfoId=%s  kindType=%s  companyName=%s",
+                _cert_no, _cert_info_id, kind_type,
+                repr(_entry.get("companyName", "(제외)")),
+            )
+            cert_entries.append(_entry)
+
+        # 단일 인증 폴백 (kc_certs 없는 구형 상품)
+        if not cert_entries:
+            kc_no      = (info.get("kc_cert_no") or "").strip()
+            kc_agency  = (info.get("kc_cert_agency") or "").strip()
+            kc_info_id = int(info.get("kc_cert_info_id") or 0)
+            if kc_no and kc_info_id:
+                _fb: dict = {
+                    "certificationInfoId":   kc_info_id,
+                    "certificationKindType": "KC_CERTIFICATION",
+                    "certificationNumber":   kc_no,
+                }
+                if kc_agency:
+                    _fb["name"] = kc_agency
+                cert_entries.append(_fb)
+
+        if cert_entries:
+            origin_product["detailAttribute"]["productCertificationInfos"] = cert_entries
+            origin_product["detailAttribute"]["certificationTargetExcludeContent"] = {
+                "kcCertifiedProductExclusionYn": "N"
+            }
+            logger.info("KC인증 payload: %d건 포함", len(cert_entries))
+        else:
+            logger.info("KC인증 payload 제외 (인증 없음)")
 
     if info.get("options"):
         groups = info["options"][:3]
@@ -1686,7 +1713,8 @@ def register_product(url: str, selling_price: int, smartstore_api,
                      supplier_client, settings: dict, mapping_repo,
                      category_id: str = "", product_name: str = "",
                      manufacture_date: str = "", rra_agency: str = "",
-                     manual_kc_no: str = "", manual_kc_type: str = "") -> dict:
+                     manual_kc_no: str = "", manual_kc_type: str = "",
+                     kc_mode: str = "certified") -> dict:
     """수집 → 스마트스토어 등록 → 매핑 저장."""
     try:
         info = fetch_product_info(url, supplier_client)
@@ -1712,7 +1740,8 @@ def register_product(url: str, selling_price: int, smartstore_api,
     info["naver_category_name"] = category_match
 
     # KC인증 필수 카테고리 사전 확인 + certificationInfoId 조회 (인증별 개별 조회)
-    if category_id:
+    # kc_mode가 'certified'가 아니면(인증 대상 아님/면제) 인증 조회·차단조건 전부 우회
+    if category_id and kc_mode == "certified":
         try:
             kc_certs = info.get("kc_certs", [])
             if kc_certs:
@@ -1884,7 +1913,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
         )
 
     payload = build_smartstore_payload(info, selling_price, settings, category_id,
-                                       product_name=product_name)
+                                       product_name=product_name, kc_mode=kc_mode)
 
     def _post_product(pl: dict):
         return requests.post(
