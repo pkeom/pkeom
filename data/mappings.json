@@ -531,6 +531,20 @@
       "is_active": true,
       "memo": "자동등록 PL 플러스 무드등 스탠드 웜앤우드 밝기조절 테이블 스탠드(C타입) No",
       "created_at": "2026-06-22T20:07:31"
+    },
+    {
+      "id": 95,
+      "ss_product_id": "13641377968",
+      "ss_option_id": "",
+      "origin_product_no": "13581598702",
+      "supplier": "domaemae",
+      "supplier_product_id": "65932069",
+      "supplier_url": "https://domeme.domeggook.com/s/65932069",
+      "supplier_option_id": "",
+      "price_margin_rate": 2.051971,
+      "is_active": true,
+      "memo": "자동등록 PL 프로 LED스탠드 데이문 라탄 달 무드등(분리형) (아이보리) No",
+      "created_at": "2026-06-23T21:13:20"
     }
   ]
 }
