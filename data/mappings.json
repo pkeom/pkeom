@@ -573,6 +573,34 @@
       "is_active": true,
       "memo": "초승달 무드등",
       "created_at": "2026-06-25T07:58:56"
+    },
+    {
+      "id": 98,
+      "ss_product_id": "13643195996",
+      "ss_option_id": "59053601202",
+      "origin_product_no": "13583391611",
+      "supplier": "domaekkuk",
+      "supplier_product_id": "45192707",
+      "supplier_url": "https://domeggook.com/45192707",
+      "supplier_option_id": "00",
+      "price_margin_rate": 1.503145,
+      "is_active": true,
+      "memo": "자동등록 미드나잇 무드등 무선 터치형 3단 라이트 인테리어 스탠 [미드나잇 무드등]",
+      "created_at": "2026-06-25T21:42:53"
+    },
+    {
+      "id": 99,
+      "ss_product_id": "13643195996",
+      "ss_option_id": "",
+      "origin_product_no": "13583391611",
+      "supplier": "domaekkuk",
+      "supplier_product_id": "45192707",
+      "supplier_url": "https://domeggook.com/45192707",
+      "supplier_option_id": "",
+      "price_margin_rate": 1.503145,
+      "is_active": true,
+      "memo": "자동등록 미드나잇 무드등 무선 터치형 3단 라이트 인테리어 스탠드 조명 집들이 선",
+      "created_at": "2026-06-25T21:42:53"
     }
   ]
 }
