@@ -646,6 +646,12 @@ tbody tr:hover td { background: #FAFBFC; }
         </div>
 
         <div class="fg">
+          <label class="fl">할인율 (%) <span style="font-weight:400;text-transform:none">— 비우면 할인 없이 판매가 그대로</span></label>
+          <input class="fi" id="reg-discount-input" type="number" min="0" max="99" step="1" placeholder="예: 40  —  비우면 할인 없음">
+          <div class="hint">정가를 900원 단위로 역산해 즉시할인(정액)으로 등록합니다. 최종 판매가는 위 판매가와 정확히 일치합니다.</div>
+        </div>
+
+        <div class="fg">
           <label class="fl">태그 (콤마 구분) <span style="font-weight:400;text-transform:none">— 비우면 상품명에서 자동 생성</span></label>
           <input class="fi" id="reg-tags-input" type="text" placeholder="예: 여름신상,면티,반팔티  —  비우면 자동 생성">
           <div class="hint">최대 10개. 네이버 등록 불가 단어가 포함된 태그는 자동으로 제외하고 등록됩니다.</div>
@@ -1589,6 +1595,7 @@ async function regSubmit() {
   const selling_price    = parseInt($('reg-sell-input').value || '0');
   const catId            = $('reg-cat').value.trim();
   const seller_tags      = $('reg-tags-input').value.trim();
+  const discount_rate    = parseFloat($('reg-discount-input').value || '0') || 0;
   const manufacture_date = $('reg-mfg-date').value.trim();
   const rra_agency       = $('reg-rra-agency').value.trim();
   const kc_mode          = regKcMode();
@@ -1604,7 +1611,7 @@ async function regSubmit() {
   $('reg-result').style.display = 'none';
 
   try {
-    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name, seller_tags, manufacture_date, rra_agency, manual_kc_no, manual_kc_type, kc_mode});
+    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name, seller_tags, discount_rate, manufacture_date, rra_agency, manual_kc_no, manual_kc_type, kc_mode});
     const resultDiv = $('reg-result');
 
     if (d.success) {
@@ -1621,6 +1628,7 @@ async function regSubmit() {
       $('reg-url').value        = '';
       $('reg-name-input').value = '';
       $('reg-tags-input').value = '';
+      $('reg-discount-input').value = '';
     } else {
       resultDiv.className = 'reg-result err';
       let errMsg = d.error || '알 수 없는 오류';

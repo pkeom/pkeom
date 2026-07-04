@@ -1111,6 +1111,40 @@ def fetch_product_info(url: str, client) -> dict:
 
 # ── 판매가·태그·카테고리 ──────────────────────────────────────────
 
+def _ceil_900(price) -> int:
+    """900원 단위 올림: 결과가 항상 x900이 되도록 올린다.
+    예) 34833 → 34900, 14142 → 14900, 21500 → 21900, 10900 → 10900.
+    """
+    return math.ceil((price - 900) / 1000) * 1000 + 900
+
+
+def compute_immediate_discount(final_price: int, discount_rate) -> tuple[int, int]:
+    """즉시할인 계산.
+
+    Args:
+        final_price:   사용자가 입력한 판매가(= 최종 노출가, 절대 불변).
+        discount_rate: 할인율(%). 0/빈값/범위 밖이면 할인 없음.
+
+    Returns: (list_price, discount_amount)
+        list_price      = 정가(salePrice로 전송). 할인 없으면 final_price 그대로.
+        discount_amount = 정액 할인액(= list_price - final_price). 할인 없으면 0.
+
+    ★ 불변조건: 최종 노출가(list_price - discount_amount) == final_price (1원도 안 틀어짐).
+      정가 900원 올림으로 값이 커져도 할인액을 '정가 - 판매가'로 역산하므로 항상 성립.
+    """
+    try:
+        rate = float(discount_rate or 0)
+    except (TypeError, ValueError):
+        rate = 0.0
+    if not (0 < rate < 100):
+        return int(final_price), 0
+    list_price = _ceil_900(final_price / (1 - rate / 100))
+    discount_amount = int(list_price) - int(final_price)
+    if discount_amount <= 0:          # 올림 결과가 판매가와 같으면 할인 없음 처리
+        return int(final_price), 0
+    return int(list_price), int(discount_amount)
+
+
 def calculate_selling_price(supply_price: int, shipping: int = 3_000,
                             margin: float = 0.3) -> int:
     """판매가 계산 (100원 단위 올림).
@@ -1393,10 +1427,12 @@ def build_smartstore_payload(info: dict, selling_price: int,
                              settings: dict, category_id: str = "",
                              product_name: str = "",
                              kc_mode: str = "certified",
-                             seller_tags=None) -> dict:
+                             seller_tags=None, discount_rate=0) -> dict:
     seller_phone   = settings.get("seller_phone", "")
     leaf_cat_id    = category_id  # resolve_category()가 미리 결정한 값 (빈 문자열 가능)
     effective_name = (product_name or info["title"]).strip()
+    # 즉시할인: 입력 판매가는 최종 노출가로 고정하고, 정가(salePrice)를 역산한다.
+    list_price, discount_amount = compute_immediate_discount(selling_price, discount_rate)
     # 사용자가 태그를 직접 입력하면 우선 사용, 없으면 상품명에서 자동 생성.
     user_tags = _clean_seller_tags(seller_tags)
     tags      = user_tags if user_tags else generate_tags(effective_name)
@@ -1441,7 +1477,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
         "name":          effective_name[:100],
         "detailContent": detail_content,
         "images":        images,
-        "salePrice":     selling_price,
+        "salePrice":     list_price,
         "stockQuantity": 999,
         "deliveryInfo": {
             "deliveryType":          "DELIVERY",
@@ -1477,6 +1513,16 @@ def build_smartstore_payload(info: dict, selling_price: int,
             ),
         },
     }
+
+    # 즉시할인(정액, 원): discountMethod는 원소 1개짜리 배열. 값 없으면 키 생략.
+    if discount_amount > 0:
+        origin_product["customerBenefit"] = {
+            "immediateDiscountPolicy": {
+                "discountMethod": [
+                    {"value": discount_amount, "unitType": "WON"}
+                ]
+            }
+        }
 
     # leafCategoryId: 빈 문자열이면 네이버 API 오류 방지를 위해 키 자체를 제외
     if leaf_cat_id:
@@ -1742,7 +1788,8 @@ def register_product(url: str, selling_price: int, smartstore_api,
                      category_id: str = "", product_name: str = "",
                      manufacture_date: str = "", rra_agency: str = "",
                      manual_kc_no: str = "", manual_kc_type: str = "",
-                     kc_mode: str = "certified", seller_tags="") -> dict:
+                     kc_mode: str = "certified", seller_tags="",
+                     discount_rate=0) -> dict:
     """수집 → 스마트스토어 등록 → 매핑 저장."""
     try:
         info = fetch_product_info(url, supplier_client)
@@ -1942,7 +1989,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
 
     payload = build_smartstore_payload(info, selling_price, settings, category_id,
                                        product_name=product_name, kc_mode=kc_mode,
-                                       seller_tags=seller_tags)
+                                       seller_tags=seller_tags, discount_rate=discount_rate)
 
     # 재등록 폴백 시 참조할, 실제 payload에 담긴 태그 목록
     _sent_tags = [

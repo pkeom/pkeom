@@ -467,6 +467,7 @@ def api_register_submit():
     manual_kc_type   = d.get("manual_kc_type", "").strip()
     kc_mode          = (d.get("kc_mode", "certified") or "certified").strip()
     seller_tags      = d.get("seller_tags", "").strip()
+    discount_rate    = d.get("discount_rate", 0) or 0
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
     if not _ss_api or not _dm_cli:
@@ -487,6 +488,7 @@ def api_register_submit():
             manual_kc_type   = manual_kc_type,
             kc_mode          = kc_mode,
             seller_tags      = seller_tags,
+            discount_rate    = discount_rate,
         )
         if result.get("success"):
             _git_push_mappings()
