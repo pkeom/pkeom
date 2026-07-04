@@ -1427,7 +1427,8 @@ def build_smartstore_payload(info: dict, selling_price: int,
                              settings: dict, category_id: str = "",
                              product_name: str = "",
                              kc_mode: str = "certified",
-                             seller_tags=None, discount_rate=0) -> dict:
+                             seller_tags=None, discount_rate=0,
+                             text_review_point=0, photo_review_point=0) -> dict:
     seller_phone   = settings.get("seller_phone", "")
     leaf_cat_id    = category_id  # resolve_category()가 미리 결정한 값 (빈 문자열 가능)
     effective_name = (product_name or info["title"]).strip()
@@ -1514,15 +1515,33 @@ def build_smartstore_payload(info: dict, selling_price: int,
         },
     }
 
+    # customerBenefit: 즉시할인 + 구매평 적립포인트가 한 객체 안에 공존해야 하므로
+    # 통째 대입하지 말고 setdefault로 누적한다 (하나가 다른 하나를 덮어쓰지 않게).
     # 즉시할인(정액, 원): discountMethod는 원소 1개짜리 배열. 값 없으면 키 생략.
     if discount_amount > 0:
-        origin_product["customerBenefit"] = {
-            "immediateDiscountPolicy": {
-                "discountMethod": [
-                    {"value": discount_amount, "unitType": "WON"}
-                ]
-            }
+        cb = origin_product.setdefault("customerBenefit", {})
+        cb["immediateDiscountPolicy"] = {
+            "discountMethod": [
+                {"value": discount_amount, "unitType": "WON"}
+            ]
         }
+
+    # 구매평 적립포인트: 값 있는 필드만 reviewPointPolicy에 담는다. 둘 다 0이면 생략.
+    def _to_point(v) -> int:
+        try:
+            return max(0, int(v or 0))
+        except (TypeError, ValueError):
+            return 0
+    _text_pt  = _to_point(text_review_point)
+    _photo_pt = _to_point(photo_review_point)
+    if _text_pt > 0 or _photo_pt > 0:
+        review_policy: dict = {}
+        if _text_pt > 0:
+            review_policy["textReviewPoint"] = _text_pt
+        if _photo_pt > 0:
+            review_policy["photoVideoReviewPoint"] = _photo_pt
+        cb = origin_product.setdefault("customerBenefit", {})
+        cb["reviewPointPolicy"] = review_policy
 
     # leafCategoryId: 빈 문자열이면 네이버 API 오류 방지를 위해 키 자체를 제외
     if leaf_cat_id:
@@ -1789,7 +1808,8 @@ def register_product(url: str, selling_price: int, smartstore_api,
                      manufacture_date: str = "", rra_agency: str = "",
                      manual_kc_no: str = "", manual_kc_type: str = "",
                      kc_mode: str = "certified", seller_tags="",
-                     discount_rate=0) -> dict:
+                     discount_rate=0, text_review_point=0,
+                     photo_review_point=0) -> dict:
     """수집 → 스마트스토어 등록 → 매핑 저장."""
     try:
         info = fetch_product_info(url, supplier_client)
@@ -1989,7 +2009,9 @@ def register_product(url: str, selling_price: int, smartstore_api,
 
     payload = build_smartstore_payload(info, selling_price, settings, category_id,
                                        product_name=product_name, kc_mode=kc_mode,
-                                       seller_tags=seller_tags, discount_rate=discount_rate)
+                                       seller_tags=seller_tags, discount_rate=discount_rate,
+                                       text_review_point=text_review_point,
+                                       photo_review_point=photo_review_point)
 
     # 재등록 폴백 시 참조할, 실제 payload에 담긴 태그 목록
     _sent_tags = [
