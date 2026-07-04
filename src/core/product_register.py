@@ -1367,14 +1367,39 @@ def _build_origin_area(origin_text: str) -> dict:
 
 # ── 스마트스토어 payload 구성 ──────────────────────────────────────
 
+def _clean_seller_tags(raw) -> list[str]:
+    """사용자 입력/자동생성 태그를 정규화: 공백제거·중복제거·빈값제거·최대 10개.
+
+    raw는 리스트(["a","b"]) 또는 콤마 구분 문자열("a, b") 모두 허용.
+    """
+    if isinstance(raw, str):
+        items = raw.split(",")
+    else:
+        items = list(raw or [])
+    out: list[str] = []
+    seen: set[str] = set()
+    for t in items:
+        t = str(t or "").strip()
+        if not t or t in seen:
+            continue
+        out.append(t)
+        seen.add(t)
+        if len(out) >= 10:   # 네이버 sellerTags 최대 10개
+            break
+    return out
+
+
 def build_smartstore_payload(info: dict, selling_price: int,
                              settings: dict, category_id: str = "",
                              product_name: str = "",
-                             kc_mode: str = "certified") -> dict:
+                             kc_mode: str = "certified",
+                             seller_tags=None) -> dict:
     seller_phone   = settings.get("seller_phone", "")
     leaf_cat_id    = category_id  # resolve_category()가 미리 결정한 값 (빈 문자열 가능)
     effective_name = (product_name or info["title"]).strip()
-    tags           = generate_tags(effective_name)
+    # 사용자가 태그를 직접 입력하면 우선 사용, 없으면 상품명에서 자동 생성.
+    user_tags = _clean_seller_tags(seller_tags)
+    tags      = user_tags if user_tags else generate_tags(effective_name)
 
     # product_name 직접 입력 시 상세설명을 상품명으로 고정
     if product_name:
@@ -1623,8 +1648,11 @@ def build_smartstore_payload(info: dict, selling_price: int,
             [g["name"] for g in groups], len(opt_combos),
         )
 
+    # 태그: 네이버 v2 스펙상 originProduct.detailAttribute.seoInfo.sellerTags 위치.
+    # code 없이 text만 전송({"text": ...}) — code는 '추천 태그 검색 API' 태그ID 있을 때만.
     if tags:
-        payload["originProduct"]["tag"] = [{"text": t} for t in tags]
+        seo_info = origin_product["detailAttribute"].setdefault("seoInfo", {})
+        seo_info["sellerTags"] = [{"text": t} for t in tags]
 
     return payload
 
@@ -1714,7 +1742,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
                      category_id: str = "", product_name: str = "",
                      manufacture_date: str = "", rra_agency: str = "",
                      manual_kc_no: str = "", manual_kc_type: str = "",
-                     kc_mode: str = "certified") -> dict:
+                     kc_mode: str = "certified", seller_tags="") -> dict:
     """수집 → 스마트스토어 등록 → 매핑 저장."""
     try:
         info = fetch_product_info(url, supplier_client)
@@ -1913,7 +1941,18 @@ def register_product(url: str, selling_price: int, smartstore_api,
         )
 
     payload = build_smartstore_payload(info, selling_price, settings, category_id,
-                                       product_name=product_name, kc_mode=kc_mode)
+                                       product_name=product_name, kc_mode=kc_mode,
+                                       seller_tags=seller_tags)
+
+    # 재등록 폴백 시 참조할, 실제 payload에 담긴 태그 목록
+    _sent_tags = [
+        t.get("text", "")
+        for t in payload.get("originProduct", {})
+                        .get("detailAttribute", {})
+                        .get("seoInfo", {})
+                        .get("sellerTags", [])
+    ]
+    tag_warning = ""   # 태그 반려로 태그 제외 등록 시 사용자 안내 메시지
 
     def _post_product(pl: dict):
         return requests.post(
@@ -1936,6 +1975,15 @@ def register_product(url: str, selling_price: int, smartstore_api,
             body_str = str(body)
         return any(kw in body_str for kw in _KC_KEYWORDS)
 
+    def _is_seller_tag_error(body) -> bool:
+        """Naver API가 태그 반려(Restricted.sellerTags 등) 오류를 반환했는지 확인."""
+        import json as _json
+        try:
+            body_str = _json.dumps(body, ensure_ascii=False)
+        except Exception:
+            body_str = str(body)
+        return "sellerTags" in body_str
+
     try:
         import json as _json_log
         opt_info_log = payload.get("originProduct", {}).get("optionInfo")
@@ -1956,8 +2004,38 @@ def register_product(url: str, selling_price: int, smartstore_api,
 
             logger.warning("스마트스토어 등록 오류 원문: %s", err_body)
 
+            # 태그 반려(Restricted.sellerTags 등): 등록 불가 단어가 포함된 경우.
+            # 전체 등록이 실패하지 않도록 sellerTags만 제거하고 1회 재시도한다.
+            if _is_seller_tag_error(err_body) and _sent_tags:
+                logger.warning(
+                    "태그 반려 감지 (Restricted.sellerTags) — 태그 제외 후 재등록 시도. "
+                    "전송했던 태그=%s / 응답=%s", _sent_tags, err_body,
+                )
+                try:
+                    _seo = payload["originProduct"]["detailAttribute"].get("seoInfo", {})
+                    _seo.pop("sellerTags", None)
+                    if not _seo:
+                        payload["originProduct"]["detailAttribute"].pop("seoInfo", None)
+                except Exception:
+                    pass
+                tag_warning = (
+                    "입력한 태그 중 네이버 등록 불가 단어가 있어 태그 없이 등록했습니다. "
+                    "문제 태그 확인 필요 — 전송했던 태그: " + ", ".join(_sent_tags)
+                )
+                resp = _post_product(payload)
+                logger.info("태그 제외 재등록 응답: HTTP %s  body=%s",
+                            resp.status_code, resp.text)
+                if resp.ok:
+                    err_body = {}   # 성공 → 이후 오류 분기 우회
+                else:
+                    try:
+                        err_body = resp.json()
+                    except Exception:
+                        err_body = {"raw": resp.text}
+                    logger.warning("태그 제외 재등록도 실패: %s", err_body)
+
             # KC인증 필수 오류: 해당 카테고리는 법적으로 KC인증 정보 필수 → 수동 처리 필요
-            if _is_kc_cert_error(err_body) and category_id:
+            if not resp.ok and _is_kc_cert_error(err_body) and category_id:
                 logger.warning(
                     "KC인증 필수 카테고리 (%s, %s) — 이 카테고리는 KC인증 정보 필수 (법적 요구사항). "
                     "KC인증 정보를 직접 입력하거나 카테고리를 변경해 수동 등록하세요.",
@@ -2052,6 +2130,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
         "category_id":    category_id,
         "category_match": category_match,
         "info":           info,
+        **({"warning": tag_warning} if tag_warning else {}),
     }
 
 
