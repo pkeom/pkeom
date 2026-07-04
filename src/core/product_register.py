@@ -1503,11 +1503,17 @@ def build_smartstore_payload(info: dict, selling_price: int,
             "deliveryType":          "DELIVERY",
             "deliveryAttributeType": "NORMAL",
             "deliveryCompany":       delivery_company_code,
-            # 배송비: 항상 무료배송 고정 (공급사 배송비 무시).
+            # 배송비: 기본 무료배송 + 도서산간 지역할증만 유지 (공급사 배송비 무시).
+            # FREE 타입에서도 deliveryFeeByArea 지역할증은 독립 적용됨.
             "deliveryFee": {
                 "deliveryFeeType":    "FREE",
                 "baseFee":            0,
                 "deliveryFeePayType": "PREPAID",
+                "deliveryFeeByArea": {
+                    "deliveryAreaType": "AREA_3",   # 전국 / 제주 / 제주 외 도서산간
+                    "area2extraFee":    3000,        # 제주 3,000원
+                    "area3extraFee":    5000,        # 제주 외 도서산간 5,000원
+                },
             },
             "claimDeliveryInfo": {
                 "returnDeliveryFee":   3000,
