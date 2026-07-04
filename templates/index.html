@@ -610,6 +610,12 @@ tbody tr:hover td { background: #FAFBFC; }
         </div>
 
         <div class="fg">
+          <label class="fl">태그 (콤마 구분) <span style="font-weight:400;text-transform:none">— 비우면 상품명에서 자동 생성</span></label>
+          <input class="fi" id="reg-tags-input" type="text" placeholder="예: 여름신상,면티,반팔티  —  비우면 자동 생성">
+          <div class="hint">최대 10개. 네이버 등록 불가 단어가 포함된 태그는 자동으로 제외하고 등록됩니다.</div>
+        </div>
+
+        <div class="fg">
           <label class="fl">스마트스토어 카테고리 ID <span style="font-weight:400;text-transform:none">(선택)</span></label>
           <input class="fi" id="reg-cat" placeholder="예: 50000803  —  비워두면 자동 감지">
           <div class="hint">카테고리 ID는 네이버 커머스 API /v1/product-attributes/categories 에서 확인</div>
@@ -1410,6 +1416,7 @@ async function regSubmit() {
   const url              = $('reg-url').value.trim();
   const selling_price    = parseInt($('reg-sell-input').value || '0');
   const catId            = $('reg-cat').value.trim();
+  const seller_tags      = $('reg-tags-input').value.trim();
   const manufacture_date = $('reg-mfg-date').value.trim();
   const rra_agency       = $('reg-rra-agency').value.trim();
   const kc_mode          = regKcMode();
@@ -1425,7 +1432,7 @@ async function regSubmit() {
   $('reg-result').style.display = 'none';
 
   try {
-    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name, manufacture_date, rra_agency, manual_kc_no, manual_kc_type, kc_mode});
+    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name, seller_tags, manufacture_date, rra_agency, manual_kc_no, manual_kc_type, kc_mode});
     const resultDiv = $('reg-result');
 
     if (d.success) {
@@ -1435,11 +1442,13 @@ async function regSubmit() {
         `상품 ID: <strong>${d.product_id || '-'}</strong><br>` +
         `판매가: <strong>${fmt(d.selling_price || 0)}</strong><br>` +
         (d.category_match ? `카테고리: <strong>${d.category_match}</strong><br>` : '') +
+        (d.warning ? `<span style="color:var(--orange,#c60)">⚠️ ${d.warning}</span><br>` : '') +
         `매핑이 자동 저장되었습니다.`;
-      regSetStatus('등록 완료!');
+      regSetStatus(d.warning ? '등록 완료 (태그 일부 제외)' : '등록 완료!');
       _regInfo = null;
-      $('reg-url').value       = '';
+      $('reg-url').value        = '';
       $('reg-name-input').value = '';
+      $('reg-tags-input').value = '';
     } else {
       resultDiv.className = 'reg-result err';
       let errMsg = d.error || '알 수 없는 오류';
