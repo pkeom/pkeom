@@ -1401,6 +1401,23 @@ def _build_origin_area(origin_text: str) -> dict:
 
 # ── 스마트스토어 payload 구성 ──────────────────────────────────────
 
+# 대시보드 택배사 드롭다운에서 허용하는 네이버 배송사 코드 (교차검증 완료값만).
+# 롯데=HYUNDAI(레거시), 로젠=KGB(LOGEN 아님). GS25/COUPANG/HOMEPICK은 미검증이라 제외.
+_VALID_DELIVERY_CODES = {
+    "CJGLS", "HANJIN", "HYUNDAI", "EPOST", "KGB",
+    "KDEXP", "DAESIN", "CU", "CVSNET",
+}
+
+
+def _resolve_delivery_company(form_value, settings: dict) -> str:
+    """폼에서 고른 택배사 코드를 검증. 유효하면 그 값, 아니면 기존 폴백(settings→CJGLS)."""
+    code = str(form_value or "").strip().upper()
+    if code in _VALID_DELIVERY_CODES:
+        return code
+    # 폼 미선택/이상값 → 기존 동작 유지 (settings 값 → CJGLS)
+    return (settings.get("delivery_company") or "").strip() or "CJGLS"
+
+
 def _clean_seller_tags(raw) -> list[str]:
     """사용자 입력/자동생성 태그를 정규화: 공백제거·중복제거·빈값제거·최대 10개.
 
@@ -1428,8 +1445,10 @@ def build_smartstore_payload(info: dict, selling_price: int,
                              product_name: str = "",
                              kc_mode: str = "certified",
                              seller_tags=None, discount_rate=0,
-                             text_review_point=0, photo_review_point=0) -> dict:
+                             text_review_point=0, photo_review_point=0,
+                             delivery_company="") -> dict:
     seller_phone   = settings.get("seller_phone", "")
+    delivery_company_code = _resolve_delivery_company(delivery_company, settings)
     leaf_cat_id    = category_id  # resolve_category()가 미리 결정한 값 (빈 문자열 가능)
     effective_name = (product_name or info["title"]).strip()
     # 즉시할인: 입력 판매가는 최종 노출가로 고정하고, 정가(salePrice)를 역산한다.
@@ -1483,7 +1502,7 @@ def build_smartstore_payload(info: dict, selling_price: int,
         "deliveryInfo": {
             "deliveryType":          "DELIVERY",
             "deliveryAttributeType": "NORMAL",
-            "deliveryCompany":       settings.get("delivery_company", "CJGLS"),
+            "deliveryCompany":       delivery_company_code,
             "deliveryFee": {
                 "deliveryFeeType":    "PAID",
                 "baseFee":            3000,
@@ -1809,7 +1828,7 @@ def register_product(url: str, selling_price: int, smartstore_api,
                      manual_kc_no: str = "", manual_kc_type: str = "",
                      kc_mode: str = "certified", seller_tags="",
                      discount_rate=0, text_review_point=0,
-                     photo_review_point=0) -> dict:
+                     photo_review_point=0, delivery_company="") -> dict:
     """수집 → 스마트스토어 등록 → 매핑 저장."""
     try:
         info = fetch_product_info(url, supplier_client)
@@ -2011,7 +2030,8 @@ def register_product(url: str, selling_price: int, smartstore_api,
                                        product_name=product_name, kc_mode=kc_mode,
                                        seller_tags=seller_tags, discount_rate=discount_rate,
                                        text_review_point=text_review_point,
-                                       photo_review_point=photo_review_point)
+                                       photo_review_point=photo_review_point,
+                                       delivery_company=delivery_company)
 
     # 재등록 폴백 시 참조할, 실제 payload에 담긴 태그 목록
     _sent_tags = [

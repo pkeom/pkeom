@@ -646,6 +646,22 @@ tbody tr:hover td { background: #FAFBFC; }
         </div>
 
         <div class="fg">
+          <label class="fl">택배사</label>
+          <select class="fi" id="reg-delivery-input">
+            <option value="CJGLS" selected>CJ대한통운</option>
+            <option value="HANJIN">한진택배</option>
+            <option value="HYUNDAI">롯데택배</option>
+            <option value="EPOST">우체국택배</option>
+            <option value="KGB">로젠택배</option>
+            <option value="KDEXP">경동택배</option>
+            <option value="DAESIN">대신택배</option>
+            <option value="CU">CU편의점택배</option>
+            <option value="CVSNET">CVSnet편의점택배</option>
+          </select>
+          <div class="hint">상품 기본 배송사 표기값. 실제 송장 택배사는 발송 시 도매처 실제값으로 등록됩니다.</div>
+        </div>
+
+        <div class="fg">
           <label class="fl">할인율 (%) <span style="font-weight:400;text-transform:none">— 비우면 할인 없이 판매가 그대로</span></label>
           <input class="fi" id="reg-discount-input" type="number" min="0" max="99" step="1" placeholder="예: 40  —  비우면 할인 없음">
           <div class="hint">정가를 900원 단위로 역산해 즉시할인(정액)으로 등록합니다. 최종 판매가는 위 판매가와 정확히 일치합니다.</div>
@@ -1604,6 +1620,7 @@ async function regSubmit() {
   const selling_price    = parseInt($('reg-sell-input').value || '0');
   const catId            = $('reg-cat').value.trim();
   const seller_tags      = $('reg-tags-input').value.trim();
+  const delivery_company = $('reg-delivery-input').value || 'CJGLS';
   const discount_rate    = parseFloat($('reg-discount-input').value || '0') || 0;
   const text_review_point  = parseInt($('reg-text-review-input').value || '0') || 0;
   const photo_review_point = parseInt($('reg-photo-review-input').value || '0') || 0;
@@ -1622,7 +1639,7 @@ async function regSubmit() {
   $('reg-result').style.display = 'none';
 
   try {
-    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name, seller_tags, discount_rate, text_review_point, photo_review_point, manufacture_date, rra_agency, manual_kc_no, manual_kc_type, kc_mode});
+    const d = await post('/api/register/submit', {url, selling_price, category_id: catId, product_name, seller_tags, delivery_company, discount_rate, text_review_point, photo_review_point, manufacture_date, rra_agency, manual_kc_no, manual_kc_type, kc_mode});
     const resultDiv = $('reg-result');
 
     if (d.success) {

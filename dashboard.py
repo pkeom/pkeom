@@ -470,6 +470,7 @@ def api_register_submit():
     discount_rate    = d.get("discount_rate", 0) or 0
     text_review_point  = d.get("text_review_point", 0) or 0
     photo_review_point = d.get("photo_review_point", 0) or 0
+    delivery_company   = d.get("delivery_company", "").strip()
     if not url:
         return jsonify({"error": "URL을 입력하세요"}), 400
     if not _ss_api or not _dm_cli:
@@ -493,6 +494,7 @@ def api_register_submit():
             discount_rate    = discount_rate,
             text_review_point  = text_review_point,
             photo_review_point = photo_review_point,
+            delivery_company   = delivery_company,
         )
         if result.get("success"):
             _git_push_mappings()
