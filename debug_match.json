@@ -1,0 +1,257 @@
+[
+  {
+    "phrase": "운전하는사람이면",
+    "norm_phrase": "운전하는사람이면",
+    "search_from": 0,
+    "search_limit": 36,
+    "best_pos": 0,
+    "best_start": 0.0,
+    "best_score": 0.75,
+    "top5": [
+      {
+        "pos": 0,
+        "win": 3,
+        "wtext": "본전아는사람이면",
+        "score": 0.75,
+        "start": 0.0
+      },
+      {
+        "pos": 1,
+        "win": 2,
+        "wtext": "아는사람이면",
+        "score": 0.7143,
+        "start": 0.62
+      },
+      {
+        "pos": 2,
+        "win": 1,
+        "wtext": "사람이면",
+        "score": 0.6667,
+        "start": 0.94
+      },
+      {
+        "pos": 9,
+        "win": 1,
+        "wtext": "운전하는",
+        "score": 0.6667,
+        "start": 4.26
+      },
+      {
+        "pos": 0,
+        "win": 4,
+        "wtext": "본전아는사람이면끝까지",
+        "score": 0.6316,
+        "start": 0.0
+      }
+    ]
+  },
+  {
+    "phrase": "끝까지봐",
+    "norm_phrase": "끝까지봐",
+    "search_from": 1,
+    "search_limit": 37,
+    "best_pos": 3,
+    "best_start": 1.54,
+    "best_score": 1.0,
+    "top5": [
+      {
+        "pos": 3,
+        "win": 2,
+        "wtext": "끝까지봐",
+        "score": 1.0,
+        "start": 1.54
+      },
+      {
+        "pos": 3,
+        "win": 1,
+        "wtext": "끝까지",
+        "score": 0.8571,
+        "start": 1.54
+      },
+      {
+        "pos": 3,
+        "win": 3,
+        "wtext": "끝까지봐이제",
+        "score": 0.8,
+        "start": 1.54
+      },
+      {
+        "pos": 2,
+        "win": 3,
+        "wtext": "사람이면끝까지봐",
+        "score": 0.6667,
+        "start": 0.94
+      },
+      {
+        "pos": 3,
+        "win": 4,
+        "wtext": "끝까지봐이제고장",
+        "score": 0.6667,
+        "start": 1.54
+      }
+    ]
+  },
+  {
+    "phrase": "이제곧장마철인데",
+    "norm_phrase": "이제곧장마철인데",
+    "search_from": 4,
+    "search_limit": 38,
+    "best_pos": 5,
+    "best_start": 2.44,
+    "best_score": 0.75,
+    "top5": [
+      {
+        "pos": 5,
+        "win": 3,
+        "wtext": "이제고장아철인데",
+        "score": 0.75,
+        "start": 2.44
+      },
+      {
+        "pos": 4,
+        "win": 4,
+        "wtext": "봐이제고장아철인데",
+        "score": 0.7059,
+        "start": 2.2
+      },
+      {
+        "pos": 5,
+        "win": 4,
+        "wtext": "이제고장아철인데비었대",
+        "score": 0.6316,
+        "start": 2.44
+      },
+      {
+        "pos": 4,
+        "win": 5,
+        "wtext": "봐이제고장아철인데비었대",
+        "score": 0.6,
+        "start": 2.2
+      },
+      {
+        "pos": 6,
+        "win": 2,
+        "wtext": "고장아철인데",
+        "score": 0.5714,
+        "start": 2.8
+      }
+    ]
+  },
+  {
+    "phrase": "비올때",
+    "norm_phrase": "비올때",
+    "search_from": 6,
+    "search_limit": 39,
+    "best_pos": 21,
+    "best_start": 11.8,
+    "best_score": 0.5,
+    "top5": [
+      {
+        "pos": 21,
+        "win": 1,
+        "wtext": "때",
+        "score": 0.5,
+        "start": 11.8
+      },
+      {
+        "pos": 8,
+        "win": 1,
+        "wtext": "비었대",
+        "score": 0.3333,
+        "start": 3.78
+      },
+      {
+        "pos": 21,
+        "win": 2,
+        "wtext": "때문의",
+        "score": 0.3333,
+        "start": 11.8
+      }
+    ]
+  },
+  {
+    "phrase": "사이드미러에",
+    "norm_phrase": "사이드미러에",
+    "search_from": 22,
+    "search_limit": 40,
+    "best_pos": 23,
+    "best_start": 12.26,
+    "best_score": 0.8333,
+    "top5": [
+      {
+        "pos": 23,
+        "win": 1,
+        "wtext": "사이드미러가",
+        "score": 0.8333,
+        "start": 12.26
+      },
+      {
+        "pos": 23,
+        "win": 2,
+        "wtext": "사이드미러가안",
+        "score": 0.7692,
+        "start": 12.26
+      },
+      {
+        "pos": 22,
+        "win": 2,
+        "wtext": "문의사이드미러가",
+        "score": 0.7143,
+        "start": 11.92
+      },
+      {
+        "pos": 22,
+        "win": 3,
+        "wtext": "문의사이드미러가안",
+        "score": 0.6667,
+        "start": 11.92
+      },
+      {
+        "pos": 23,
+        "win": 3,
+        "wtext": "사이드미러가안보여",
+        "score": 0.6667,
+        "start": 12.26
+      }
+    ]
+  },
+  {
+    "phrase": "방수필름붙이면",
+    "norm_phrase": "방수필름붙이면",
+    "search_from": 24,
+    "search_limit": 41,
+    "best_pos": 28,
+    "best_start": 14.2,
+    "best_score": 0.4,
+    "top5": [
+      {
+        "pos": 28,
+        "win": 1,
+        "wtext": "수립이",
+        "score": 0.4,
+        "start": 14.2
+      },
+      {
+        "pos": 27,
+        "win": 2,
+        "wtext": "나서수립이",
+        "score": 0.3333,
+        "start": 13.94
+      },
+      {
+        "pos": 28,
+        "win": 2,
+        "wtext": "수립이내는",
+        "score": 0.3333,
+        "start": 14.2
+      },
+      {
+        "pos": 38,
+        "win": 2,
+        "wtext": "프로필에가면",
+        "score": 0.3077,
+        "start": 19.56
+      }
+    ]
+  }
+]

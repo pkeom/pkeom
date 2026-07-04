@@ -1,0 +1,7 @@
+﻿python : Python 
+At line:1 char:45
++ ... Users\user\smartstore-dropshipping"; python dashboard.py 2>&1 | Out-F ...
++                                          ~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Python :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

@@ -1,0 +1,77 @@
+{
+  "audio": "사이드미러방수필름 끝까지.mp3",
+  "results": [
+    {
+      "name": "faster-whisper-base   (현재)",
+      "elapsed_s": 5.5,
+      "words": 40,
+      "mean_err": 0.1541,
+      "median_err": 0.136,
+      "std_err": 0.0941,
+      "within_03_pct": 92.5,
+      "monotone_pct": 100.0,
+      "gap_cv": 0.2602,
+      "status": "OK"
+    },
+    {
+      "name": "faster-whisper-medium",
+      "elapsed_s": 41.4,
+      "words": 45,
+      "mean_err": 0.1481,
+      "median_err": 0.124,
+      "std_err": 0.1334,
+      "within_03_pct": 86.7,
+      "monotone_pct": 100.0,
+      "gap_cv": 0.2598,
+      "status": "OK"
+    },
+    {
+      "name": "stable-ts-base        (VAD)",
+      "elapsed_s": 8.2,
+      "words": 39,
+      "mean_err": 0.1615,
+      "median_err": 0.156,
+      "std_err": 0.1044,
+      "within_03_pct": 89.7,
+      "monotone_pct": 100.0,
+      "gap_cv": 0.2655,
+      "status": "OK"
+    },
+    {
+      "name": "stable-ts-medium      (VAD)",
+      "elapsed_s": 45.5,
+      "words": 45,
+      "mean_err": 0.1509,
+      "median_err": 0.124,
+      "std_err": 0.1257,
+      "within_03_pct": 84.4,
+      "monotone_pct": 100.0,
+      "gap_cv": 0.2829,
+      "status": "OK"
+    },
+    {
+      "name": "whisper-timestamped-base",
+      "elapsed_s": 4.6,
+      "words": 40,
+      "mean_err": 0.1397,
+      "median_err": 0.134,
+      "std_err": 0.0946,
+      "within_03_pct": 92.5,
+      "monotone_pct": 100.0,
+      "gap_cv": 0.2502,
+      "status": "OK"
+    },
+    {
+      "name": "whisper-timestamped-medium",
+      "elapsed_s": 31.8,
+      "words": 45,
+      "mean_err": 0.146,
+      "median_err": 0.104,
+      "std_err": 0.1338,
+      "within_03_pct": 86.7,
+      "monotone_pct": 100.0,
+      "gap_cv": 0.2599,
+      "status": "OK"
+    }
+  ]
+}

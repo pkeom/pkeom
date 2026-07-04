@@ -1,0 +1,4 @@
+2026-06-01 19:01:05,843 INFO __main__: 로깅 초기화 완료 (level=INFO, file=data\logs\app.log)
+대시보드: http://localhost:2713
+ * Serving Flask app 'dashboard'
+ * Debug mode: off

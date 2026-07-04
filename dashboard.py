@@ -62,6 +62,12 @@ def _tablet_proxy():
     # 매핑은 git으로 동기화 — 로컬 파일 직접 읽기
     if request.path.startswith("/api/mappings"):
         return None
+    # 영상제작✨ 은 ffmpeg/edge-tts 가 설치된 이 PC 에서 처리 — 프록시 금지
+    if request.path.startswith("/api/video2/"):
+        return None
+    # 영상 이어붙이기(CapCut draft) 도 ffmpeg/CapCut 이 있는 이 PC 에서 처리 — 프록시 금지
+    if request.path.startswith("/api/video3"):
+        return None
     url = f"{_TABLET_API}{request.path}"
     try:
         r = _req.get(url, params=request.args, timeout=10)
@@ -576,6 +582,156 @@ def api_video_download(filename):
         as_attachment=True,
         mimetype="video/mp4",
     )
+
+
+# ── 영상제작✨ (TTS + ffmpeg 파이프라인) ──────────────────────────
+_video2_jobs: dict = {}
+
+
+@app.route("/api/video2/generate", methods=["POST"])
+def api_video2_generate():
+    from src.core.video_auto_maker import generate_video_auto
+
+    videos = request.files.getlist("videos")
+    script = request.form.get("script", "").strip()
+    voice  = request.form.get("voice", "ko-KR-SunHiNeural").strip()
+    try:
+        clip_meta = json.loads(request.form.get("clips", "[]"))
+    except Exception:
+        clip_meta = []
+
+    if not videos:
+        return jsonify({"error": "제품 영상을 1개 이상 업로드하세요"}), 400
+    if not script:
+        return jsonify({"error": "대본을 입력하세요"}), 400
+
+    job_id     = str(uuid.uuid4())[:8]
+    upload_dir = Path("data/video2_uploads") / job_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # 업로드 순서 = clips 의 index 순서. 저장 후 구간 매핑.
+    saved = []
+    for i, vf in enumerate(videos):
+        dst = upload_dir / f"{i:02d}_{vf.filename or 'video.mp4'}"
+        vf.save(str(dst))
+        saved.append(str(dst))
+
+    meta_by_idx = {int(c.get("index", i)): c for i, c in enumerate(clip_meta)}
+    clips = []
+    for i, path in enumerate(saved):
+        m = meta_by_idx.get(i, {})
+        clips.append({
+            "path":  path,
+            "start": float(m.get("start", 0)),
+            "end":   float(m.get("end", 3)),
+        })
+
+    _video2_jobs[job_id] = {"status": "processing", "message": "준비 중…"}
+
+    def _worker():
+        try:
+            out = generate_video_auto(
+                clips           = clips,
+                script_text     = script,
+                voice           = voice,
+                output_dir      = "data/video2_output",
+                output_filename = f"video_{job_id}.mp4",
+                progress        = lambda msg: _video2_jobs.__setitem__(
+                    job_id, {"status": "processing", "message": msg}),
+            )
+            _video2_jobs[job_id] = {
+                "status":   "done",
+                "path":     out,
+                "filename": f"video_{job_id}.mp4",
+            }
+        except Exception as e:
+            import traceback
+            logger.error("영상제작✨ 생성 실패: %s\n%s", e, traceback.format_exc())
+            _video2_jobs[job_id] = {"status": "error", "message": str(e)}
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/video2/status/<job_id>")
+def api_video2_status(job_id):
+    return jsonify(_video2_jobs.get(job_id, {"status": "not_found"}))
+
+
+@app.route("/api/video2/file/<filename>")
+def api_video2_file(filename):
+    """미리보기용 (inline 재생)."""
+    return send_from_directory(
+        str(Path("data/video2_output").resolve()),
+        filename,
+        mimetype="video/mp4",
+    )
+
+
+@app.route("/api/video2/download/<filename>")
+def api_video2_download(filename):
+    return send_from_directory(
+        str(Path("data/video2_output").resolve()),
+        filename,
+        as_attachment=True,
+        mimetype="video/mp4",
+    )
+
+
+# ── 영상 이어붙이기 (CapCut draft 생성, mp4 렌더링 아님) ──────────
+_video3_jobs: dict = {}
+
+
+@app.route("/api/video3", methods=["POST"])
+def api_video3():
+    from src.core.video_concat_maker import save_capcut_concat_project
+
+    videos        = request.files.getlist("videos")
+    subtitle_text = request.form.get("subtitle", "").strip()
+    try:
+        scale_percent = int(request.form.get("scale", 110))
+    except Exception:
+        scale_percent = 110
+
+    if not videos:
+        return jsonify({"error": "영상을 1개 이상 업로드하세요"}), 400
+
+    job_id     = str(uuid.uuid4())[:8]
+    upload_dir = Path("data/video3_uploads") / job_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # 첨부 순서 그대로 저장 → 이어붙이기 순서
+    saved = []
+    for i, vf in enumerate(videos):
+        dst = upload_dir / f"{i:02d}_{vf.filename or 'video.mp4'}"
+        vf.save(str(dst))
+        saved.append(str(dst))
+
+    _video3_jobs[job_id] = {"status": "processing", "message": "준비 중…"}
+
+    def _worker():
+        try:
+            result = save_capcut_concat_project(
+                video_paths   = saved,
+                subtitle_text = subtitle_text,
+                scale_percent = scale_percent,
+                project_name  = f"이어붙이기 {job_id}",
+                progress      = lambda msg: _video3_jobs.__setitem__(
+                    job_id, {"status": "processing", "message": msg}),
+            )
+            _video3_jobs[job_id] = {"status": "done", **result}
+        except Exception as e:
+            import traceback
+            logger.error("영상 이어붙이기 실패: %s\n%s", e, traceback.format_exc())
+            _video3_jobs[job_id] = {"status": "error", "message": str(e)}
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/video3/status/<job_id>")
+def api_video3_status(job_id):
+    return jsonify(_video3_jobs.get(job_id, {"status": "not_found"}))
 
 
 # ── 진입점 ────────────────────────────────────────────────────────

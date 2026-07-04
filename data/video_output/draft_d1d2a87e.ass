@@ -1,0 +1,37 @@
+﻿[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Malgun Gothic Bold,72,&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,4,3,5,10,10,0,0
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:02.30,Default,,0,0,0,,운전하는사람이면
+Dialogue: 0,0:00:00.00,0:00:02.30,Default,,0,0,0,,끝까지봐!
+Dialogue: 0,0:00:00.00,0:00:02.30,Default,,0,0,0,,이제곧
+Dialogue: 0,0:00:00.00,0:00:02.30,Default,,0,0,0,,장마철인데
+Dialogue: 0,0:00:02.30,0:00:03.66,Default,,0,0,0,,비올때
+Dialogue: 0,0:00:02.30,0:00:03.66,Default,,0,0,0,,운전하는
+Dialogue: 0,0:00:02.30,0:00:03.66,Default,,0,0,0,,당신과
+Dialogue: 0,0:00:03.66,0:00:07.33,Default,,0,0,0,,당신의차에
+Dialogue: 0,0:00:03.66,0:00:07.33,Default,,0,0,0,,안전에
+Dialogue: 0,0:00:03.66,0:00:07.33,Default,,0,0,0,,보탬이
+Dialogue: 0,0:00:07.33,0:00:10.41,Default,,0,0,0,,될
+Dialogue: 0,0:00:07.33,0:00:10.41,Default,,0,0,0,,제품을
+Dialogue: 0,0:00:07.33,0:00:10.41,Default,,0,0,0,,소개한다
+Dialogue: 0,0:00:10.41,0:00:14.09,Default,,0,0,0,,바로
+Dialogue: 0,0:00:10.41,0:00:14.09,Default,,0,0,0,,사이드미러 방수필름!
+Dialogue: 0,0:00:10.41,0:00:14.09,Default,,0,0,0,,빗방울때문에
+Dialogue: 0,0:00:14.09,0:00:18.51,Default,,0,0,0,,사이드미러가안보여
+Dialogue: 0,0:00:14.09,0:00:18.51,Default,,0,0,0,,사고나서
+Dialogue: 0,0:00:14.09,0:00:18.51,Default,,0,0,0,,수리비내는거보단
+Dialogue: 0,0:00:18.51,0:00:21.51,Default,,0,0,0,,저렴한가격으로
+Dialogue: 0,0:00:18.51,0:00:21.51,Default,,0,0,0,,당신의
+Dialogue: 0,0:00:18.51,0:00:23.82,Default,,0,0,0,,안전을
+Dialogue: 0,0:00:23.82,0:00:26.12,Default,,0,0,0,,지켜라!
+Dialogue: 0,0:00:23.82,0:00:26.12,Default,,0,0,0,,구매링크는
+Dialogue: 0,0:00:23.82,0:00:26.12,Default,,0,0,0,,프로필에 가면 있다!

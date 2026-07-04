@@ -1,0 +1,14 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Malgun Gothic Bold,72,&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,4,3,5,10,10,0,0
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:02.31,Default,,0,0,0,,운전하는사람이면 끝까지봐!
+Dialogue: 0,0:00:10.27,0:00:14.09,Default,,0,0,0,,이제곧장마철인데 비올때 운전하는 당신과 당신의차에 안전에 보탬이 될제품을 소개한다 바로 사이드미러 방수필름! 빗방울때문에 사이드미러가안보여 사고나서 수리비내는거보단 저렴한가격으로 당신의 안전을 지켜라! 구매링크는 프로필에 가면 있다!

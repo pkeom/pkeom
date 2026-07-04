@@ -10,5 +10,7 @@ psutil>=5.9
 # 영상 제작 기능 (pip install transformers torch torchaudio ffmpeg-python demucs soundfile)
 transformers>=4.30
 ffmpeg-python>=0.2.0
+# 영상제작✨ 탭 (TTS + ffmpeg 파이프라인) — ffmpeg/ffprobe 는 winget Gyan.FFmpeg
+edge-tts>=7.2
 # pyinstaller는 로컬 exe 빌드 전용 — GitHub Actions에서는 불필요
 # pyinstaller>=6.0
