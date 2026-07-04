@@ -1503,15 +1503,11 @@ def build_smartstore_payload(info: dict, selling_price: int,
             "deliveryType":          "DELIVERY",
             "deliveryAttributeType": "NORMAL",
             "deliveryCompany":       delivery_company_code,
+            # 배송비: 항상 무료배송 고정 (공급사 배송비 무시).
             "deliveryFee": {
-                "deliveryFeeType":    "PAID",
-                "baseFee":            3000,
+                "deliveryFeeType":    "FREE",
+                "baseFee":            0,
                 "deliveryFeePayType": "PREPAID",
-                "deliveryFeeByArea": {
-                    "deliveryAreaType": "AREA_3",
-                    "area2extraFee":    5000,
-                    "area3extraFee":    7000,
-                },
             },
             "claimDeliveryInfo": {
                 "returnDeliveryFee":   3000,
