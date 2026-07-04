@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "도매꾹 썸네일 중복 정리",
+  "version": "1.0.0",
+  "description": "도매꾹 검색결과 페이지에서 시각적으로 같은 썸네일 상품을 이미지 해시(dHash)로 묶어 중복을 정리합니다.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://cdn1.domeggook.com/*",
+    "https://*.domeggook.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://domeggook.com/main/item/itemList.php*",
+        "*://www.domeggook.com/main/item/itemList.php*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

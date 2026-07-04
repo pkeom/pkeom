@@ -1,0 +1,95 @@
+/* 도매꾹 썸네일 중복 정리 — 최소 스타일 (원본 페이지 최소 침범) */
+
+/* 남긴 카드의 "+N" 배지 — 작은 pill */
+.ddedup-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 20;
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #e8453c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+  user-select: none;
+}
+
+/* 배송비 못 뽑은 카드 표시 */
+.ddedup-feewarn {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  z-index: 20;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: rgba(255, 193, 7, .92);
+  color: #333;
+  font-size: 10px;
+  line-height: 15px;
+  user-select: none;
+}
+
+/* 펼침 패널 — 옅은 배경, 다음 줄 전체 폭 */
+.ddedup-panel {
+  width: 100%;
+  clear: both;
+  box-sizing: border-box;
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  background: #f6f7f9;
+  border: 1px solid #e3e5e8;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #333;
+}
+
+.ddedup-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+  border-bottom: 1px solid #ececec;
+}
+
+.ddedup-row:last-child {
+  border-bottom: none;
+}
+
+.ddedup-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+.ddedup-price {
+  font-weight: 700;
+  color: #e8453c;
+  min-width: 70px;
+}
+
+.ddedup-fee {
+  color: #666;
+  min-width: 80px;
+}
+
+.ddedup-seller {
+  color: #555;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ddedup-link {
+  color: #2b6cb0;
+  text-decoration: underline;
+  flex: 0 0 auto;
+}
