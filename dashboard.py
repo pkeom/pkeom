@@ -519,11 +519,8 @@ def api_keyword_research():
     if not seeds:
         return jsonify({"error": "씨앗 키워드를 입력하세요 (공백/콤마 구분, 최대 5개)"}), 400
     try:
-        rows = rank(seeds)
-        return jsonify([
-            {"level": level, "keyword": kw, "volume": vol, "comp": comp}
-            for (level, kw, vol, comp) in rows
-        ])
+        # rank()가 {level,keyword,volume,comp,total,comp_strength} dict 리스트 반환
+        return jsonify(rank(seeds))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

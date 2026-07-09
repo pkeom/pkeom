@@ -798,8 +798,9 @@ tbody tr:hover td { background: #FAFBFC; }
         <input class="fi" id="kw-seeds" type="text" placeholder="예: 무드등 불멍등 오일램프" style="flex:1"
                onkeydown="if(event.key==='Enter')kwRun()">
         <button class="btn btn-blue" id="kw-run-btn" onclick="kwRun()" style="flex:0 0 auto">🔍 조회</button>
+        <button class="btn btn-ghost" id="kw-csv-btn" onclick="kwCsv()" style="flex:0 0 auto" disabled>⬇ CSV</button>
       </div>
-      <div class="hint">🟢 경쟁'낮음' · 🟡 중간 · 🟠 높음 · 🔴 월검색 100 미만. rank() 순서(🟢 위)로 표시.</div>
+      <div class="hint">경쟁강도(상품수/월검색량, 낮을수록 좋음): 🟢 ≤1 · 🟡 ≤10 · 🟠 &gt;10 · 🔴 월검색 100 미만. 상품수는 검색량 상위 100개만 조회.</div>
     </div>
     <div id="kw-status" style="margin-top:6px;font-size:12px;color:var(--text2);min-height:18px"></div>
     <div id="kw-result" style="margin-top:10px"></div>
@@ -1173,13 +1174,18 @@ function kwEsc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c =>
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 }
+let kwLastRows = [];
+function kwNum(v) { return (v === null || v === undefined || v === '') ? '-' : Number(v).toLocaleString(); }
+
 async function kwRun() {
   const seeds = $('kw-seeds').value.trim();
   if (!seeds) { $('kw-status').textContent = '씨앗 키워드를 입력하세요.'; return; }
   const btn = $('kw-run-btn');
   btn.disabled = true;
-  $('kw-status').textContent = '조회 중…';
+  $('kw-csv-btn').disabled = true;
+  $('kw-status').textContent = '조회 중… (상품수 조회로 다소 걸릴 수 있음)';
   $('kw-result').innerHTML = '';
+  kwLastRows = [];
   try {
     const d = await post('/api/keyword-research', {seeds});
     if (!Array.isArray(d)) {
@@ -1188,11 +1194,14 @@ async function kwRun() {
     }
     $('kw-status').textContent = `${d.length}개 키워드`;
     if (d.length === 0) { $('kw-result').innerHTML = '<div style="color:var(--text2);padding:12px">결과 없음</div>'; return; }
+    kwLastRows = d;
     const rows = d.map(r =>
       `<tr>
          <td style="text-align:center;font-size:16px">${kwEsc(r.level)}</td>
          <td>${kwEsc(r.keyword)}</td>
-         <td style="text-align:right">${Number(r.volume||0).toLocaleString()}</td>
+         <td style="text-align:right">${kwNum(r.volume)}</td>
+         <td style="text-align:right">${kwNum(r.total)}</td>
+         <td style="text-align:right">${r.comp_strength ?? '-'}</td>
          <td style="text-align:center">${kwEsc(r.comp)}</td>
        </tr>`).join('');
     $('kw-result').innerHTML =
@@ -1201,15 +1210,40 @@ async function kwRun() {
            <th style="width:44px;padding:6px">신호등</th>
            <th style="text-align:left;padding:6px">키워드</th>
            <th style="text-align:right;padding:6px">월검색량</th>
-           <th style="width:64px;padding:6px">경쟁</th>
+           <th style="text-align:right;padding:6px">상품수</th>
+           <th style="text-align:right;padding:6px">경쟁강도</th>
+           <th style="width:56px;padding:6px">광고경쟁</th>
          </tr></thead>
          <tbody>${rows}</tbody>
        </table>`;
+    $('kw-csv-btn').disabled = false;
   } catch (e) {
     $('kw-status').innerHTML = `<span style="color:var(--red,#c00)">❌ 요청 실패: ${kwEsc(e.message||e)}</span>`;
   } finally {
     btn.disabled = false;
   }
+}
+
+function kwCsv() {
+  if (!kwLastRows.length) return;
+  const esc = v => {
+    const s = (v === null || v === undefined) ? '' : String(v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const head = ["신호등","키워드","월검색량","상품수","경쟁강도","광고경쟁"];
+  const lines = [head.join(",")];
+  for (const r of kwLastRows) {
+    lines.push([r.level, r.keyword, r.volume, r.total, r.comp_strength, r.comp].map(esc).join(","));
+  }
+  // 맨 앞 UTF-8 BOM(﻿) → 엑셀 한글 깨짐 방지
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], {type: "text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "keywords.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
 }
 
 function empty(msg) {
