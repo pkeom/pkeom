@@ -13,7 +13,7 @@ def _env():
     lic = os.environ.get("NAVER_AD_ACCESS_LICENSE")
     sec = os.environ.get("NAVER_AD_SECRET_KEY")
     if not all([cid, lic, sec]):
-        sys.exit("환경변수 3개(NAVER_AD_CUSTOMER_ID/ACCESS_LICENSE/SECRET_KEY)를 ~/.env에 넣고 source 하세요.")
+        raise RuntimeError("환경변수 3개(NAVER_AD_CUSTOMER_ID/ACCESS_LICENSE/SECRET_KEY)를 .env에 넣으세요.")
     return cid, lic, sec
 
 def _sign(secret, ts, method, uri):
@@ -40,9 +40,9 @@ def fetch(hints):
         with urllib.request.urlopen(req, timeout=15) as r:
             return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
-        sys.exit(f"API 오류 {e.code}: {e.read().decode(errors='ignore')}")
+        raise RuntimeError(f"API 오류 {e.code}: {e.read().decode(errors='ignore')}")
     except Exception as e:
-        sys.exit(f"요청 실패: {e}")
+        raise RuntimeError(f"요청 실패: {e}")
 
 def rank(hints):
     rows = []
@@ -61,6 +61,10 @@ def rank(hints):
 if __name__ == "__main__":
     hints = sys.argv[1:] or ["무드등","불멍등","오일램프"]
     print(f"\n씨앗: {', '.join(hints)} / 기준: 월검색 {MIN_VOL}+ & 경쟁'낮음'=🟢\n")
-    for level, kw, vol, comp in rank(hints):
-        print(f"{level} {kw}  |  월검색 {vol:,}  |  경쟁 {comp}")
+    try:
+        for level, kw, vol, comp in rank(hints):
+            print(f"{level} {kw}  |  월검색 {vol:,}  |  경쟁 {comp}")
+    except RuntimeError as e:
+        print(f"[오류] {e}")
+        sys.exit(1)
     print()

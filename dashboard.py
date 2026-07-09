@@ -7,6 +7,7 @@
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import uuid
@@ -17,6 +18,9 @@ import requests as _req
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 sys.path.insert(0, str(Path(__file__).parent))
+
+from dotenv import load_dotenv
+load_dotenv()  # 레포 루트 .env 의 NAVER_AD_* 를 os.environ 으로 로드
 
 # ── .env 로드 (python-dotenv 없이 직접 파싱) ─────────────────────────
 def _load_dotenv(path: Path) -> None:
@@ -501,6 +505,27 @@ def api_register_submit():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e), "success": False}), 500
+
+
+# ── 키워드 리서치 (네이버 검색광고 keywordstool) ─────────────────────
+
+@app.route("/api/keyword-research", methods=["POST"])
+def api_keyword_research():
+    from naver_keyword_tool import rank
+    d = request.json or {}
+    raw = str(d.get("seeds", "")).strip()
+    # 공백/콤마 구분 → 최대 5개
+    seeds = [s for s in re.split(r"[,\s]+", raw) if s][:5]
+    if not seeds:
+        return jsonify({"error": "씨앗 키워드를 입력하세요 (공백/콤마 구분, 최대 5개)"}), 400
+    try:
+        rows = rank(seeds)
+        return jsonify([
+            {"level": level, "keyword": kw, "volume": vol, "comp": comp}
+            for (level, kw, vol, comp) in rows
+        ])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── 스마트스토어 상품 ──────────────────────────────────────────────

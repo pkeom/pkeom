@@ -14,3 +14,4 @@ ffmpeg-python>=0.2.0
 edge-tts>=7.2
 # pyinstaller는 로컬 exe 빌드 전용 — GitHub Actions에서는 불필요
 # pyinstaller>=6.0
+python-dotenv>=1.0

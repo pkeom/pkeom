@@ -375,6 +375,7 @@ tbody tr:hover td { background: #FAFBFC; }
     <button class="nav-tab" data-tab="orders">주문 현황</button>
     <button class="nav-tab" data-tab="budget">예산 관리</button>
     <button class="nav-tab" data-tab="register">상품 등록</button>
+    <button class="nav-tab" data-tab="keyword">키워드 리서치</button>
     <button class="nav-tab" data-tab="prices">가격 변동<span class="nav-dot" id="price-dot"></span></button>
     <button class="nav-tab" data-tab="cancels">취소 요청<span class="nav-dot" id="cancel-dot"></span></button>
     <button class="nav-tab" data-tab="returns">반품 목록<span class="nav-dot" id="return-dot"></span></button>
@@ -787,6 +788,24 @@ tbody tr:hover td { background: #FAFBFC; }
   </div>
 </div>
 
+<!-- ── 키워드 리서치 ──────────────────────────────────────────── -->
+<div id="panel-keyword" class="panel">
+  <div class="sh"><div class="sh-title">키워드 리서치 (네이버 검색광고)</div></div>
+  <div class="card">
+    <div class="fg">
+      <label class="fl">씨앗 키워드 <span style="font-weight:400;text-transform:none">— 공백 또는 콤마로 구분, 최대 5개</span></label>
+      <div style="display:flex;gap:8px">
+        <input class="fi" id="kw-seeds" type="text" placeholder="예: 무드등 불멍등 오일램프" style="flex:1"
+               onkeydown="if(event.key==='Enter')kwRun()">
+        <button class="btn btn-blue" id="kw-run-btn" onclick="kwRun()" style="flex:0 0 auto">🔍 조회</button>
+      </div>
+      <div class="hint">🟢 경쟁'낮음' · 🟡 중간 · 🟠 높음 · 🔴 월검색 100 미만. rank() 순서(🟢 위)로 표시.</div>
+    </div>
+    <div id="kw-status" style="margin-top:6px;font-size:12px;color:var(--text2);min-height:18px"></div>
+    <div id="kw-result" style="margin-top:10px"></div>
+  </div>
+</div>
+
 <!-- ── 6. Prices ──────────────────────────────────────────────── -->
 <div id="panel-prices" class="panel">
   <div class="sh">
@@ -1149,6 +1168,50 @@ const patch = (url, body) => api(url, {
   body: JSON.stringify(body),
 });
 
+// ── 키워드 리서치 ─────────────────────────────────────────────
+function kwEsc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+async function kwRun() {
+  const seeds = $('kw-seeds').value.trim();
+  if (!seeds) { $('kw-status').textContent = '씨앗 키워드를 입력하세요.'; return; }
+  const btn = $('kw-run-btn');
+  btn.disabled = true;
+  $('kw-status').textContent = '조회 중…';
+  $('kw-result').innerHTML = '';
+  try {
+    const d = await post('/api/keyword-research', {seeds});
+    if (!Array.isArray(d)) {
+      $('kw-status').innerHTML = `<span style="color:var(--red,#c00)">❌ ${kwEsc(d && d.error || '알 수 없는 오류')}</span>`;
+      return;
+    }
+    $('kw-status').textContent = `${d.length}개 키워드`;
+    if (d.length === 0) { $('kw-result').innerHTML = '<div style="color:var(--text2);padding:12px">결과 없음</div>'; return; }
+    const rows = d.map(r =>
+      `<tr>
+         <td style="text-align:center;font-size:16px">${kwEsc(r.level)}</td>
+         <td>${kwEsc(r.keyword)}</td>
+         <td style="text-align:right">${Number(r.volume||0).toLocaleString()}</td>
+         <td style="text-align:center">${kwEsc(r.comp)}</td>
+       </tr>`).join('');
+    $('kw-result').innerHTML =
+      `<table style="width:100%;border-collapse:collapse;font-size:13px">
+         <thead><tr style="border-bottom:2px solid var(--border);color:var(--text2);font-size:12px">
+           <th style="width:44px;padding:6px">신호등</th>
+           <th style="text-align:left;padding:6px">키워드</th>
+           <th style="text-align:right;padding:6px">월검색량</th>
+           <th style="width:64px;padding:6px">경쟁</th>
+         </tr></thead>
+         <tbody>${rows}</tbody>
+       </table>`;
+  } catch (e) {
+    $('kw-status').innerHTML = `<span style="color:var(--red,#c00)">❌ 요청 실패: ${kwEsc(e.message||e)}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function empty(msg) {
   return `<tr><td colspan="99"><div class="empty"><div class="empty-ico">📭</div>${msg}</div></td></tr>`;
 }
@@ -1177,6 +1240,7 @@ function loadTab() {
     orders:    () => loadOrders(curStatus),
     budget:    loadBudget,
     register:  () => {},
+    keyword:   () => {},
     prices:    loadPrices,
     cancels:   loadCancels,
     returns:   loadReturns,
