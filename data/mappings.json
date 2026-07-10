@@ -671,6 +671,48 @@
       "is_active": true,
       "memo": "자동등록 말랑찰떡 오리 무드등 USB 충전 무선 수유등 인테리어조명 분위기 방꾸 ",
       "created_at": "2026-07-01T22:13:28"
+    },
+    {
+      "id": 105,
+      "ss_product_id": "13658517456",
+      "ss_option_id": "59215372462",
+      "origin_product_no": "13598526468",
+      "supplier": "domaemae",
+      "supplier_product_id": "52348876",
+      "supplier_url": "https://domeme.domeggook.com/s/52348876",
+      "supplier_option_id": "00",
+      "price_margin_rate": 1.408163,
+      "is_active": true,
+      "memo": "자동등록 고급 LED 빈티지 양초 무드등 LED 촛불 캔들 장식 [블랙]",
+      "created_at": "2026-07-11T05:42:53"
+    },
+    {
+      "id": 106,
+      "ss_product_id": "13658517456",
+      "ss_option_id": "59215372463",
+      "origin_product_no": "13598526468",
+      "supplier": "domaemae",
+      "supplier_product_id": "52348876",
+      "supplier_url": "https://domeme.domeggook.com/s/52348876",
+      "supplier_option_id": "01",
+      "price_margin_rate": 1.408163,
+      "is_active": true,
+      "memo": "자동등록 고급 LED 빈티지 양초 무드등 LED 촛불 캔들 장식 [브론즈]",
+      "created_at": "2026-07-11T05:42:53"
+    },
+    {
+      "id": 107,
+      "ss_product_id": "13658517456",
+      "ss_option_id": "",
+      "origin_product_no": "13598526468",
+      "supplier": "domaemae",
+      "supplier_product_id": "52348876",
+      "supplier_url": "https://domeme.domeggook.com/s/52348876",
+      "supplier_option_id": "",
+      "price_margin_rate": 1.408163,
+      "is_active": true,
+      "memo": "자동등록 고급 LED 빈티지 양초 무드등 LED 촛불 캔들 장식품",
+      "created_at": "2026-07-11T05:42:53"
     }
   ]
 }
