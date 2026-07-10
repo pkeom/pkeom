@@ -1538,13 +1538,13 @@ def build_smartstore_payload(info: dict, selling_price: int,
 
     # customerBenefit: 즉시할인 + 구매평 적립포인트가 한 객체 안에 공존해야 하므로
     # 통째 대입하지 말고 setdefault로 누적한다 (하나가 다른 하나를 덮어쓰지 않게).
-    # 즉시할인(정액, 원): discountMethod는 원소 1개짜리 배열. 값 없으면 키 생략.
+    # 즉시할인(정액, 원): v2.23.0부터 discountMethod는 PC/모바일 공통 '단일 객체'.
+    # (과거 배열 [{...}]은 KrExternalApiPcDiscountMethodVo START_ARRAY 400 유발)
+    # mobileDiscountMethod는 폐지됨 → 넣지 않음. 값 없으면 키 자체 생략.
     if discount_amount > 0:
         cb = origin_product.setdefault("customerBenefit", {})
         cb["immediateDiscountPolicy"] = {
-            "discountMethod": [
-                {"value": discount_amount, "unitType": "WON"}
-            ]
+            "discountMethod": {"value": discount_amount, "unitType": "WON"}
         }
 
     # 구매평 적립포인트: 값 있는 필드만 reviewPointPolicy에 담는다. 둘 다 0이면 생략.
